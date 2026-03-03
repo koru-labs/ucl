@@ -182,6 +182,18 @@ func newConsensusRuntime(log hcf.Logger, config *runtimeConfig) (*consensusRunti
 	return runtime, nil
 }
 
+func (c *consensusRuntime) RoundStarts(view *proto.View) error {
+	// TODO
+
+	return nil
+}
+
+func (c *consensusRuntime) SequenceCancelled(view *proto.View) error {
+	// TODO
+
+	return nil
+}
+
 // close is used to tear down allocated resources
 func (c *consensusRuntime) close() {
 	c.stateSyncRelayer.Close()
@@ -761,7 +773,7 @@ func (c *consensusRuntime) IsValidProposal(rawProposal []byte) bool {
 	return true
 }
 
-func (c *consensusRuntime) IsValidValidator(msg *proto.Message) bool {
+func (c *consensusRuntime) IsValidValidator(msg *proto.IbftMessage) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -902,7 +914,7 @@ func (c *consensusRuntime) BuildPrePrepareMessage(
 	rawProposal []byte,
 	certificate *proto.RoundChangeCertificate,
 	view *proto.View,
-) *proto.Message {
+) *proto.IbftMessage {
 	if len(rawProposal) == 0 {
 		c.logger.Error("can not build pre-prepare message, since proposal is empty")
 
@@ -935,11 +947,11 @@ func (c *consensusRuntime) BuildPrePrepareMessage(
 		Round:       view.Round,
 	}
 
-	msg := proto.Message{
+	msg := proto.IbftMessage{
 		View: view,
 		From: c.ID(),
 		Type: proto.MessageType_PREPREPARE,
-		Payload: &proto.Message_PreprepareData{
+		Payload: &proto.IbftMessage_PreprepareData{
 			PreprepareData: &proto.PrePrepareMessage{
 				Proposal:     proposal,
 				ProposalHash: proposalHash.Bytes(),
@@ -959,12 +971,12 @@ func (c *consensusRuntime) BuildPrePrepareMessage(
 }
 
 // BuildPrepareMessage builds a PREPARE message based on the passed in proposal
-func (c *consensusRuntime) BuildPrepareMessage(proposalHash []byte, view *proto.View) *proto.Message {
-	msg := proto.Message{
+func (c *consensusRuntime) BuildPrepareMessage(proposalHash []byte, view *proto.View) *proto.IbftMessage {
+	msg := proto.IbftMessage{
 		View: view,
 		From: c.ID(),
 		Type: proto.MessageType_PREPARE,
-		Payload: &proto.Message_PrepareData{
+		Payload: &proto.IbftMessage_PrepareData{
 			PrepareData: &proto.PrepareMessage{
 				ProposalHash: proposalHash,
 			},
@@ -982,7 +994,7 @@ func (c *consensusRuntime) BuildPrepareMessage(proposalHash []byte, view *proto.
 }
 
 // BuildCommitMessage builds a COMMIT message based on the passed in proposal
-func (c *consensusRuntime) BuildCommitMessage(proposalHash []byte, view *proto.View) *proto.Message {
+func (c *consensusRuntime) BuildCommitMessage(proposalHash []byte, view *proto.View) *proto.IbftMessage {
 	committedSeal, err := c.config.Key.SignWithDomain(proposalHash, signer.DomainCheckpointManager)
 	if err != nil {
 		c.logger.Error("Cannot create committed seal message.", "error", err)
@@ -990,11 +1002,11 @@ func (c *consensusRuntime) BuildCommitMessage(proposalHash []byte, view *proto.V
 		return nil
 	}
 
-	msg := proto.Message{
+	msg := proto.IbftMessage{
 		View: view,
 		From: c.ID(),
 		Type: proto.MessageType_COMMIT,
-		Payload: &proto.Message_CommitData{
+		Payload: &proto.IbftMessage_CommitData{
 			CommitData: &proto.CommitMessage{
 				ProposalHash:  proposalHash,
 				CommittedSeal: committedSeal,
@@ -1017,12 +1029,12 @@ func (c *consensusRuntime) BuildRoundChangeMessage(
 	proposal *proto.Proposal,
 	certificate *proto.PreparedCertificate,
 	view *proto.View,
-) *proto.Message {
-	msg := proto.Message{
+) *proto.IbftMessage {
+	msg := proto.IbftMessage{
 		View: view,
 		From: c.ID(),
 		Type: proto.MessageType_ROUND_CHANGE,
-		Payload: &proto.Message_RoundChangeData{
+		Payload: &proto.IbftMessage_RoundChangeData{
 			RoundChangeData: &proto.RoundChangeMessage{
 				LastPreparedProposal:      proposal,
 				LatestPreparedCertificate: certificate,

@@ -38,6 +38,7 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		v0 := ar.NewArray()
+
 		for _, tx := range b.Transactions {
 			if tx.Type != LegacyTx {
 				v0.Set(ar.NewCopyBytes([]byte{byte(tx.Type)}))
@@ -45,6 +46,7 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 			v0.Set(tx.MarshalRLPWith(ar))
 		}
+
 		vv.Set(v0)
 	}
 
@@ -52,9 +54,11 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		v1 := ar.NewArray()
+
 		for _, uncle := range b.Uncles {
 			v1.Set(uncle.MarshalRLPWith(ar))
 		}
+
 		vv.Set(v1)
 	}
 
@@ -75,7 +79,7 @@ func (h *Header) MarshalRLPWith(arena *fastrlp.Arena) *fastrlp.Value {
 
 	vv.Set(arena.NewCopyBytes(h.ParentHash.Bytes()))
 	vv.Set(arena.NewCopyBytes(h.Sha3Uncles.Bytes()))
-	vv.Set(arena.NewCopyBytes(h.Miner[:]))
+	vv.Set(arena.NewCopyBytes(h.Miner))
 	vv.Set(arena.NewCopyBytes(h.StateRoot.Bytes()))
 	vv.Set(arena.NewCopyBytes(h.TxRoot.Bytes()))
 	vv.Set(arena.NewCopyBytes(h.ReceiptsRoot.Bytes()))

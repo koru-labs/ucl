@@ -50,7 +50,8 @@ func TestMerkleTree_VerifyProofs(t *testing.T) {
 			// invalid leaf data on generating proof
 			dataCopy := make([]byte, len(data[i]))
 			copy(dataCopy, data[i])
-			dataCopy[0] = dataCopy[0] + 1
+
+			dataCopy[0]++
 			_, err = tree.GenerateProof(dataCopy)
 			require.ErrorContains(t, err, "data not in merkle tree")
 		}

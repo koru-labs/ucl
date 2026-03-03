@@ -139,7 +139,7 @@ func (t *Transaction) Copy() *Transaction {
 	}
 
 	tt.Input = make([]byte, len(t.Input))
-	copy(tt.Input[:], t.Input[:])
+	copy(tt.Input, t.Input)
 
 	return tt
 }

@@ -177,7 +177,7 @@ func (s *SignerImpl) CreateCommittedSeal(hash []byte) ([]byte, error) {
 		// in order to preserve the running chains that used these
 		// old (and very, very incorrect) signing schemes
 		crypto.Keccak256(
-			wrapCommitHash(hash[:]),
+			wrapCommitHash(hash),
 		),
 	)
 }
@@ -193,7 +193,7 @@ func (s *SignerImpl) VerifyCommittedSeal(
 		signer,
 		signature,
 		crypto.Keccak256(
-			wrapCommitHash(hash[:]),
+			wrapCommitHash(hash),
 		),
 	)
 }

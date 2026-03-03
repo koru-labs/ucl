@@ -118,9 +118,11 @@ func TestPoS_ValidatorBoundaries(t *testing.T) {
 		func(i int, config *framework.TestServerConfig) {
 			config.SetEpochSize(2)
 			config.PremineValidatorBalance(defaultBalance)
+
 			for j := 0; j < numNewStakers; j++ {
 				config.Premine(accounts[j].address, defaultBalance)
 			}
+
 			config.SetIBFTPoS(true)
 			config.SetMinValidatorCount(minValidatorCount)
 			config.SetMaxValidatorCount(maxValidatorCount)

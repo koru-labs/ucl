@@ -60,6 +60,7 @@ func TestPreminedBalance(t *testing.T) {
 
 	srvs := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
+
 		for _, acc := range preminedAccounts {
 			config.Premine(acc.address, acc.balance)
 		}
@@ -135,6 +136,7 @@ func TestEthTransfer(t *testing.T) {
 
 	srvs := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
+
 		for _, acc := range validAccounts {
 			config.Premine(acc.address, acc.balance)
 		}
@@ -199,6 +201,7 @@ func TestEthTransfer(t *testing.T) {
 
 			expectedSenderBalance := previousSenderBalance
 			expectedReceiverBalance := previousReceiverBalance
+
 			if testCase.shouldSucceed {
 				fee := new(big.Int).Mul(
 					big.NewInt(int64(receipt.GasUsed)),

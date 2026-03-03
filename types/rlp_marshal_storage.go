@@ -18,9 +18,11 @@ func (b *Body) marshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		v0 := ar.NewArray()
+
 		for _, tx := range b.Transactions {
 			v0.Set(tx.marshalStoreRLPWith(ar))
 		}
+
 		vv.Set(v0)
 	}
 
@@ -28,9 +30,11 @@ func (b *Body) marshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		v1 := ar.NewArray()
+
 		for _, uncle := range b.Uncles {
 			v1.Set(uncle.MarshalRLPWith(ar))
 		}
+
 		vv.Set(v1)
 	}
 

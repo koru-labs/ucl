@@ -75,6 +75,7 @@ func TestJsonRPC(t *testing.T) {
 
 		estimatedGas, err := client.EstimateGas(msg)
 		require.NoError(t, err)
+
 		txPrice := gasPrice * estimatedGas
 		// subtract gasPrice * estimatedGas from the balance and transfer the rest to the other account
 		// in order to leave no funds on the account
@@ -197,7 +198,9 @@ func TestJsonRPC(t *testing.T) {
 
 	t.Run("eth_getBlockByHash", func(t *testing.T) {
 		key1, err := wallet.GenerateKey()
+
 		require.NoError(t, err)
+
 		txn := srv.Txn(fund)
 		txn, err = txn.Transfer(key1.Address(), one).Send()
 		require.NoError(t, err)
@@ -212,7 +215,9 @@ func TestJsonRPC(t *testing.T) {
 
 	t.Run("eth_getBlockByNumber", func(t *testing.T) {
 		key1, err := wallet.GenerateKey()
+
 		require.NoError(t, err)
+
 		txn := srv.Txn(fund)
 		txn, err = txn.Transfer(key1.Address(), one).Send()
 		require.NoError(t, err)

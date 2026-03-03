@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/grpc"
 
@@ -665,13 +665,11 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 
 			return ErrUnderpriced
 		}
-	} else {
+	} else if forks.London && tx.GasPrice.Cmp(new(big.Int).SetUint64(baseFee)) < 0 {
 		// Legacy approach to check if the given tx is not underpriced when london hardfork is enabled
-		if forks.London && tx.GasPrice.Cmp(new(big.Int).SetUint64(baseFee)) < 0 {
-			metrics.IncrCounter([]string{txPoolMetrics, "underpriced_tx"}, 1)
+		metrics.IncrCounter([]string{txPoolMetrics, "underpriced_tx"}, 1)
 
-			return ErrUnderpriced
-		}
+		return ErrUnderpriced
 	}
 
 	// Check if the given tx is not underpriced

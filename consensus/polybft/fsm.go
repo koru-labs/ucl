@@ -9,8 +9,8 @@ import (
 
 	"github.com/0xPolygon/go-ibft/messages"
 	"github.com/0xPolygon/go-ibft/messages/proto"
-	"github.com/armon/go-metrics"
 	hcf "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/bls"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/bitmap"
@@ -392,7 +392,7 @@ func (f *fsm) Validate(proposal []byte) error {
 }
 
 // ValidateSender validates sender address and signature
-func (f *fsm) ValidateSender(msg *proto.Message) error {
+func (f *fsm) ValidateSender(msg *proto.IbftMessage) error {
 	msgNoSig, err := msg.PayloadNoSig()
 	if err != nil {
 		return err

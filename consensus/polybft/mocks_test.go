@@ -330,13 +330,13 @@ func (tp *txPoolMock) Prepare() {
 func (tp *txPoolMock) Length() uint64 {
 	args := tp.Called()
 
-	return args[0].(uint64) //nolint
+	return args[0].(uint64)
 }
 
 func (tp *txPoolMock) Peek() *types.Transaction {
 	args := tp.Called()
 
-	return args[0].(*types.Transaction) //nolint
+	return args[0].(*types.Transaction)
 }
 
 func (tp *txPoolMock) Pop(tx *types.Transaction) {

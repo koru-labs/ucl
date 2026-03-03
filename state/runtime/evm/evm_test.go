@@ -191,9 +191,11 @@ func TestRun(t *testing.T) {
 			contract := newMockContract(tt.value, tt.gas, tt.code)
 			host := &mockHost{}
 			config := tt.config
+
 			if config == nil {
 				config = &chain.ForksInTime{}
 			}
+
 			res := evm.Run(contract, host, config)
 			assert.Equal(t, tt.expected, res)
 		})
@@ -363,6 +365,7 @@ func TestRunWithTracer(t *testing.T) {
 				tracer: tracer,
 			}
 			config := tt.config
+
 			if config == nil {
 				config = &chain.ForksInTime{}
 			}

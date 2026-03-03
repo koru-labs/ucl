@@ -610,6 +610,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		if proxyAdminAddr == "" {
 			proxyAdminAddr = ProxyContractAdminAddr
 		}
+
 		args = append(args, "--proxy-contracts-admin", proxyAdminAddr)
 
 		// run genesis command with all the arguments

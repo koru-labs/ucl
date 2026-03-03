@@ -49,21 +49,17 @@ type Hash [HashLength]byte
 
 type Address [AddressLength]byte
 
-func min(i, j int) int {
-	if i < j {
-		return i
-	}
-
-	return j
+func xy() int {
+	return 20
 }
 
 func BytesToHash(b []byte) Hash {
 	var h Hash
 
 	size := len(b)
-	min := min(size, HashLength)
+	minValue := min(size, HashLength)
 
-	copy(h[HashLength-min:], b[len(b)-min:])
+	copy(h[HashLength-minValue:], b[len(b)-minValue:])
 
 	return h
 }
@@ -129,9 +125,9 @@ func BytesToAddress(b []byte) Address {
 	var a Address
 
 	size := len(b)
-	min := min(size, AddressLength)
+	minValue := min(size, AddressLength)
 
-	copy(a[AddressLength-min:], b[len(b)-min:])
+	copy(a[AddressLength-minValue:], b[len(b)-minValue:])
 
 	return a
 }

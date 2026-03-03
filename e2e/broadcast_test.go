@@ -65,6 +65,7 @@ func TestBroadcast(t *testing.T) {
 
 				// Required number of connections
 				numRequiredConnections := 0
+
 				if i < tt.numConnectedNodes {
 					if i == 0 || i == tt.numConnectedNodes-1 {
 						numRequiredConnections = 1
@@ -74,6 +75,7 @@ func TestBroadcast(t *testing.T) {
 				}
 
 				wgForConnections.Add(1)
+
 				go func() {
 					defer wgForConnections.Done()
 
@@ -124,6 +126,7 @@ func TestBroadcast(t *testing.T) {
 
 				shouldHaveTxPool := false
 				subTestName := fmt.Sprintf("node %d shouldn't have tx in txpool", i)
+
 				if i < tt.numConnectedNodes {
 					shouldHaveTxPool = true
 					subTestName = fmt.Sprintf("node %d should have tx in txpool", i)
@@ -133,7 +136,9 @@ func TestBroadcast(t *testing.T) {
 					t.Parallel()
 
 					ctx, cancel := context.WithTimeout(context.Background(), framework.DefaultTimeout)
+
 					defer cancel()
+
 					res, err := framework.WaitUntilTxPoolFilled(ctx, srv, 1)
 
 					if shouldHaveTxPool {

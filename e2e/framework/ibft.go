@@ -44,6 +44,7 @@ func NewIBFTServersManager(
 		for _, s := range srvs {
 			s.Stop()
 		}
+
 		if err := os.RemoveAll(dataDir); err != nil {
 			t.Log(err)
 		}

@@ -111,7 +111,7 @@ func (i *backendIBFT) IsValidProposal(rawProposal []byte) bool {
 	return true
 }
 
-func (i *backendIBFT) IsValidValidator(msg *protoIBFT.Message) bool {
+func (i *backendIBFT) IsValidValidator(msg *protoIBFT.IbftMessage) bool {
 	msgNoSig, err := msg.PayloadNoSig()
 	if err != nil {
 		return false

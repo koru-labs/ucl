@@ -1,17 +1,5 @@
 # This file configures github.com/golangci/golangci-lint.
 
-run:
-  timeout: 3m
-  tests: true
-  # default is true. Enables skipping of directories:
-  #   vendor$, third_party$, testdata$, examples$, Godeps$, builtin$
-  skip-dirs-use-default: true
-  skip-dirs:
-    - tests
-
-service:
-  golangci-lint-version: 1.49.0
-
 linters:
   disable-all: true
   enable:
@@ -55,16 +43,24 @@ linters-settings:
     settings:
       ruleguard:
         rules: "./gorules/rules.go"
+  gosec:
+    excludes:
+      - G115 # Potential integer overflow when converting between integer types
 
 issues:
-  new-from-rev: origin/develop # report only new issues with reference to develop branch
-  whole-files: true
+  exclude-dirs:
+    - tests
+    - consensus/polybft
+    - e2e-polybft
+    - command/polybftsecrets
+    - command/rootchain
   exclude-rules:
     - path: _test\.go
       linters:
         - gosec
         - unparam
         - lll
+        - forcetypeassert
     - path: gen_sc_data\.go
       linters:
         - wsl

@@ -104,6 +104,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 			validateSnapshot(ctx, srv, 1, genesisValidatorAddrs)
 		}(srv)
 	}
+
 	wg.Wait()
 
 	// Wait until the staking contract is deployed
@@ -135,6 +136,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 			assert.NoError(t, err)
 		}(srv, key, addr)
 	}
+
 	wg.Wait()
 
 	// Wait until PoS begins
@@ -163,5 +165,6 @@ func TestPoAPoSSwitch(t *testing.T) {
 			validateSnapshot(ctx, srv, posStartAt, expectedPoSValidators)
 		}(srv)
 	}
+
 	wg.Wait()
 }

@@ -801,6 +801,7 @@ func (t *TestServer) WaitForReceipt(ctx context.Context, hash ethgo.Hash) (*ethg
 		if err != nil && err.Error() != "not found" {
 			return result{receipt, err}, false
 		}
+
 		if receipt != nil {
 			return result{receipt, nil}, false
 		}
