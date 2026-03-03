@@ -1,4 +1,4 @@
-//nolint:stylecheck
+//nolint:staticcheck
 package storage
 
 import (

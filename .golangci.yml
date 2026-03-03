@@ -1,15 +1,36 @@
 # This file configures github.com/golangci/golangci-lint.
+version: "2"
 
 linters:
-  disable-all: true
+  exclusions:
+    paths:
+      - tests
+      - consensus/polybft
+      - e2e-polybft
+      - command/polybftsecrets
+      - command/rootchain
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+          - lll
+          - forcetypeassert
+      - path: gen_sc_data\.go
+        linters:
+          - wsl
+          - lll
+          - stylecheck
+    presets:
+      - comments
+  default: none
   enable:
     - whitespace # Tool for detection of leading and trailing whitespace
-    - wsl # Forces you to use empty lines
+    - wsl_v5 # Forces you to use empty lines
     - wastedassign # Finds wasted assignment statements
     - unconvert # Unnecessary type conversions
     - tparallel # Detects inappropriate usage of t.Parallel() method in your Go test codes
     - thelper # Detects golang test helpers without t.Helper() call and checks the consistency of test helpers
-    - stylecheck # Stylecheck is a replacement for golint
     - prealloc # Finds slice declarations that could potentially be pre-allocated
     - predeclared # Finds code that shadows one of Go's predeclared identifiers
     - nolintlint # Ill-formed or insufficient nolint directives
@@ -19,8 +40,7 @@ linters:
     - lll # Long lines
     - importas # Enforces consistent import aliases
     - gosec # Security problems
-    - gofmt # Whether the code was gofmt-ed
-    - goimports # Unused imports
+    - govet # Whether the code was govet-ed
     - goconst # Repeated strings that could be replaced by a constant
     - forcetypeassert # Finds forced type assertions
     - dogsled # Checks assignments with too many blank identifiers (e.g. x, , , _, := f())
@@ -32,8 +52,6 @@ linters:
     - godox # Godox is a linter for TODOs and FIXMEs left in the code
 
 linters-settings:
-  gofmt:
-    simplify: true
   goconst:
     min-len: 3
     min-occurrences: 3
@@ -46,28 +64,3 @@ linters-settings:
   gosec:
     excludes:
       - G115 # Potential integer overflow when converting between integer types
-
-issues:
-  exclude-dirs:
-    - tests
-    - consensus/polybft
-    - e2e-polybft
-    - command/polybftsecrets
-    - command/rootchain
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - unparam
-        - lll
-        - forcetypeassert
-    - path: gen_sc_data\.go
-      linters:
-        - wsl
-        - lll
-        - stylecheck
-  include:
-    - EXC0012 # Exported (.+) should have comment( \(or a comment on this block\))? or be unexported
-    - EXC0013 # Package comment should be of the form "(.+)...
-    - EXC0014 # Comment on exported (.+) should be of the form "(.+)..."
-    - EXC0015 # Should have a package comment
