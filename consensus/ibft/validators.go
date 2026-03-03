@@ -67,7 +67,7 @@ func CalcProposer(
 		seed = uint64(offset) + round + 1
 	}
 
-	pick := seed % uint64(validators.Len()) //nolint:gosec
+	pick := seed % uint64(validators.Len())
 
 	return validators.At(pick)
 }

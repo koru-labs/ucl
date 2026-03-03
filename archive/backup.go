@@ -27,7 +27,7 @@ func CreateBackup(
 	outPath string,
 ) (uint64, uint64, error) {
 	// always create new file, throw error if the file exists
-	fs, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600) //nolint:gosec
+	fs, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -111,7 +111,7 @@ func determineTo(ctx context.Context, clt proto.SystemClient, to *uint64) (uint6
 		return 0, types.Hash{}, err
 	}
 
-	if to != nil && *to < uint64(status.Current.Number) { //nolint:gosec
+	if to != nil && *to < uint64(status.Current.Number) {
 		// check the existence of the block when you have targetTo
 		resp, err := clt.BlockByNumber(ctx, &proto.BlockByNumberRequest{Number: *to})
 		if err == nil && resp != nil {
@@ -124,7 +124,7 @@ func determineTo(ctx context.Context, clt proto.SystemClient, to *uint64) (uint6
 	}
 
 	// otherwise use latest block number as to
-	return uint64(status.Current.Number), types.StringToHash(status.Current.Hash), nil //nolint:gosec
+	return uint64(status.Current.Number), types.StringToHash(status.Current.Hash), nil
 }
 
 // writeMetadata writes the latest block height and the block hash to the writer

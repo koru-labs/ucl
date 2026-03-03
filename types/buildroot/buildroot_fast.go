@@ -260,11 +260,11 @@ func (f *FastHasher) deriveGroup(dst []byte, from, to int) ([]byte, bool) {
 }
 
 func (f *FastHasher) marshalItemRlpSize(dst []byte, size int) []byte {
-	return f.marshalRlpSize(dst, uint64(size), 0x80, 0xB7) //nolint:gosec
+	return f.marshalRlpSize(dst, uint64(size), 0x80, 0xB7)
 }
 
 func (f *FastHasher) marshalListRlpSize(dst []byte, size int) []byte {
-	return f.marshalRlpSize(dst, uint64(size), 0xC0, 0xF7) //nolint:gosec
+	return f.marshalRlpSize(dst, uint64(size), 0xC0, 0xF7)
 }
 
 func getRlpSize(size uint64) int {
@@ -272,7 +272,7 @@ func getRlpSize(size uint64) int {
 		return 1
 	}
 
-	return int(intsize(size)) + 1 //nolint:gosec
+	return int(intsize(size)) + 1
 }
 
 func (f *FastHasher) marshalRlpSize(dst []byte, size uint64, short, long byte) []byte {
@@ -285,7 +285,7 @@ func (f *FastHasher) marshalRlpSize(dst []byte, size uint64, short, long byte) [
 
 	binary.BigEndian.PutUint64(buf, size)
 
-	dst = append(dst, long+byte(intSize)) //nolint:gosec
+	dst = append(dst, long+byte(intSize))
 	dst = append(dst, buf[8-intSize:]...)
 
 	return dst

@@ -164,7 +164,7 @@ func (p *switchParams) initPoAConfig() error {
 	}
 
 	// Validate if validator number exceeds max number
-	if uint64(p.ibftValidators.Len()) > common.MaxSafeJSInt { //nolint:gosec
+	if uint64(p.ibftValidators.Len()) > common.MaxSafeJSInt {
 		return command.ErrValidatorNumberExceedsMax
 	}
 

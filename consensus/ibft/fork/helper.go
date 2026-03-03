@@ -35,7 +35,7 @@ func readDataStore(path string, obj interface{}) error {
 		return nil
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}

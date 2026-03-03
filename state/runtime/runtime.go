@@ -55,7 +55,7 @@ func (s StorageStatus) String() string {
 	case StorageDeleted:
 		return "StorageDeleted"
 	default:
-		panic("BUG: storage status not found")
+		panic("BUG: storage status not found") //nolint:gocritic
 	}
 }
 

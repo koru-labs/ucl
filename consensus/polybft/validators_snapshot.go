@@ -70,7 +70,7 @@ func (v *validatorsSnapshotCache) GetSnapshot(
 		}
 
 		tx = t
-		defer tx.Rollback() //nolint:errcheck
+		defer tx.Rollback()
 	}
 
 	v.lock.Lock()

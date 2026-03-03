@@ -137,7 +137,7 @@ func newConsensusRuntime(log hcf.Logger, config *runtimeConfig) (*consensusRunti
 		return nil, fmt.Errorf("could not begin dbTx to init consensus runtime: %w", err)
 	}
 
-	defer dbTx.Rollback() //nolint:errcheck
+	defer dbTx.Rollback()
 
 	proposerCalculator, err := NewProposerCalculator(config, log.Named("proposer_calculator"), dbTx)
 	if err != nil {
@@ -375,7 +375,7 @@ func (c *consensusRuntime) OnBlockInserted(fullBlock *types.FullBlock) {
 		return
 	}
 
-	defer dbTx.Rollback() //nolint:errcheck
+	defer dbTx.Rollback()
 
 	lastProcessedEventsBlock, err := c.state.getLastProcessedEventsBlock(dbTx)
 	if err != nil {

@@ -382,7 +382,7 @@ func Import(chain string) (*Chain, error) {
 
 // ImportFromFile imports a chain from a filepath
 func ImportFromFile(filename string) (*Chain, error) {
-	data, err := os.ReadFile(filename) //nolint:gosec
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}

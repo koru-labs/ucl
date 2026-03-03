@@ -31,7 +31,7 @@ func (s serverType) String() string {
 	case serverWS:
 		return "ws"
 	default:
-		panic("BUG: Not expected")
+		panic("BUG: Not expected") //nolint:gocritic
 	}
 }
 
@@ -225,7 +225,7 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 
 	// Set a read limit (maximum message size) for this connection
 	if j.config.WebSocketReadLimit != 0 {
-		ws.SetReadLimit(int64(j.config.WebSocketReadLimit)) //nolint:gosec
+		ws.SetReadLimit(int64(j.config.WebSocketReadLimit))
 	}
 
 	// Defer WS closure
@@ -297,7 +297,7 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	case "OPTIONS":
 		// nothing to return
 	default:
-		_, _ = w.Write([]byte("method " + req.Method + " not allowed")) //nolint:gosec
+		_, _ = w.Write([]byte("method " + req.Method + " not allowed"))
 	}
 }
 
@@ -314,9 +314,9 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 
 	resp, err := j.dispatcher.Handle(data)
 	if err != nil {
-		_, _ = w.Write([]byte(err.Error())) //nolint:gosec
+		_, _ = w.Write([]byte(err.Error()))
 	} else {
-		_, _ = w.Write(resp) //nolint:gosec
+		_, _ = w.Write(resp)
 	}
 
 	j.logger.Debug("handle", "response", string(resp))

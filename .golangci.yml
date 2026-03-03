@@ -16,6 +16,7 @@ linters:
           - unparam
           - lll
           - forcetypeassert
+          - errcheck
       - path: gen_sc_data\.go
         linters:
           - wsl
@@ -51,16 +52,19 @@ linters:
     - errcheck # Errcheck is a go lint rule for checking for unchecked errors in go programs. These unchecked errors can be critical bugs in some cases
     - godox # Godox is a linter for TODOs and FIXMEs left in the code
 
-linters-settings:
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  gocritic:
-    enabled-checks:
-      - ruleguard
-    settings:
-      ruleguard:
-        rules: "./gorules/rules.go"
-  gosec:
-    excludes:
-      - G115 # Potential integer overflow when converting between integer types
+  settings:
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      enabled-checks:
+        - ruleguard
+      settings:
+        ruleguard:
+          rules: "./gorules/rules.go"
+    gosec:
+      excludes:
+        - G104 # Errors unhandled
+        - G115 # Potential integer overflow when converting between integer types
+        - G304 # File path provided as taint input to a method that can trigger path traversal vulnerabilities
+        - G705 # XSS via taint analysis

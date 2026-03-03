@@ -148,7 +148,7 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 			params.Logger,
 			params.Network,
 			params.Blockchain,
-			time.Duration(params.BlockTime)*3*time.Second, //nolint:gosec
+			time.Duration(params.BlockTime)*3*time.Second,
 		),
 		secretsManager: params.SecretsManager,
 		Grpc:           params.Grpc,
@@ -158,7 +158,7 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 		config:             params.Config,
 		epochSize:          epochSize,
 		quorumSizeBlockNum: quorumSizeBlockNum,
-		blockTime:          time.Duration(params.BlockTime) * time.Second, //nolint:gosec
+		blockTime:          time.Duration(params.BlockTime) * time.Second,
 
 		// Channels
 		closeCh: make(chan struct{}),
@@ -343,8 +343,8 @@ func (i *backendIBFT) isActiveValidator() bool {
 func (i *backendIBFT) updateMetrics(block *types.Block) {
 	// get previous header
 	prvHeader, _ := i.blockchain.GetHeaderByNumber(block.Number() - 1)
-	parentTime := time.Unix(int64(prvHeader.Timestamp), 0)    //nolint:gosec
-	headerTime := time.Unix(int64(block.Header.Timestamp), 0) //nolint:gosec
+	parentTime := time.Unix(int64(prvHeader.Timestamp), 0)
+	headerTime := time.Unix(int64(block.Header.Timestamp), 0)
 
 	// Update the block interval metric
 	if block.Number() > 1 {

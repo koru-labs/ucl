@@ -88,7 +88,7 @@ func (s *BLSKeyManager) VerifyCommittedSeal(
 		return ErrValidatorNotFound
 	}
 
-	validator, ok := set.At(uint64(validatorIndex)).(*validators.BLSValidator) //nolint:gosec
+	validator, ok := set.At(uint64(validatorIndex)).(*validators.BLSValidator)
 	if !ok {
 		return ErrInvalidValidators
 	}

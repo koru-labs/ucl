@@ -56,7 +56,7 @@ func encodeSignature(r, s, v *big.Int, isHomestead bool) ([]byte, error) {
 	sig := make([]byte, 65)
 	copy(sig[32-len(r.Bytes()):32], r.Bytes())
 	copy(sig[64-len(s.Bytes()):64], s.Bytes())
-	sig[64] = byte(v.Int64()) //nolint:gosec
+	sig[64] = byte(v.Int64())
 
 	return sig, nil
 }

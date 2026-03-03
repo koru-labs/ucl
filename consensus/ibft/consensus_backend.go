@@ -137,7 +137,7 @@ func (i *backendIBFT) ID() []byte {
 }
 
 func (i *backendIBFT) MaximumFaultyNodes() uint64 {
-	return uint64(CalcMaxFaultyNodes(i.currentValidators)) //nolint:gosec
+	return uint64(CalcMaxFaultyNodes(i.currentValidators))
 }
 
 // DISCLAIMER: IBFT will be deprecated so we set 1 as a voting power to all validators
@@ -187,7 +187,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 
 	// Set the header timestamp
 	potentialTimestamp := i.calcHeaderTimestamp(parent.Timestamp, time.Now().UTC())
-	header.Timestamp = uint64(potentialTimestamp.Unix()) //nolint:gosec
+	header.Timestamp = uint64(potentialTimestamp.Unix())
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
@@ -254,7 +254,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 // on the block time and parent timestamp
 func (i *backendIBFT) calcHeaderTimestamp(parentUnix uint64, currentTime time.Time) time.Time {
 	var (
-		parentTimestamp    = time.Unix(int64(parentUnix), 0) //nolint:gosec
+		parentTimestamp    = time.Unix(int64(parentUnix), 0)
 		potentialTimestamp = parentTimestamp.Add(i.blockTime)
 	)
 

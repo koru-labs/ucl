@@ -46,7 +46,7 @@ func newMockGrpcClient(t *testing.T, service *syncPeerService) proto.SyncPeerCli
 	}
 
 	t.Cleanup(func() {
-		defer conn.Close() //nolint:errcheck
+		defer conn.Close()
 	})
 
 	return proto.NewSyncPeerClient(conn)

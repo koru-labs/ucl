@@ -31,12 +31,12 @@ var (
 func NewTestHeadersWithSeed(genesis *types.Header, n int, seed uint64) []*types.Header {
 	head := func(i int64) *types.Header {
 		return &types.Header{
-			Number:       uint64(i), //nolint:gosec
+			Number:       uint64(i),
 			GasLimit:     seed,
 			TxRoot:       types.EmptyRootHash,
 			Sha3Uncles:   types.EmptyUncleHash,
 			ReceiptsRoot: types.EmptyRootHash,
-			Difficulty:   uint64(i), //nolint:gosec
+			Difficulty:   uint64(i),
 		}
 	}
 
@@ -47,7 +47,7 @@ func NewTestHeadersWithSeed(genesis *types.Header, n int, seed uint64) []*types.
 
 	headers := []*types.Header{genesis}
 
-	count := int64(genesis.Number) + 1 //nolint:gosec
+	count := int64(genesis.Number) + 1
 	for i := 1; i < n; i++ {
 		header := head(count)
 		header.ParentHash = headers[i-1].Hash

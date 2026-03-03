@@ -106,12 +106,12 @@ func expandMsgSHA256XMD(msg []byte, domain []byte, outLen int) ([]byte, error) {
 
 	h := sha256.New()
 
-	domainLen := uint8(len(domain)) //nolint:gosec
+	domainLen := uint8(len(domain))
 	// DST_prime = DST || I2OSP(len(DST), 1)
 	// b_0 = H(Z_pad || msg || l_i_b_str || I2OSP(0, 1) || DST_prime)
 	_, _ = h.Write(make([]byte, h.BlockSize()))
 	_, _ = h.Write(msg)
-	_, _ = h.Write([]byte{uint8(outLen >> 8), uint8(outLen)}) //nolint:gosec
+	_, _ = h.Write([]byte{uint8(outLen >> 8), uint8(outLen)})
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(domain)
 	_, _ = h.Write([]byte{domainLen})

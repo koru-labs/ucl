@@ -339,9 +339,9 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 	}
 
 	raw := receipts[txIndex]
-	logs := toLogs(raw.Logs, uint64(logIndex), uint64(txIndex), block.Header, hash) //nolint:gosec
+	logs := toLogs(raw.Logs, uint64(logIndex), uint64(txIndex), block.Header, hash)
 
-	return toReceipt(raw, txn, uint64(txIndex), block.Header, logs), nil //nolint:gosec
+	return toReceipt(raw, txn, uint64(txIndex), block.Header, logs), nil
 }
 
 // GetStorageAt returns the contract storage at the index position
@@ -762,7 +762,7 @@ func (e *Eth) GetTransactionCount(address types.Address, filter BlockNumberOrHas
 			return nil, fmt.Errorf("failed to get header from block hash or block number: %w", err)
 		}
 
-		blockNumber = BlockNumber(header.Number) //nolint:gosec
+		blockNumber = BlockNumber(header.Number)
 	} else {
 		blockNumber = *filter.BlockNumber
 	}

@@ -64,9 +64,9 @@ func GetBlockHeader(number BlockNumber, store headerGetter) (*types.Header, erro
 
 	default:
 		// Convert the block number from hex to uint64
-		header, ok := store.GetHeaderByNumber(uint64(number)) //nolint:gosec
+		header, ok := store.GetHeaderByNumber(uint64(number))
 		if !ok {
-			return nil, fmt.Errorf("error fetching block number %d header", uint64(number)) //nolint:gosec
+			return nil, fmt.Errorf("error fetching block number %d header", uint64(number))
 		}
 
 		return header, nil
@@ -216,7 +216,7 @@ func DecodeTxn(arg *txnArgs, blockNumber uint64, store nonceGetter, forceSetNonc
 
 	txType := types.LegacyTx
 	if arg.Type != nil {
-		txType = types.TxType(*arg.Type) //nolint:gosec
+		txType = types.TxType(*arg.Type)
 	}
 
 	txn := &types.Transaction{

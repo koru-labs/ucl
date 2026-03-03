@@ -88,7 +88,7 @@ func BigMin(x, y *big.Int) *big.Int {
 func ConvertUnmarshalledUint(x interface{}) (uint64, error) {
 	switch tx := x.(type) {
 	case float64:
-		return uint64(roundFloat(tx)), nil //nolint:gosec
+		return uint64(roundFloat(tx)), nil
 	case string:
 		v, err := ParseUint64orHex(&tx)
 		if err != nil {

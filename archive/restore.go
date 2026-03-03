@@ -29,7 +29,7 @@ type blockchainInterface interface {
 
 // RestoreChain reads blocks from the archive and write to the chain
 func RestoreChain(chain blockchainInterface, filePath string, progression *progress.ProgressionWrapper) error {
-	fp, err := os.Open(filePath) //nolint:gosec
+	fp, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
@@ -252,14 +252,14 @@ func (b *blockStream) loadPrefixSize(offset uint64, prefix byte) (uint64, uint64
 			return 0, 0, err
 		}
 
-		if uint64(n) < payloadSizeSize { //nolint:gosec
+		if uint64(n) < payloadSizeSize {
 			// couldn't load required amount of bytes
 			return 0, 0, io.EOF
 		}
 
 		payloadSize := new(big.Int).SetBytes(payloadSizeBytes).Int64()
 
-		return payloadSizeSize + 1, uint64(payloadSize), nil //nolint:gosec
+		return payloadSizeSize + 1, uint64(payloadSize), nil
 	}
 
 	return 0, 0, errors.New("expected array but got bytes")
@@ -303,7 +303,7 @@ func (b *blockStream) parseBlock(size uint64) (*types.Block, error) {
 
 // reserveCap makes sure the internal buffer has given size
 func (b *blockStream) reserveCap(size uint64) {
-	if diff := int64(size) - int64(cap(b.buffer)); diff > 0 { //nolint:gosec
+	if diff := int64(size) - int64(cap(b.buffer)); diff > 0 {
 		b.buffer = append(b.buffer[:cap(b.buffer)], make([]byte, diff)...)
 	} else {
 		b.buffer = b.buffer[:size]

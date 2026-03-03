@@ -38,7 +38,7 @@ func (s *systemService) GetStatus(ctx context.Context, req *empty.Empty) (*proto
 	status := &proto.ServerStatus{
 		Network: s.server.chain.Params.ChainID,
 		Current: &proto.ServerStatus_Block{
-			Number: int64(header.Number), //nolint:gosec
+			Number: int64(header.Number),
 			Hash:   header.Hash.String(),
 		},
 		P2PAddr: addr,
@@ -65,14 +65,14 @@ func (s *systemService) Subscribe(req *empty.Empty, stream proto.System_Subscrib
 		for _, h := range evnt.NewChain {
 			pEvent.Added = append(
 				pEvent.Added,
-				&proto.BlockchainEvent_Header{Hash: h.Hash.String(), Number: int64(h.Number)}, //nolint:gosec
+				&proto.BlockchainEvent_Header{Hash: h.Hash.String(), Number: int64(h.Number)},
 			)
 		}
 
 		for _, h := range evnt.OldChain {
 			pEvent.Removed = append(
 				pEvent.Removed,
-				&proto.BlockchainEvent_Header{Hash: h.Hash.String(), Number: int64(h.Number)}, //nolint:gosec
+				&proto.BlockchainEvent_Header{Hash: h.Hash.String(), Number: int64(h.Number)},
 			)
 		}
 
@@ -257,7 +257,7 @@ func newBlockStreamWriter(
 
 func (w *blockStreamWriter) appendBlock(b *types.Block) error {
 	data := b.MarshalRLP()
-	if uint64(maxHeaderInfoSize+w.buf.Len()+len(data)) >= w.maxPayload { //nolint:gosec
+	if uint64(maxHeaderInfoSize+w.buf.Len()+len(data)) >= w.maxPayload {
 		// send buffered data to client first
 		if err := w.flush(); err != nil {
 			return err

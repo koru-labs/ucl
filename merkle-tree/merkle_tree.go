@@ -190,7 +190,7 @@ func VerifyProofUsing(index uint64, leaf []byte, proof []types.Hash, root types.
 		return fmt.Errorf("empty leaf")
 	}
 
-	if int(index) >= int(math.Pow(2, float64(len(proof)))) { //nolint:gosec
+	if int(index) >= int(math.Pow(2, float64(len(proof)))) {
 		return fmt.Errorf("invalid leaf index %v", index)
 	}
 

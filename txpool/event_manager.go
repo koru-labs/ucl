@@ -47,7 +47,7 @@ func (em *eventManager) subscribe(eventTypes []proto.EventType) *subscribeResult
 		},
 	}
 
-	em.subscriptions[subscriptionID(id)] = subscription //nolint:gosec
+	em.subscriptions[subscriptionID(id)] = subscription
 
 	go subscription.runLoop()
 
@@ -55,7 +55,7 @@ func (em *eventManager) subscribe(eventTypes []proto.EventType) *subscribeResult
 	atomic.AddInt64(&em.numSubscriptions, 1)
 
 	return &subscribeResult{
-		subscriptionID:      subscriptionID(id), //nolint:gosec
+		subscriptionID:      subscriptionID(id),
 		subscriptionChannel: subscription.outputCh,
 	}
 }

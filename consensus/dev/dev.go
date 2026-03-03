@@ -79,7 +79,7 @@ func (d *Dev) nextNotify() chan struct{} {
 	}
 
 	go func() {
-		<-time.After(time.Duration(d.interval) * time.Second) //nolint:gosec
+		<-time.After(time.Duration(d.interval) * time.Second)
 
 		d.notifyCh <- struct{}{}
 	}()
@@ -158,8 +158,8 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     num + 1,
-		GasLimit:   parent.GasLimit,                 // Inherit from parent for now, will need to adjust dynamically later.
-		Timestamp:  uint64(time.Now().UTC().Unix()), //nolint:gosec
+		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
+		Timestamp:  uint64(time.Now().UTC().Unix()),
 	}
 
 	// calculate gas limit based on parent header

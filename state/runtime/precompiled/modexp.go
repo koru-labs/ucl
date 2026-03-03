@@ -35,7 +35,7 @@ var (
 func adjustedExponentLength(expLen, head *big.Int) *big.Int {
 	bitlength := uint64(0)
 	if head.Sign() != 0 {
-		bitlength = uint64(head.BitLen() - 1) //nolint:gosec
+		bitlength = uint64(head.BitLen() - 1)
 	}
 
 	if expLen.Cmp(big32) <= 0 {
@@ -155,13 +155,13 @@ func (m *modExp) run(input []byte, _ types.Address, _ runtime.Host) ([]byte, err
 	// get the values
 	var val []byte
 
-	val, input = m.p.get(input, int(baseLen)) //nolint:gosec
+	val, input = m.p.get(input, int(baseLen))
 	base := new(big.Int).SetBytes(val)
 
-	val, input = m.p.get(input, int(exponentLen)) //nolint:gosec
+	val, input = m.p.get(input, int(exponentLen))
 	exponent := new(big.Int).SetBytes(val)
 
-	val, _ = m.p.get(input, int(modulusLen)) //nolint:gosec
+	val, _ = m.p.get(input, int(modulusLen))
 	modulus := new(big.Int).SetBytes(val)
 
 	var res []byte
@@ -169,5 +169,5 @@ func (m *modExp) run(input []byte, _ types.Address, _ runtime.Host) ([]byte, err
 		res = base.Exp(base, exponent, modulus).Bytes()
 	}
 
-	return m.p.leftPad(res, int(modulusLen)), nil //nolint:gosec
+	return m.p.leftPad(res, int(modulusLen)), nil
 }

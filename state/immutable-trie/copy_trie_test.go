@@ -19,14 +19,14 @@ func TestCompareModelOfTrieCopy(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		defer ldb.Close() //nolint:errcheck
+		defer ldb.Close()
 
 		ldbNew, err := leveldb.Open(ldbStorageNew, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		defer ldbNew.Close() //nolint:errcheck
+		defer ldbNew.Close()
 
 		kv := NewKV(ldb)
 		newKV := NewKV(ldbNew)

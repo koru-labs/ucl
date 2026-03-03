@@ -105,7 +105,7 @@ func (l *LocalSecretsManager) GetSecret(name string) ([]byte, error) {
 	}
 
 	// Read the secret from disk
-	secret, err := os.ReadFile(secretPath) //nolint:gosec
+	secret, err := os.ReadFile(secretPath)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to read secret from disk (%s), %w",

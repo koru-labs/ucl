@@ -145,7 +145,7 @@ func DefaultConfig() *Config {
 //
 // Supported file types: .json, .hcl, .yaml, .yml
 func ReadConfigFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

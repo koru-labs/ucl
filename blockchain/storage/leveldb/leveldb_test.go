@@ -208,7 +208,7 @@ func dirSize(t *testing.T, path string) int64 {
 
 func TestWriteFullBlock(t *testing.T) {
 	s, _, path := newStorageP(t)
-	defer s.Close() //nolint:errcheck
+	defer s.Close()
 
 	count := 100
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*45)
