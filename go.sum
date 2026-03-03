@@ -629,8 +629,6 @@ github.com/trailofbits/go-fuzz-utils v0.0.0-20210901195358-9657fcfd256c/go.mod h
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
 github.com/tyler-smith/go-bip39 v1.1.0 h1:5eUemwrMargf3BSLRRCalXT93Ns6pQJIjYQN2nyfOP8=
 github.com/tyler-smith/go-bip39 v1.1.0/go.mod h1:gUYDtqQw1JS3ZJ8UWVcGTGqqr6YIN3CWg+kkNaLt55U=
-github.com/umbracle/ethgo v0.1.4-0.20231006072852-6b068360fc97 h1:BAVsVHkgvBlQcE+/vUG58w/p7vAhgYaY/yUo4eHTfc8=
-github.com/umbracle/ethgo v0.1.4-0.20231006072852-6b068360fc97/go.mod h1:J+OZNfRCtbaYW3AEc0m47GhwAzlNJjcr9vO86nzOr6E=
 github.com/umbracle/ethgo v0.1.4-0.20240312101536-878b71a3d02f h1:LUwBlbz+cUgAuErKitbKVubvV58NVYLYV4BXvBkRwN8=
 github.com/umbracle/ethgo v0.1.4-0.20240312101536-878b71a3d02f/go.mod h1:J+OZNfRCtbaYW3AEc0m47GhwAzlNJjcr9vO86nzOr6E=
 github.com/umbracle/fastrlp v0.1.1-0.20230504065717-58a1b8a9929d h1:HAg1Kpr9buwRxEiC2UXU9oT2AU8uCU7o3/WTH+Lt5wo=
