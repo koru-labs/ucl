@@ -31,7 +31,7 @@ func (v *ValueNode) Hash() ([]byte, bool) {
 
 // SetHash implements the node interface
 func (v *ValueNode) SetHash(b []byte) []byte {
-	panic("We cannot set hash on value node") //nolint:gocritic
+	panic("We cannot set hash on value node")
 }
 
 type common struct {
@@ -169,7 +169,7 @@ func (t *Txn) lookup(node interface{}, key []byte) (Node, []byte) {
 		if n.hash {
 			nc, ok, err := GetNode(n.buf, t.storage)
 			if err != nil {
-				panic(err) //nolint:gocritic
+				panic(err)
 			}
 
 			if !ok {
@@ -215,7 +215,7 @@ func (t *Txn) lookup(node interface{}, key []byte) (Node, []byte) {
 		return nil, res
 
 	default:
-		panic(fmt.Sprintf("unknown node type %v", n)) //nolint:gocritic
+		panic(fmt.Sprintf("unknown node type %v", n))
 	}
 }
 
@@ -261,7 +261,7 @@ func (t *Txn) insert(node Node, search, value []byte) Node {
 		if n.hash {
 			nc, ok, err := GetNode(n.buf, t.storage)
 			if err != nil {
-				panic(err) //nolint:gocritic
+				panic(err)
 			}
 
 			if !ok {
@@ -327,7 +327,7 @@ func (t *Txn) insert(node Node, search, value []byte) Node {
 		}
 
 	default:
-		panic(fmt.Sprintf("unknown node type %v", n)) //nolint:gocritic
+		panic(fmt.Sprintf("unknown node type %v", n))
 	}
 }
 
@@ -376,7 +376,7 @@ func (t *Txn) delete(node Node, search []byte) (Node, bool) {
 		if n.hash {
 			nc, ok, err := GetNode(n.buf, t.storage)
 			if err != nil {
-				panic(err) //nolint:gocritic
+				panic(err)
 			}
 
 			if !ok {
@@ -449,7 +449,7 @@ func (t *Txn) delete(node Node, search []byte) (Node, bool) {
 			// This needs better testing
 			aux, ok, err := GetNode(vv.buf, t.storage)
 			if err != nil {
-				panic(err) //nolint:gocritic
+				panic(err)
 			}
 
 			if !ok {
@@ -475,7 +475,7 @@ func (t *Txn) delete(node Node, search []byte) (Node, bool) {
 		return ncc, true
 	}
 
-	panic("it should not happen") //nolint:gocritic
+	panic("it should not happen")
 }
 
 func prefixLen(k1, k2 []byte) int {

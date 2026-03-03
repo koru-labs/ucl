@@ -12,7 +12,7 @@ var dispatchTable [256]handler
 
 func register(op OpCode, h handler) {
 	if dispatchTable[op].inst != nil {
-		panic(fmt.Errorf("instruction already exists")) //nolint:gocritic
+		panic(fmt.Errorf("instruction already exists"))
 	}
 
 	dispatchTable[op] = h

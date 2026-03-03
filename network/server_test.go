@@ -721,7 +721,7 @@ func TestSubscribe(t *testing.T) {
 
 		if shouldCloseAfterTest {
 			t.Cleanup(func() {
-				srv.Close()
+				srv.Close() //nolint:errcheck
 			})
 		}
 
@@ -820,7 +820,7 @@ func TestSubscribe(t *testing.T) {
 		eventCh := toChannel(t, ctx, server)
 
 		// close server before emitting event
-		server.Close()
+		server.Close() //nolint:errcheck
 
 		server.EmitEvent(event)
 

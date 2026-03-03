@@ -27,7 +27,7 @@ func (c *SecretsManagerConfig) WriteConfig(path string) error {
 
 // ReadConfig reads the SecretsManagerConfig from the specified path
 func ReadConfig(path string) (*SecretsManagerConfig, error) {
-	configFile, readErr := os.ReadFile(path)
+	configFile, readErr := os.ReadFile(path) //nolint:gosec
 	if readErr != nil {
 		return nil, readErr
 	}

@@ -13,20 +13,20 @@ func TestCompareModelOfTrieCopy(t *testing.T) {
 	rapid.Check(t, func(tt *rapid.T) {
 		ldbStorageOld := ldbstorage.NewMemStorage()
 		ldbStorageNew := ldbstorage.NewMemStorage()
-		ldb, err := leveldb.Open(ldbStorageOld, nil)
 
+		ldb, err := leveldb.Open(ldbStorageOld, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		defer ldb.Close()
+		defer ldb.Close() //nolint:errcheck
 
 		ldbNew, err := leveldb.Open(ldbStorageNew, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		defer ldbNew.Close()
+		defer ldbNew.Close() //nolint:errcheck
 
 		kv := NewKV(ldb)
 		newKV := NewKV(ldbNew)
@@ -45,8 +45,8 @@ func TestCompareModelOfTrieCopy(t *testing.T) {
 		tx.Commit()
 
 		stateRoot := trie.Hash()
-		result, err := HashChecker(stateRoot.Bytes(), kv)
 
+		result, err := HashChecker(stateRoot.Bytes(), kv)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -56,13 +56,11 @@ func TestCompareModelOfTrieCopy(t *testing.T) {
 		}
 
 		err = CopyTrie(stateRoot.Bytes(), kv, newKV, []byte{}, false)
-
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		result, err = HashChecker(stateRoot.Bytes(), newKV)
-
 		if err != nil {
 			t.Error(err)
 		}

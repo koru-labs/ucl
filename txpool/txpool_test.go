@@ -1231,6 +1231,7 @@ func TestPromoteHandler(t *testing.T) {
 
 		// fake a promotion
 		go signalPromotion()
+
 		pool.handlePromoteRequest(<-pool.promoteReqCh)
 		assert.Equal(t, uint64(0), pool.accounts.get(addr1).enqueued.length())
 		assert.Equal(t, uint64(0), pool.accounts.get(addr1).promoted.length())
@@ -1251,6 +1252,7 @@ func TestPromoteHandler(t *testing.T) {
 
 		// fake a promotion
 		go signalPromotion()
+
 		pool.handlePromoteRequest(<-pool.promoteReqCh)
 		assert.Equal(t, uint64(1), pool.accounts.get(addr1).enqueued.length())
 		assert.Equal(t, uint64(0), pool.accounts.get(addr1).promoted.length())
@@ -1626,6 +1628,7 @@ func TestResetAccount(t *testing.T) {
 					go pool.resetAccounts(map[types.Address]uint64{
 						addr1: test.newNonce,
 					})
+
 					pool.handlePromoteRequest(<-pool.promoteReqCh)
 				} else {
 					pool.resetAccounts(map[types.Address]uint64{
@@ -1796,6 +1799,7 @@ func TestResetAccount(t *testing.T) {
 					go pool.resetAccounts(map[types.Address]uint64{
 						addr1: test.newNonce,
 					})
+
 					pool.handlePromoteRequest(<-pool.promoteReqCh)
 				} else {
 					pool.resetAccounts(map[types.Address]uint64{

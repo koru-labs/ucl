@@ -332,6 +332,7 @@ func MeshJoin(servers ...*Server) []error {
 
 	appendJoinError := func(joinErr error) {
 		joinErrorsLock.Lock()
+
 		joinErrors = append(joinErrors, joinErr)
 		joinErrorsLock.Unlock()
 	}

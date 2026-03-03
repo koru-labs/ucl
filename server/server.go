@@ -289,10 +289,10 @@ func NewServer(config *Config) (*Server, error) {
 
 	// Use the london signer with eip-155 as a fallback one
 	var signer crypto.TxSigner = crypto.NewLondonSigner(
-		uint64(m.config.Chain.Params.ChainID),
+		uint64(m.config.Chain.Params.ChainID), //nolint:gosec
 		config.Chain.Params.Forks.IsActive(chain.Homestead, 0),
 		crypto.NewEIP155Signer(
-			uint64(m.config.Chain.Params.ChainID),
+			uint64(m.config.Chain.Params.ChainID), //nolint:gosec
 			config.Chain.Params.Forks.IsActive(chain.Homestead, 0),
 		),
 	)
@@ -467,7 +467,6 @@ func getAccountImpl(state state.State, root types.Hash, addr types.Address) (*st
 
 func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
 	account, err := getAccountImpl(t.state, root, addr)
-
 	if err != nil {
 		return 0
 	}
@@ -477,7 +476,6 @@ func (t *txpoolHub) GetNonce(root types.Hash, addr types.Address) uint64 {
 
 func (t *txpoolHub) GetBalance(root types.Hash, addr types.Address) (*big.Int, error) {
 	account, err := getAccountImpl(t.state, root, addr)
-
 	if err != nil {
 		if errors.Is(err, jsonrpc.ErrStateNotFound) {
 			return big.NewInt(0), nil
@@ -523,7 +521,6 @@ func (s *Server) setupSecretsManager() error {
 		secretsManagerConfig,
 		secretsManagerParams,
 	)
-
 	if factoryErr != nil {
 		return fmt.Errorf("unable to instantiate secrets manager, %w", factoryErr)
 	}
@@ -583,7 +580,6 @@ func (s *Server) setupConsensus() error {
 			MetricsInterval:       s.config.MetricsInterval,
 		},
 	)
-
 	if err != nil {
 		return err
 	}
@@ -867,7 +863,7 @@ func (s *Server) setupJSONRPC() error {
 	conf := &jsonrpc.Config{
 		Store:                    hub,
 		Addr:                     s.config.JSONRPC.JSONRPCAddr,
-		ChainID:                  uint64(s.config.Chain.Params.ChainID),
+		ChainID:                  uint64(s.config.Chain.Params.ChainID), //nolint:gosec
 		ChainName:                s.chain.Name,
 		AccessControlAllowOrigin: s.config.JSONRPC.AccessControlAllowOrigin,
 		PriceLimit:               s.config.PriceLimit,

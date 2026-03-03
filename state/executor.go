@@ -82,7 +82,7 @@ func (e *Executor) WriteGenesis(
 		ctx:         env,
 		state:       txn,
 		auxState:    e.state,
-		gasPool:     uint64(env.GasLimit),
+		gasPool:     uint64(env.GasLimit), //nolint:gosec
 		config:      config,
 		precompiles: precompiled.NewPrecompiled(),
 	}
@@ -193,11 +193,11 @@ func (e *Executor) BeginTxn(
 
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
-		Timestamp:    int64(header.Timestamp),
-		Number:       int64(header.Number),
+		Timestamp:    int64(header.Timestamp), //nolint:gosec
+		Number:       int64(header.Number),    //nolint:gosec
 		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
 		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
-		GasLimit:     int64(header.GasLimit),
+		GasLimit:     int64(header.GasLimit), //nolint:gosec
 		ChainID:      e.config.ChainID,
 		BurnContract: burnContract,
 	}
@@ -210,7 +210,7 @@ func (e *Executor) BeginTxn(
 		getHash:  e.GetHash(header),
 		auxState: e.state,
 		config:   forkConfig,
-		gasPool:  uint64(txCtx.GasLimit),
+		gasPool:  uint64(txCtx.GasLimit), //nolint:gosec
 
 		receipts: []*types.Receipt{},
 		totalGas: 0,
@@ -339,7 +339,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	if txn.From == emptyFrom &&
 		(txn.Type == types.LegacyTx || txn.Type == types.DynamicFeeTx) {
 		// Decrypt the from address
-		signer := crypto.NewSigner(t.config, uint64(t.ctx.ChainID))
+		signer := crypto.NewSigner(t.config, uint64(t.ctx.ChainID)) //nolint:gosec
 
 		txn.From, err = signer.Sender(txn)
 		if err != nil {
@@ -450,7 +450,7 @@ func (t *Transition) ContextPtr() *runtime.TxContext {
 }
 
 func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
-	upfrontGasCost := GetLondonFixHandler(uint64(t.ctx.Number)).getUpfrontGasCost(msg, t.ctx.BaseFee)
+	upfrontGasCost := GetLondonFixHandler(uint64(t.ctx.Number)).getUpfrontGasCost(msg, t.ctx.BaseFee) //nolint:gosec
 
 	if err := t.state.SubBalance(msg.From, upfrontGasCost); err != nil {
 		if errors.Is(err, runtime.ErrNotEnoughFunds) {
@@ -476,7 +476,7 @@ func (t *Transition) nonceCheck(msg *types.Transaction) error {
 // checkDynamicFees checks correctness of the EIP-1559 feature-related fields.
 // Basically, makes sure gas tip cap and gas fee cap are good for dynamic and legacy transactions
 func (t *Transition) checkDynamicFees(msg *types.Transaction) error {
-	return GetLondonFixHandler(uint64(t.ctx.Number)).checkDynamicFees(msg, t)
+	return GetLondonFixHandler(uint64(t.ctx.Number)).checkDynamicFees(msg, t) //nolint:gosec
 }
 
 // errors that can originate in the consensus rules checks of the apply method below
@@ -603,7 +603,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	// Define effective tip based on tx type.
 	// We use EIP-1559 fields of the tx if the london hardfork is enabled.
 	// Effective tip became to be either gas tip cap or (gas fee cap - current base fee)
-	effectiveTip := GetLondonFixHandler(uint64(t.ctx.Number)).getEffectiveTip(
+	effectiveTip := GetLondonFixHandler(uint64(t.ctx.Number)).getEffectiveTip( //nolint:gosec
 		msg, gasPrice, t.ctx.BaseFee, t.config.London,
 	)
 
@@ -964,7 +964,7 @@ func (t *Transition) GetTxContext() runtime.TxContext {
 }
 
 func (t *Transition) GetBlockHash(number int64) (res types.Hash) {
-	return t.getHash(uint64(number))
+	return t.getHash(uint64(number)) //nolint:gosec
 }
 
 func (t *Transition) EmitLog(addr types.Address, topics []types.Hash, data []byte) {

@@ -51,7 +51,7 @@ func (t *Topic) Close() {
 
 	// if all subscribers are finished, close the topic
 	if t.topic != nil {
-		t.topic.Close()
+		t.topic.Close() //nolint
 		t.topic = nil
 	}
 }

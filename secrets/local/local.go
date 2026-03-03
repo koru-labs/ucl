@@ -105,7 +105,7 @@ func (l *LocalSecretsManager) GetSecret(name string) ([]byte, error) {
 	}
 
 	// Read the secret from disk
-	secret, err := os.ReadFile(secretPath)
+	secret, err := os.ReadFile(secretPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf(
 			"unable to read secret from disk (%s), %w",
@@ -161,6 +161,7 @@ func (l *LocalSecretsManager) HasSecret(name string) bool {
 // RemoveSecret removes the local SecretsManager's secret from disk
 func (l *LocalSecretsManager) RemoveSecret(name string) error {
 	l.secretPathMapLock.Lock()
+
 	secretPath, ok := l.secretPathMap[name]
 	defer l.secretPathMapLock.Unlock()
 

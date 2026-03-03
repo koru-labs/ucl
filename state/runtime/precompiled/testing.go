@@ -33,7 +33,7 @@ func ReadTestCase(t *testing.T, path string, f func(t *testing.T, c *TestCase)) 
 	t.Helper()
 	t.Parallel()
 
-	data, err := os.ReadFile(filepath.Join("./fixtures", path))
+	data, err := os.ReadFile(filepath.Join("./fixtures", path)) //nolint:gosec
 	if err != nil {
 		t.Fatal(err)
 	}

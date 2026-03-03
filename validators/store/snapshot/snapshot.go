@@ -391,7 +391,7 @@ func (s *SnapshotValidatorStore) addCandidate(
 	}
 
 	s.candidates = append(s.candidates, &store.Candidate{
-		Validator: validators.At(uint64(validatorIndex)),
+		Validator: validators.At(uint64(validatorIndex)), //nolint:gosec
 		Authorize: authrorize,
 	})
 

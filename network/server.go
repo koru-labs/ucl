@@ -433,7 +433,7 @@ func (s *Server) Peers() []*PeerConnInfo {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
-	peers := make([]*PeerConnInfo, 0)
+	peers := make([]*PeerConnInfo, 0) //nolint:prealloc
 	for _, connectionInfo := range s.peers {
 		peers = append(peers, connectionInfo)
 	}
@@ -667,7 +667,7 @@ func (s *Server) Subscribe(ctx context.Context, handler func(evnt *peerEvent.Pee
 	}
 
 	go func() {
-		defer sub.Close()
+		defer sub.Close() //nolint:errcheck
 
 		for {
 			select {

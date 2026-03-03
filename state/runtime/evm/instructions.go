@@ -135,7 +135,7 @@ func opExp(c *state) {
 		gas = 10
 	}
 
-	gasCost := uint64((y.BitLen()+7)/8) * gas
+	gasCost := uint64((y.BitLen()+7)/8) * gas //nolint:gosec
 	if !c.consumeGas(gasCost) {
 		return
 	}
@@ -221,7 +221,7 @@ func opByte(c *state) {
 		y.Set(zero)
 	} else {
 		sh := (31 - indx) * 8
-		y.Rsh(y, uint(sh))
+		y.Rsh(y, uint(sh)) //nolint:gosec
 		y.And(y, opByteMask)
 	}
 }
@@ -316,7 +316,7 @@ func opSignExtension(c *state) {
 	mask.Lsh(mask, bit)
 	mask.Sub(mask, one)
 
-	if x.Bit(int(bit)) > 0 {
+	if x.Bit(int(bit)) > 0 { //nolint:gosec
 		mask.Not(mask)
 		x.Or(x, mask)
 	} else {
@@ -405,8 +405,8 @@ func opMload(c *state) {
 	offset := c.pop()
 
 	var ok bool
-	c.tmp, ok = c.get2(c.tmp[:0], offset, wordSize)
 
+	c.tmp, ok = c.get2(c.tmp[:0], offset, wordSize)
 	if !ok {
 		return
 	}
@@ -618,7 +618,7 @@ func opChainID(c *state) {
 		return
 	}
 
-	c.push1().SetUint64(uint64(c.host.GetTxContext().ChainID))
+	c.push1().SetUint64(uint64(c.host.GetTxContext().ChainID)) //nolint:gosec
 }
 
 func opOrigin(c *state) {
@@ -670,7 +670,7 @@ func opExtCodeSize(c *state) {
 		return
 	}
 
-	c.push1().SetUint64(uint64(c.host.GetCodeSize(addr)))
+	c.push1().SetUint64(uint64(c.host.GetCodeSize(addr))) //nolint:gosec
 }
 
 func opGasPrice(c *state) {
@@ -714,7 +714,7 @@ func opExtCodeHash(c *state) {
 }
 
 func opPC(c *state) {
-	c.push1().SetUint64(uint64(c.ip))
+	c.push1().SetUint64(uint64(c.ip)) //nolint:gosec
 }
 
 func opMSize(c *state) {
@@ -955,7 +955,7 @@ func opSelfDestruct(c *state) {
 
 func opJump(c *state) {
 	if dest := c.pop(); c.validJumpdest(dest) {
-		c.ip = int(dest.Uint64() - 1)
+		c.ip = int(dest.Uint64() - 1) //nolint:gosec
 	} else {
 		c.exit(errInvalidJump)
 	}
@@ -967,7 +967,7 @@ func opJumpi(c *state) {
 
 	if cond.Sign() != 0 {
 		if c.validJumpdest(dest) {
-			c.ip = int(dest.Uint64() - 1)
+			c.ip = int(dest.Uint64() - 1) //nolint:gosec
 		} else {
 			c.exit(errInvalidJump)
 		}
@@ -1047,7 +1047,7 @@ func opLog(size int) instruction {
 
 		c.host.EmitLog(c.msg.Address, topics, c.tmp)
 
-		if !c.consumeGas(uint64(size) * 375) {
+		if !c.consumeGas(uint64(size) * 375) { //nolint:gosec
 			return
 		}
 
@@ -1161,7 +1161,7 @@ func opCall(op OpCode) instruction {
 			callType = runtime.StaticCall
 
 		default:
-			panic("not expected") //nolint:gocritic
+			panic("not expected")
 		}
 
 		contract, offset, size, err := c.buildCallContract(op)
@@ -1412,8 +1412,8 @@ func opHalt(op OpCode) instruction {
 		size := c.pop()
 
 		var ok bool
-		c.ret, ok = c.get2(c.ret[:0], offset, size)
 
+		c.ret, ok = c.get2(c.ret[:0], offset, size)
 		if !ok {
 			return
 		}

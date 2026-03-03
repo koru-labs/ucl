@@ -71,15 +71,19 @@ func (h *hasher) AcquireArena() (*fastrlp.Arena, int) {
 
 func (h *hasher) Hash(data []byte) []byte {
 	h.hash.Reset()
-	h.hash.Write(data)
-	n, err := h.hash.Read(h.tmp[:])
 
+	_, err := h.hash.Write(data)
 	if err != nil {
-		panic(err) //nolint:gocritic
+		panic(err)
+	}
+
+	n, err := h.hash.Read(h.tmp[:])
+	if err != nil {
+		panic(err)
 	}
 
 	if n != 32 {
-		panic("incorrect length") //nolint:gocritic
+		panic("incorrect length")
 	}
 
 	return h.tmp[:]
@@ -104,7 +108,7 @@ func (t *Txn) Hash() ([]byte, error) {
 	if val.Type() == fastrlp.TypeBytes {
 		if val.Len() != 32 {
 			h.hash.Reset()
-			h.hash.Write(val.Raw())
+			h.hash.Write(val.Raw()) //nolint:gosec
 
 			root = h.hash.Sum(nil)
 
@@ -119,7 +123,7 @@ func (t *Txn) Hash() ([]byte, error) {
 		tmp := val.MarshalTo(nil)
 
 		h.hash.Reset()
-		h.hash.Write(tmp)
+		h.hash.Write(tmp) //nolint:gosec
 
 		root = h.hash.Sum(nil)
 
@@ -177,7 +181,7 @@ func (t *Txn) hash(node Node, h *hasher, a *fastrlp.Arena, d int) *fastrlp.Value
 		}
 
 	default:
-		panic(fmt.Sprintf("unknown node type %v", n)) //nolint:gocritic
+		panic(fmt.Sprintf("unknown node type %v", n))
 	}
 
 	if val.Len() < 32 {

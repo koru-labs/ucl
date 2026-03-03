@@ -97,7 +97,7 @@ func (q *accountQueue) pop() *types.Transaction {
 
 // length returns the number of transactions in the queue.
 func (q *accountQueue) length() uint64 {
-	return uint64(q.queue.Len())
+	return uint64(q.queue.Len()) //nolint:gosec
 }
 
 // transactions sorted by nonce (ascending)

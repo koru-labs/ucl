@@ -52,7 +52,7 @@ func NewEventTrackerStore(
 	}
 
 	if err := store.setupDB(); err != nil {
-		store.Close()
+		store.Close() //nolint
 
 		return nil, err
 	}

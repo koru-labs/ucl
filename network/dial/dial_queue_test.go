@@ -48,6 +48,7 @@ func TestDialQueue(t *testing.T) {
 	go func() {
 		q.Wait(ctx) // wait for first update
 		q.Wait(ctx) // wait for second update (line 61)
+
 		done <- struct{}{}
 	}()
 

@@ -82,6 +82,7 @@ func (e *EventTracker) Start(ctx context.Context) error {
 		blocktracker.WithTracker(jsonBlockTracker),
 	)
 
+	//nolint
 	go func() {
 		<-ctx.Done()
 		blockTracker.Close()

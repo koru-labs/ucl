@@ -32,6 +32,7 @@ func newMockGrpcClient(t *testing.T, service *syncPeerService) proto.SyncPeerCli
 	}()
 
 	ctx := context.Background()
+
 	conn, err := grpc.DialContext(ctx, "bufnet",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(
@@ -40,13 +41,12 @@ func newMockGrpcClient(t *testing.T, service *syncPeerService) proto.SyncPeerCli
 			},
 		),
 	)
-
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Cleanup(func() {
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 	})
 
 	return proto.NewSyncPeerClient(conn)

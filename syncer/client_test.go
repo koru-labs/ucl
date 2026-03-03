@@ -263,6 +263,7 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 		})
 	)
 
+	//nolint:errcheck
 	t.Cleanup(func() {
 		clientSrv.Close()
 		peerSrv1.Close()
@@ -395,6 +396,7 @@ func Test_shouldEmitBlocks(t *testing.T) {
 		})
 	)
 
+	//nolint:errcheck
 	t.Cleanup(func() {
 		clientSrv.Close()
 		peerSrv.Close()
@@ -545,6 +547,7 @@ func Test_EmitMultipleBlocks(t *testing.T) {
 		})
 	)
 
+	//nolint:errcheck
 	t.Cleanup(func() {
 		clientSrv.Close()
 		peerSrv.Close()
@@ -581,6 +584,7 @@ func Test_EmitMultipleBlocks(t *testing.T) {
 
 		go func() {
 			defer close(c)
+
 			wg.Wait()
 		}()
 
