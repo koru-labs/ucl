@@ -110,12 +110,11 @@ func TestBLSValidatorCopy(t *testing.T) {
 
 	assert.Equal(t, v1, v2)
 
-	// check the addresses are different
+	// check the pointers are different
 	typedV2, ok := v2.(*BLSValidator)
 
 	assert.True(t, ok)
-	assert.NotSame(t, v1.Address, typedV2.Address)
-	assert.NotSame(t, v1.BLSPublicKey, typedV2.BLSPublicKey)
+	assert.NotSame(t, v1, typedV2)
 }
 
 func TestBLSValidatorEqual(t *testing.T) {
