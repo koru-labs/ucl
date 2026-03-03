@@ -23,7 +23,7 @@ jobs:
           # the below token should have repo scope and must be manually added by you in the repository's secret
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         with:
-          path-to-signatures: cla.json
-          path-to-document: https://github.com/Ethernal-Tech/hamsa-ucl/blob/develop/CLA.md
-          branch: cla-signatures
+          path-to-signatures: "cla.json"
+          path-to-document: "https://github.com/Ethernal-Tech/hamsa-ucl/blob/develop/CLA.md"
+          branch: "cla-signatures"
           allowlist: dependabot[bot],dependabot-preview[bot]

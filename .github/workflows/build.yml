@@ -11,7 +11,7 @@ on: # yamllint disable-line rule:truthy
 jobs:
   go_build:
     name: Build Polygon Edge
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     outputs:
       output_failure: ${{ steps.edge_build_failure.outputs.result }}
     steps:
@@ -45,7 +45,7 @@ jobs:
 
   go_build_reproducibility:
     name: Verify Build Reproducibility
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - name: Checkout code
