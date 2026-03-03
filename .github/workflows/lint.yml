@@ -27,8 +27,9 @@ jobs:
           cache: false
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6.1.1
+        uses: golangci/golangci-lint-action@v9.2.0
         with:
+          version: v2.10.1
           args: --timeout 10m --verbose
 
       - name: Lint Failed
