@@ -1,31 +1,30 @@
 ---
-name: Build
-on:  # yamllint disable-line rule:truthy
-  workflow_dispatch:
+name: Build Polygon Edge
+
+on: # yamllint disable-line rule:truthy
   workflow_call:
-   # Map the workflow outputs to job outputs
     outputs:
       workflow_output:
-        description: "Build output"
-        value: ${{ jobs.go_build.outputs.build_output_failure }} 
+        description: Build output
+        value: ${{ jobs.go_build.outputs.output_failure }}
 
 jobs:
   go_build:
-    name: Polygon Edge
-    runs-on: ubuntu-latest
+    name: Build Polygon Edge
+    runs-on: ubuntu-slim
     outputs:
-      build_output_failure: ${{ steps.edge_build_failure.outputs.build_output }}
+      output_failure: ${{ steps.edge_build_failure.outputs.result }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-        
+        uses: actions/checkout@v6.0.2
+
       - name: Setup Go environment
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6.3.0
         with:
-          go-version: 1.20.x
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Build Polygon Edge
-        run: go build -tags netgo -ldflags="-s -w -linkmode external -extldflags "-static" -X \"github.com/0xPolygon/polygon-edge/versioning.Version=${GITHUB_REF_NAME}\" -X \"github.com/0xPolygon/polygon-edge/versioning.Commit=${GITHUB_SHA}\"" && tar -czvf polygon-edge.tar.gz polygon-edge
+        run: go build -tags netgo -ldflags="-s -w -linkmode external -extldflags "-static" -X \"github.com/${GITHUB_REPOSITORY}/versioning.Version=${GITHUB_REF_NAME}\" -X \"github.com/${GITHUB_REPOSITORY}/versioning.Commit=${GITHUB_SHA}\"" && tar -czvf polygon-edge.tar.gz polygon-edge
         env:
           CC: gcc
           CXX: g++
@@ -35,10 +34,10 @@ jobs:
       - name: Build Polygon Edge Failed
         if: failure()
         id: edge_build_failure
-        run: echo "build_output=false" >> $GITHUB_OUTPUT
+        run: echo "result=false" >> $GITHUB_OUTPUT
 
-      - name: 'Upload Artifact'
-        uses: actions/upload-artifact@v3
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: polygon-edge
           path: polygon-edge.tar.gz
@@ -46,18 +45,18 @@ jobs:
 
   go_build_reproducibility:
     name: Verify Build Reproducibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     continue-on-error: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Go environment
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6.3.0
         with:
-          go-version: 1.20.x
+          go-version: ${{ vars.GO_VERSION }}
 
-      - name: 'Reproduce builds'
+      - name: Reproduce builds
         continue-on-error: true
         run: |
           go build -o ./edge-1 -trimpath -buildvcs=false

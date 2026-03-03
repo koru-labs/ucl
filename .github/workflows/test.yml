@@ -1,30 +1,26 @@
 ---
-name: Test
+name: Unit Tests
 on:  # yamllint disable-line rule:truthy
-  workflow_dispatch:
   workflow_call:
-    secrets:
-      SONAR_TOKEN:
-        required: false
     outputs:
       workflow_output:
-        description: "Unit tests output"
-        value: ${{ jobs.go_test.outputs.test_output_failure }}
+        description: Unit tests output
+        value: ${{ jobs.unit_test.outputs.output_failure }}
 
 jobs:
-  go_test:
-    name: Polygon Edge
+  unit_test:
+    name: Run Unit Tests
     runs-on: ubuntu-latest
     outputs:
-      test_output_failure: ${{ steps.run_tests_failure.outputs.test_output }}
+      output_failure: ${{ steps.tests_failure.outputs.result }}
     steps:
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6.3.0
         with:
-          go-version: 1.20.x
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
@@ -37,13 +33,5 @@ jobs:
 
       - name: Run Go Test Failed
         if: failure()
-        id: run_tests_failure
-        run: echo "test_output=false" >> $GITHUB_OUTPUT
-
-      - name: SonarCloud Scan
-        if: ${{ env.HAVE_SONAR_TOKEN == 'true' }}
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          HAVE_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        id: tests_failure
+        run: echo "result=false" >> $GITHUB_OUTPUT
