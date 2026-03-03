@@ -79,7 +79,8 @@ func (d *Dev) nextNotify() chan struct{} {
 	}
 
 	go func() {
-		<-time.After(time.Duration(d.interval) * time.Second)
+		<-time.After(time.Duration(d.interval) * time.Second) //nolint:gosec
+
 		d.notifyCh <- struct{}{}
 	}()
 

@@ -75,7 +75,7 @@ func TestWS_Response(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to connect to WS: %v", err)
 	}
-	defer ws.Close()
+	defer ws.Close() //nolint:errcheck
 
 	t.Run("Valid account balance", func(t *testing.T) {
 		requestID := 1

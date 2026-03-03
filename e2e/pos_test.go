@@ -134,6 +134,7 @@ func TestPoS_ValidatorBoundaries(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)
@@ -195,6 +196,7 @@ func TestPoS_Stake(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)
@@ -258,6 +260,7 @@ func TestPoS_Unstake(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 	srv := ibftManager.GetServer(0)
 
@@ -802,6 +805,7 @@ func TestSnapshotUpdating(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 	firstValidator := ibftManager.GetServer(0)
 

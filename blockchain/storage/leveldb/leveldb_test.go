@@ -170,6 +170,7 @@ func generateBlocks(t *testing.T, count int, ch chan *types.FullBlock, ctx conte
 
 	for i := 1; i <= count; i++ {
 		b := generateBlock(t, uint64(i))
+
 		select {
 		case <-ctx.Done():
 			close(ch)
@@ -207,7 +208,7 @@ func dirSize(t *testing.T, path string) int64 {
 
 func TestWriteFullBlock(t *testing.T) {
 	s, _, path := newStorageP(t)
-	defer s.Close()
+	defer s.Close() //nolint:errcheck
 
 	count := 100
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*45)

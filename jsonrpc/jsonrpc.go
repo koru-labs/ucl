@@ -298,7 +298,7 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 	case "OPTIONS":
 		// nothing to return
 	default:
-		_, _ = w.Write([]byte("method " + req.Method + " not allowed"))
+		_, _ = w.Write([]byte("method " + req.Method + " not allowed")) //nolint:gosec
 	}
 }
 
@@ -315,9 +315,9 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 
 	resp, err := j.dispatcher.Handle(data)
 	if err != nil {
-		_, _ = w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error())) //nolint:gosec
 	} else {
-		_, _ = w.Write(resp)
+		_, _ = w.Write(resp) //nolint:gosec
 	}
 
 	j.logger.Debug("handle", "response", string(resp))

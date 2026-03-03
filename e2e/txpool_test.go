@@ -228,6 +228,7 @@ func TestTxPool_TransactionCoalescing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)

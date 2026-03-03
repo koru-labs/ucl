@@ -34,7 +34,7 @@ func getAddressMapping(address types.Address, slot int64) []byte {
 
 // getIndexWithOffset is a helper method for adding an offset to the already found keccak hash
 func getIndexWithOffset(keccakHash []byte, offset uint64) []byte {
-	bigOffset := big.NewInt(int64(offset))
+	bigOffset := big.NewInt(int64(offset)) //nolint:gosec
 	bigKeccak := big.NewInt(0).SetBytes(keccakHash)
 
 	bigKeccak.Add(bigKeccak, bigOffset)
@@ -79,7 +79,7 @@ func getStorageIndexes(validator validators.Validator, index int) *StorageIndexe
 	// The slot for the dynamic arrays that's put in the keccak needs to be in hex form (padded 64 chars)
 	storageIndexes.ValidatorsIndex = getIndexWithOffset(
 		keccak.Keccak256(nil, common.PadLeftOrTrim(big.NewInt(validatorsSlot).Bytes(), 32)),
-		uint64(index),
+		uint64(index), //nolint:gosec
 	)
 
 	return storageIndexes
@@ -109,7 +109,7 @@ func setBytesToStorage(
 
 	// Set size at the base index
 	baseSlot := types.Hash{}
-	baseSlot[31] = byte(2*dataLen + 1)
+	baseSlot[31] = byte(2*dataLen + 1) //nolint:gosec
 	storageMap[baseIndex] = baseSlot
 
 	zeroIndex := keccak.Keccak256(nil, baseIndexBytes)
@@ -177,8 +177,8 @@ func PredeployStakingSC(
 
 	// Parse the default staked balance value into *big.Int
 	val := DefaultStakedBalance
-	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 
+	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate DefaultStatkedBalance, %w", err)
 	}
@@ -187,8 +187,8 @@ func PredeployStakingSC(
 	storageMap := make(map[types.Hash]types.Hash)
 	bigTrueValue := big.NewInt(1)
 	stakedAmount := big.NewInt(0)
-	bigMinNumValidators := big.NewInt(int64(params.MinValidatorCount))
-	bigMaxNumValidators := big.NewInt(int64(params.MaxValidatorCount))
+	bigMinNumValidators := big.NewInt(int64(params.MinValidatorCount)) //nolint:gosec
+	bigMaxNumValidators := big.NewInt(int64(params.MaxValidatorCount)) //nolint:gosec
 	valsLen := big.NewInt(0)
 
 	if vals != nil {

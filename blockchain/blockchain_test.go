@@ -599,7 +599,8 @@ func TestBlockchainWriteBody(t *testing.T) {
 		txFromByTxHash := map[types.Hash]types.Address{}
 
 		chain := newChain(t, txFromByTxHash, "t1")
-		defer chain.db.Close()
+		defer chain.db.Close() //nolint:errcheck
+
 		batchWriter := storage.NewBatchWriter(chain.db)
 
 		assert.NoError(
@@ -630,7 +631,8 @@ func TestBlockchainWriteBody(t *testing.T) {
 		txFromByTxHash := map[types.Hash]types.Address{}
 
 		chain := newChain(t, txFromByTxHash, "t2")
-		defer chain.db.Close()
+		defer chain.db.Close() //nolint:errcheck
+
 		batchWriter := storage.NewBatchWriter(chain.db)
 
 		assert.ErrorIs(
@@ -664,7 +666,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 		}
 
 		chain := newChain(t, txFromByTxHash, "t3")
-		defer chain.db.Close()
+		defer chain.db.Close() //nolint:errcheck
 		batchWriter := storage.NewBatchWriter(chain.db)
 
 		batchWriter.PutHeader(block.Header)

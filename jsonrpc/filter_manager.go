@@ -367,6 +367,7 @@ func (f *FilterManager) Run() {
 			if evnt == nil {
 				return
 			}
+
 			blockWatchCh <- evnt
 		}
 	}()

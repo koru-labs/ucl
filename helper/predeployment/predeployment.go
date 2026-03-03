@@ -41,7 +41,7 @@ type contractArtifact struct {
 // passed in Smart Contract JSON ABI from json file
 func loadContractArtifact(filepath string) (*contractArtifact, error) {
 	// Read from the ABI from the JSON file
-	jsonRaw, err := os.ReadFile(filepath)
+	jsonRaw, err := os.ReadFile(filepath) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}

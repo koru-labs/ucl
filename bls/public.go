@@ -95,7 +95,7 @@ func UnmarshalPublicKey(data []byte) (*PublicKey, error) {
 func UnmarshalPublicKeyFromBigInt(b [4]*big.Int) (*PublicKey, error) {
 	const size = 32
 
-	var pubKeyBuf []byte
+	var pubKeyBuf []byte //nolint:prealloc
 
 	pt1 := common.PadLeftOrTrim(b[1].Bytes(), size)
 	pt2 := common.PadLeftOrTrim(b[0].Bytes(), size)

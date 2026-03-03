@@ -42,6 +42,7 @@ func Test_VerifySignature_NegativeCases(t *testing.T) {
 
 	// Get a random integer between 1 and 1000
 	mRand.Seed(time.Now().UTC().UnixNano())
+
 	messageSize := mRand.Intn(1000) + 1
 
 	validTestMsg := testGenRandomBytes(t, messageSize)

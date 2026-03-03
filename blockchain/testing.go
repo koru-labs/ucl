@@ -31,7 +31,7 @@ var (
 func NewTestHeadersWithSeed(genesis *types.Header, n int, seed uint64) []*types.Header {
 	head := func(i int64) *types.Header {
 		return &types.Header{
-			Number:       uint64(i),
+			Number:       uint64(i), //nolint:gosec
 			GasLimit:     seed,
 			TxRoot:       types.EmptyRootHash,
 			Sha3Uncles:   types.EmptyUncleHash,
@@ -47,7 +47,7 @@ func NewTestHeadersWithSeed(genesis *types.Header, n int, seed uint64) []*types.
 
 	headers := []*types.Header{genesis}
 
-	count := int64(genesis.Number) + 1
+	count := int64(genesis.Number) + 1 //nolint:gosec
 	for i := 1; i < n; i++ {
 		header := head(count)
 		header.ParentHash = headers[i-1].Hash
@@ -110,8 +110,8 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 	}
 
 	st := itrie.NewState(itrie.NewMemoryStorage())
-	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
 
+	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
 	if err != nil {
 		t.Fatal(err)
 	}

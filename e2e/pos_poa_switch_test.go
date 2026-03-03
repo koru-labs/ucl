@@ -65,6 +65,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 	// Start servers
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	// Test in PoA

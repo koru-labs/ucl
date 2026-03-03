@@ -116,6 +116,7 @@ func TestRetryForever_AlwaysReturnError_ShouldNeverEnd(t *testing.T) {
 
 		ended = true
 	}()
+
 	time.Sleep(interval * 10)
 	require.False(t, ended)
 }

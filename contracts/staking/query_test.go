@@ -29,7 +29,7 @@ func leftPad(buf []byte, n int) []byte {
 }
 
 func appendAll(bytesArrays ...[]byte) []byte {
-	var res []byte
+	var res []byte //nolint:prealloc
 
 	for idx := range bytesArrays {
 		res = append(res, bytesArrays[idx]...)

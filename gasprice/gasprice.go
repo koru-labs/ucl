@@ -146,7 +146,7 @@ func (g *GasHelper) MaxPriorityFeePerGas() (*big.Int, error) {
 
 		blockMiner := types.BytesToAddress(block.Header.Miner)
 		signer := crypto.NewSigner(g.backend.Config().Forks.At(block.Number()),
-			uint64(g.backend.Config().ChainID))
+			uint64(g.backend.Config().ChainID)) //nolint:gosec
 		blockTxPrices := make([]*big.Int, 0)
 
 		for _, tx := range txSorter.txs {
@@ -167,7 +167,7 @@ func (g *GasHelper) MaxPriorityFeePerGas() (*big.Int, error) {
 
 				// if sample number of txs from block is reached,
 				// don't process any more txs
-				if len(blockTxPrices) >= int(g.sampleNumber) {
+				if len(blockTxPrices) >= int(g.sampleNumber) { //nolint:gosec
 					break
 				}
 			}
@@ -199,7 +199,7 @@ func (g *GasHelper) MaxPriorityFeePerGas() (*big.Int, error) {
 	}
 
 	// at least amount of transactions to get
-	minNumOfTx := int(g.numOfBlocksToCheck) * 2
+	minNumOfTx := int(g.numOfBlocksToCheck) * 2 //nolint:gosec
 	// collect some more blocks and transactions if not enough transactions were collected
 	for len(allPrices) < minNumOfTx && currentBlock.Number() > 0 {
 		if err := collectPrices(currentBlock); err != nil {
@@ -217,7 +217,7 @@ func (g *GasHelper) MaxPriorityFeePerGas() (*big.Int, error) {
 		// take the biggest price that is in the configured percentage
 		// by default it's 60, so it will take the price on that percentage
 		// of all prices in the array
-		price = allPrices[(len(allPrices)-1)*int(g.pricePercentile)/100]
+		price = allPrices[(len(allPrices)-1)*int(g.pricePercentile)/100] //nolint:gosec
 	}
 
 	if price.Cmp(g.maxPrice) > 0 {

@@ -182,6 +182,7 @@ func TestGasHelper_FeeHistory(t *testing.T) {
 			},
 			GetBackend: func() Blockchain {
 				backend := createTestBlocks(t, 10)
+
 				rand.Seed(time.Now().UTC().UnixNano())
 
 				senderKey, sender := tests.GenerateKeyAndAddr(t)
@@ -205,6 +206,7 @@ func TestGasHelper_FeeHistory(t *testing.T) {
 
 						tx, err := signer.SignTx(tx, senderKey)
 						require.NoError(t, err)
+
 						b.Transactions[i] = tx
 					}
 				}

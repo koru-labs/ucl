@@ -253,6 +253,7 @@ func Test_processExportStream(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buffer bytes.Buffer
+
 			from, to, err := processExportStream(tt.mockSystemExportClient, hclog.NewNullLogger(), &buffer, 0, 0)
 
 			assert.Equal(t, tt.err, err)

@@ -215,10 +215,10 @@ func TestFilterValue(t *testing.T) {
 
 		// Convert to right format
 		var (
-			placeholderWrapper []*ethgo.Hash
+			placeholderWrapper []*ethgo.Hash //nolint:prealloc
 			placeholder        ethgo.Hash
-			filterEventHashes  [][]*ethgo.Hash
-			filterAddresses    []ethgo.Address
+			filterEventHashes  [][]*ethgo.Hash //nolint:prealloc
+			filterAddresses    []ethgo.Address //nolint:prealloc
 		)
 
 		copy(placeholder[:], buf)

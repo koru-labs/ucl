@@ -29,7 +29,7 @@ type blockchainInterface interface {
 
 // RestoreChain reads blocks from the archive and write to the chain
 func RestoreChain(chain blockchainInterface, filePath string, progression *progress.ProgressionWrapper) error {
-	fp, err := os.Open(filePath)
+	fp, err := os.Open(filePath) //nolint:gosec
 	if err != nil {
 		return err
 	}

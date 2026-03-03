@@ -72,6 +72,7 @@ func TestGasHelper_MaxPriorityFeePerGas(t *testing.T) {
 			Expected: DefaultGasHelperConfig.LastPrice, // should return last (default) price
 			GetBackend: func() Blockchain {
 				backend := createTestBlocks(t, 10)
+
 				rand.Seed(time.Now().UTC().UnixNano())
 
 				senderKey, sender := tests.GenerateKeyAndAddr(t)

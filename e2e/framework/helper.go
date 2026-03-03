@@ -440,7 +440,9 @@ func FindAvailablePorts(n, from, to int) ([]ReservedPort, error) {
 		if newPort == nil {
 			// Close current reserved ports
 			for _, p := range ports {
-				p.Close()
+				if err := p.Close(); err != nil {
+					return nil, err
+				}
 			}
 
 			return nil, errors.New("couldn't reserve required number of ports")
@@ -552,6 +554,7 @@ func WaitForServersToSeal(servers []*TestServer, desiredHeight uint64) []error {
 
 		go func(indx int) {
 			waitCtx, waitCancelFn := context.WithTimeout(context.Background(), time.Minute)
+
 			defer func() {
 				waitCancelFn()
 				wg.Done()

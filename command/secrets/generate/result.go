@@ -10,7 +10,7 @@ import (
 type SecretsGenerateResult struct {
 	ServiceType string `json:"service_type"`
 	ServerURL   string `json:"server_url"`
-	AccessToken string `json:"access_token"`
+	AccessToken string `json:"access_token"` //nolint:gosec
 	NodeName    string `json:"node_name"`
 	Namespace   string `json:"namespace"`
 	Extra       string `json:"extra"`

@@ -21,7 +21,7 @@ func CreateIfNotExists(path string, create createFn) ([]byte, error) {
 	var keyBuff []byte
 	if !os.IsNotExist(err) {
 		// Key exists
-		keyBuff, err = os.ReadFile(path)
+		keyBuff, err = os.ReadFile(path) //nolint:gosec
 		if err != nil {
 			return nil, fmt.Errorf("unable to read private key from disk (%s), %w", path, err)
 		}

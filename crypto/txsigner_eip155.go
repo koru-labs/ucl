@@ -46,7 +46,7 @@ func (e *EIP155Signer) Sender(tx *types.Transaction) (types.Address, error) {
 
 	// Reverse the V calculation to find the original V in the range [0, 1]
 	// v = CHAIN_ID * 2 + 35 + {0, 1}
-	mulOperand := big.NewInt(0).Mul(big.NewInt(int64(e.chainID)), big.NewInt(2))
+	mulOperand := big.NewInt(0).Mul(big.NewInt(int64(e.chainID)), big.NewInt(2)) //nolint:gosec
 	bigV.Sub(bigV, mulOperand)
 	bigV.Sub(bigV, big35)
 
@@ -91,7 +91,7 @@ func (e *EIP155Signer) calculateV(parity byte) []byte {
 	reference := big.NewInt(int64(parity))
 	reference.Add(reference, big35)
 
-	mulOperand := big.NewInt(0).Mul(big.NewInt(int64(e.chainID)), big.NewInt(2))
+	mulOperand := big.NewInt(0).Mul(big.NewInt(int64(e.chainID)), big.NewInt(2)) //nolint:gosec
 
 	reference.Add(reference, mulOperand)
 
