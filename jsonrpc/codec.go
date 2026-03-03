@@ -204,7 +204,7 @@ func stringToBlockNumber(str string) (BlockNumber, error) {
 		return 0, err
 	}
 
-	return BlockNumber(n), nil
+	return BlockNumber(n), nil //nolint:gosec
 }
 
 func createBlockNumberPointer(str string) (*BlockNumber, error) {

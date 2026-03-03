@@ -198,7 +198,6 @@ func TestFilterValue(t *testing.T) {
 		defer deployCancel()
 
 		contractAddr, err := srv.DeployContract(deployCtx, bloomFilterTestBytecode, key)
-
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,7 +247,6 @@ func TestFilterValue(t *testing.T) {
 			GasPrice:      big.NewInt(framework.DefaultGasPrice),
 			Input:         framework.MethodSig("TriggerMyEvent"),
 		})
-
 		if err != nil {
 			return
 		}

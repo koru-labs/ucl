@@ -714,7 +714,6 @@ func TestSubscribe(t *testing.T) {
 				},
 			},
 		)
-
 		if err != nil {
 			t.Fatalf("Unable to create server, %v", err)
 		}

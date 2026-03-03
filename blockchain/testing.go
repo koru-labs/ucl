@@ -36,7 +36,7 @@ func NewTestHeadersWithSeed(genesis *types.Header, n int, seed uint64) []*types.
 			TxRoot:       types.EmptyRootHash,
 			Sha3Uncles:   types.EmptyUncleHash,
 			ReceiptsRoot: types.EmptyRootHash,
-			Difficulty:   uint64(i),
+			Difficulty:   uint64(i), //nolint:gosec
 		}
 	}
 

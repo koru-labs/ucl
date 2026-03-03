@@ -64,9 +64,9 @@ func GetBlockHeader(number BlockNumber, store headerGetter) (*types.Header, erro
 
 	default:
 		// Convert the block number from hex to uint64
-		header, ok := store.GetHeaderByNumber(uint64(number))
+		header, ok := store.GetHeaderByNumber(uint64(number)) //nolint:gosec
 		if !ok {
-			return nil, fmt.Errorf("error fetching block number %d header", uint64(number))
+			return nil, fmt.Errorf("error fetching block number %d header", uint64(number)) //nolint:gosec
 		}
 
 		return header, nil

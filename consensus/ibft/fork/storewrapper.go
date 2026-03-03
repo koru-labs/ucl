@@ -102,7 +102,6 @@ func NewSnapshotValidatorStoreWrapper(
 		snapshotMeta,
 		snapshots,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +132,6 @@ func NewContractValidatorStoreWrapper(
 		executor,
 		contract.DefaultValidatorSetCacheSize,
 	)
-
 	if err != nil {
 		return nil, err
 	}

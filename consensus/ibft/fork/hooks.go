@@ -107,7 +107,6 @@ func registerStakingContractDeploymentHooks(
 				fork.Validators,
 				getPreDeployParams(fork),
 			)
-
 			if err != nil {
 				return err
 			}

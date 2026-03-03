@@ -68,8 +68,8 @@ func NewIBFTServersManager(
 			config.SetName(fmt.Sprintf("node-%d", i))
 			callback(i, config)
 		})
-		res, err := srv.SecretsInit()
 
+		res, err := srv.SecretsInit()
 		if err != nil {
 			t.Fatal(err)
 		}

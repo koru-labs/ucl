@@ -96,7 +96,7 @@ func toTransaction(
 	}
 
 	if txIndex != nil {
-		res.TxIndex = argUintPtr(uint64(*txIndex))
+		res.TxIndex = argUintPtr(uint64(*txIndex)) //nolint:gosec
 	}
 
 	return res

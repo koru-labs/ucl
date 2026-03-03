@@ -236,8 +236,8 @@ func (s *KeyValueStorage) read2(p, k []byte, parser *fastrlp.Parser) *fastrlp.Va
 
 func (s *KeyValueStorage) get(p []byte, k []byte) ([]byte, bool) {
 	p = append(p, k...)
-	data, ok, err := s.db.Get(p)
 
+	data, ok, err := s.db.Get(p)
 	if err != nil {
 		return nil, false
 	}

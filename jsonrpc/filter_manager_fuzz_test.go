@@ -152,10 +152,10 @@ func FuzzGetLogFilterFromID(f *testing.F) {
 			toBlock:   BlockNumber(toBlock),
 			fromBlock: BlockNumber(fromBlock),
 		}
+
 		retrivedLogFilter, err := m.GetLogFilterFromID(
 			m.NewLogFilter(logFilter, &MockClosedWSConnection{}),
 		)
-
 		if err != nil {
 			assert.Equal(t, logFilter, retrivedLogFilter.query)
 		}

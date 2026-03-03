@@ -83,7 +83,6 @@ func (q *LogQuery) UnmarshalJSON(data []byte) error {
 	}
 
 	err := json.Unmarshal(data, &obj)
-
 	if err != nil {
 		return err
 	}

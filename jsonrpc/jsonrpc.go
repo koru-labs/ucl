@@ -31,7 +31,7 @@ func (s serverType) String() string {
 	case serverWS:
 		return "ws"
 	default:
-		panic("BUG: Not expected") //nolint:gocritic
+		panic("BUG: Not expected")
 	}
 }
 
@@ -87,7 +87,6 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
 		},
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +194,8 @@ func (w *wsWrapper) GetFilterID() string {
 func (w *wsWrapper) WriteMessage(messageType int, data []byte) error {
 	w.Lock()
 	defer w.Unlock()
-	writeErr := w.ws.WriteMessage(messageType, data)
 
+	writeErr := w.ws.WriteMessage(messageType, data)
 	if writeErr != nil {
 		w.logger.Error(
 			fmt.Sprintf("Unable to write WS message, %s", writeErr.Error()),
@@ -226,7 +225,7 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 
 	// Set a read limit (maximum message size) for this connection
 	if j.config.WebSocketReadLimit != 0 {
-		ws.SetReadLimit(int64(j.config.WebSocketReadLimit))
+		ws.SetReadLimit(int64(j.config.WebSocketReadLimit)) //nolint:gosec
 	}
 
 	// Defer WS closure

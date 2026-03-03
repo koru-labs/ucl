@@ -45,8 +45,8 @@ func getBigDefaultStakedBalance(t *testing.T) *big.Int {
 	t.Helper()
 
 	val := stakingHelper.DefaultStakedBalance
-	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 
+	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 	if err != nil {
 		t.Fatalf("unable to parse DefaultStakedBalance, %v", err)
 	}
@@ -435,8 +435,8 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError = framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError = framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -592,8 +592,8 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -725,8 +725,8 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -839,7 +839,6 @@ func TestSnapshotUpdating(t *testing.T) {
 		stakeAmount,
 		firstValidator,
 	)
-
 	if stakeError != nil {
 		t.Fatalf("Unable to stake amount, %v", stakeError)
 	}
@@ -876,8 +875,8 @@ func TestSnapshotUpdating(t *testing.T) {
 		referenceAddr types.Address,
 	) bool {
 		snapshotCtx, ctxCancelFn := context.WithTimeout(context.Background(), time.Second*5)
-		snapshot, snapshotErr := getSnapshot(client, blockNumber, snapshotCtx)
 
+		snapshot, snapshotErr := getSnapshot(client, blockNumber, snapshotCtx)
 		if snapshotErr != nil {
 			t.Fatalf("Unable to fetch snapshot, %v", snapshotErr)
 		}

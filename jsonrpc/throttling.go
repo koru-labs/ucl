@@ -19,7 +19,7 @@ type Throttling struct {
 // NewThrottling creates new throttling and limits number of concurrent requests to maximumConcurrentRequests
 func NewThrottling(maximumConcurrentRequests uint64, timeout time.Duration) *Throttling {
 	return &Throttling{
-		sem:     semaphore.NewWeighted(int64(maximumConcurrentRequests)),
+		sem:     semaphore.NewWeighted(int64(maximumConcurrentRequests)), //nolint:gosec
 		timeout: timeout,
 	}
 }

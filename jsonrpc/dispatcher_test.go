@@ -188,8 +188,8 @@ func TestDispatcher_WebsocketConnection_RequestFormats(t *testing.T) {
 	for _, c := range cases {
 		data, err := dispatcher.HandleWs(c.msg, mockConnection)
 		resp := new(SuccessResponse)
-		merr := json.Unmarshal(data, resp)
 
+		merr := json.Unmarshal(data, resp)
 		if merr != nil {
 			t.Fatal("Invalid response")
 		}

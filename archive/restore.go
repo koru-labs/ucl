@@ -246,20 +246,20 @@ func (b *blockStream) loadPrefixSize(offset uint64, prefix byte) (uint64, uint64
 
 		b.reserveCap(offset + payloadSizeSize)
 		payloadSizeBytes := b.buffer[offset : offset+payloadSizeSize]
-		n, err := b.input.Read(payloadSizeBytes)
 
+		n, err := b.input.Read(payloadSizeBytes)
 		if err != nil {
 			return 0, 0, err
 		}
 
-		if uint64(n) < payloadSizeSize {
+		if uint64(n) < payloadSizeSize { //nolint:gosec
 			// couldn't load required amount of bytes
 			return 0, 0, io.EOF
 		}
 
 		payloadSize := new(big.Int).SetBytes(payloadSizeBytes).Int64()
 
-		return payloadSizeSize + 1, uint64(payloadSize), nil
+		return payloadSizeSize + 1, uint64(payloadSize), nil //nolint:gosec
 	}
 
 	return 0, 0, errors.New("expected array but got bytes")
@@ -303,7 +303,7 @@ func (b *blockStream) parseBlock(size uint64) (*types.Block, error) {
 
 // reserveCap makes sure the internal buffer has given size
 func (b *blockStream) reserveCap(size uint64) {
-	if diff := int64(size) - int64(cap(b.buffer)); diff > 0 {
+	if diff := int64(size) - int64(cap(b.buffer)); diff > 0 { //nolint:gosec
 		b.buffer = append(b.buffer[:cap(b.buffer)], make([]byte, diff)...)
 	} else {
 		b.buffer = b.buffer[:size]

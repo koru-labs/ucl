@@ -121,7 +121,6 @@ func (i *backendIBFT) IsValidValidator(msg *protoIBFT.IbftMessage) bool {
 		msg.Signature,
 		msgNoSig,
 	)
-
 	if err != nil {
 		i.logger.Error("failed to ecrecover message", "err", err)
 
@@ -201,7 +200,6 @@ func (i *backendIBFT) IsValidCommittedSeal(
 		committedSeal.Signature,
 		proposalHash,
 	)
-
 	if err != nil {
 		i.logger.Error("IsValidCommittedSeal: failed to verify committed seal", "err", err)
 

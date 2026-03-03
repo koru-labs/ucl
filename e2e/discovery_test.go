@@ -43,7 +43,6 @@ func TestDiscovery(t *testing.T) {
 
 			for i, s := range srvs {
 				status, err := s.Operator().GetStatus(context.Background(), &empty.Empty{})
-
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -80,7 +79,6 @@ func TestDiscovery(t *testing.T) {
 					defer cancel()
 
 					res, err := framework.WaitUntilPeerConnects(ctx, srv, tt.numInitConnectNodes-1)
-
 					if err != nil {
 						if shouldKnowPeers {
 							t.Error(err)

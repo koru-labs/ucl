@@ -111,7 +111,7 @@ func determineTo(ctx context.Context, clt proto.SystemClient, to *uint64) (uint6
 		return 0, types.Hash{}, err
 	}
 
-	if to != nil && *to < uint64(status.Current.Number) {
+	if to != nil && *to < uint64(status.Current.Number) { //nolint:gosec
 		// check the existence of the block when you have targetTo
 		resp, err := clt.BlockByNumber(ctx, &proto.BlockByNumberRequest{Number: *to})
 		if err == nil && resp != nil {
@@ -124,7 +124,7 @@ func determineTo(ctx context.Context, clt proto.SystemClient, to *uint64) (uint6
 	}
 
 	// otherwise use latest block number as to
-	return uint64(status.Current.Number), types.StringToHash(status.Current.Hash), nil
+	return uint64(status.Current.Number), types.StringToHash(status.Current.Hash), nil //nolint:gosec
 }
 
 // writeMetadata writes the latest block height and the block hash to the writer

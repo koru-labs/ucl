@@ -158,8 +158,8 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     num + 1,
-		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
-		Timestamp:  uint64(time.Now().UTC().Unix()),
+		GasLimit:   parent.GasLimit,                 // Inherit from parent for now, will need to adjust dynamically later.
+		Timestamp:  uint64(time.Now().UTC().Unix()), //nolint:gosec
 	}
 
 	// calculate gas limit based on parent header
@@ -177,7 +177,6 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	}
 
 	transition, err := d.executor.BeginTxn(parent.StateRoot, header, miner)
-
 	if err != nil {
 		return err
 	}

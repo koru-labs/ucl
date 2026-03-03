@@ -244,6 +244,7 @@ func getCount(
 	}
 
 	selector := stressTestMethod.ID()
+
 	response, err := rpcClient.Eth().Call(
 		&ethgo.CallMsg{
 			From:     ethgo.Address(from),
@@ -254,7 +255,6 @@ func getCount(
 		},
 		ethgo.Latest,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to call StressTest contract method, %w", err)
 	}
@@ -264,7 +264,6 @@ func getCount(
 	}
 
 	bigResponse, decodeErr := common.ParseUint256orHex(&response)
-
 	if decodeErr != nil {
 		return nil, fmt.Errorf("wnable to decode hex response, %w", decodeErr)
 	}
@@ -405,8 +404,8 @@ func Test_TransactionIBFTLoop(t *testing.T) {
 			Value:    big.NewInt(0),
 			Input:    buf,
 		}
-		receipt, err := srv.SendRawTx(deployCtx, deployTx, senderKey)
 
+		receipt, err := srv.SendRawTx(deployCtx, deployTx, senderKey)
 		if err != nil {
 			t.Fatalf("Unable to send transaction, %v", err)
 		}

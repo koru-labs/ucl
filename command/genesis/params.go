@@ -281,7 +281,6 @@ func (p *genesisParams) setValidatorSetFromPrefixPath() error {
 		p.validatorsPrefixPath,
 		p.ibftValidatorType,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to read from prefix: %w", err)
 	}
@@ -324,7 +323,7 @@ func (p *genesisParams) initValidatorSet() error {
 }
 
 func (p *genesisParams) isValidatorNumberValid() bool {
-	return p.ibftValidators == nil || uint64(p.ibftValidators.Len()) <= p.maxNumValidators
+	return p.ibftValidators == nil || uint64(p.ibftValidators.Len()) <= p.maxNumValidators //nolint:gosec
 }
 
 func (p *genesisParams) initIBFTExtraData() {
@@ -412,7 +411,7 @@ func (p *genesisParams) initGenesisConfig() error {
 			GasUsed:    command.DefaultGenesisGasUsed,
 		},
 		Params: &chain.Params{
-			ChainID: int64(p.chainID),
+			ChainID: int64(p.chainID), //nolint:gosec
 			Forks:   enabledForks,
 			Engine:  p.consensusEngineConfig,
 		},

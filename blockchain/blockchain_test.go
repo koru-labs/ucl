@@ -667,12 +667,11 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash, "t3")
 		defer chain.db.Close() //nolint:errcheck
-		batchWriter := storage.NewBatchWriter(chain.db)
 
+		batchWriter := storage.NewBatchWriter(chain.db)
 		batchWriter.PutHeader(block.Header)
 
 		assert.NoError(t, chain.writeBody(batchWriter, block))
-
 		assert.NoError(t, batchWriter.WriteBatch())
 
 		readBody, ok := chain.readBody(block.Hash())
