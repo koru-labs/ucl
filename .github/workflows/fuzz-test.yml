@@ -15,13 +15,13 @@ jobs:
     outputs:
       output_failure: ${{ steps.fuzz_failure.outputs.result }}
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6.0.2
+
       - name: Setup Go
         uses: actions/setup-go@v6.3.0
         with:
           go-version: ${{ vars.GO_VERSION }}
-
-      - name: Checkout Code
-        uses: actions/checkout@v6.0.2
 
       - name: Run Fuzz Test
         run: make fuzz-test
