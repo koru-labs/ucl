@@ -487,7 +487,7 @@ func TestECDSAKeyManager_verifyCommittedSealsImpl(t *testing.T) {
 			msg:         msg,
 			validators:  validators.NewECDSAValidatorSet(),
 			expectedRes: 0,
-			expectedErr: errors.New("invalid compact signature size"),
+			expectedErr: errors.New("invalid signature"),
 		},
 		{
 			name: "should return error ErrRepeatedCommittedSeal if CommittedSeal",
