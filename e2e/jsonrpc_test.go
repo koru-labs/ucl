@@ -49,7 +49,7 @@ func TestJsonRPC(t *testing.T) {
 		// Test. return zero if the account does not exists
 		balance1, err := client.GetBalance(key1.Address(), ethgo.Latest)
 		require.NoError(t, err)
-		require.Equal(t, balance1, big.NewInt(0))
+		require.Zero(t, balance1.BitLen()) // check for 0
 
 		// Test. return the balance of an account
 		newBalance := ethgo.Ether(1)
@@ -88,7 +88,7 @@ func TestJsonRPC(t *testing.T) {
 
 		balance1, err = client.GetBalance(key1.Address(), ethgo.Latest)
 		require.NoError(t, err)
-		require.Equal(t, big.NewInt(0), balance1)
+		require.Zero(t, balance1.BitLen()) // check for 0
 	})
 
 	t.Run("eth_getTransactionCount", func(t *testing.T) {
