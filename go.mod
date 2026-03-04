@@ -8,7 +8,7 @@ require (
 	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/btcsuite/btcd v0.22.3
-	github.com/docker/docker v25.0.3+incompatible
+	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
 	github.com/golang/protobuf v1.5.4
@@ -49,6 +49,13 @@ require (
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce
 	gopkg.in/yaml.v3 v3.0.1
 	pgregory.net/rapid v1.2.0
+)
+
+require (
+	github.com/containerd/errdefs v1.0.0 // indirect
+	github.com/containerd/errdefs/pkg v0.3.0 // indirect
+	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 )
 
 require (
