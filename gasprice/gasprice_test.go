@@ -72,6 +72,7 @@ func TestGasHelper_MaxPriorityFeePerGas(t *testing.T) {
 			Expected: DefaultGasHelperConfig.LastPrice, // should return last (default) price
 			GetBackend: func() Blockchain {
 				backend := createTestBlocks(t, 10)
+
 				rand.Seed(time.Now().UTC().UnixNano())
 
 				senderKey, sender := tests.GenerateKeyAndAddr(t)
@@ -247,14 +248,14 @@ type backendMock struct {
 func (b *backendMock) Header() *types.Header {
 	args := b.Called()
 
-	return args.Get(0).(*types.Header) //nolint:forcetypeassert
+	return args.Get(0).(*types.Header)
 }
 
 func (b *backendMock) GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool) {
 	if len(b.blocks) == 0 {
 		args := b.Called(hash, full)
 
-		return args.Get(0).(*types.Block), args.Get(1).(bool) //nolint:forcetypeassert
+		return args.Get(0).(*types.Block), args.Get(1).(bool)
 	}
 
 	block, exists := b.blocks[hash]

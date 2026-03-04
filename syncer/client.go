@@ -14,8 +14,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/armon/go-metrics"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -162,7 +162,7 @@ func (m *syncPeerClient) GetConnectedPeerStatuses() []*NoForkPeer {
 			if err != nil {
 				m.logger.Warn("failed to get status from a peer, skip", "id", peerID, "err", err)
 
-				return //Skip appending nil status
+				return // Skip appending nil status
 			}
 
 			syncPeersLock.Lock()
@@ -384,6 +384,7 @@ func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *types.
 
 			if err != nil {
 				metrics.IncrCounter([]string{syncerMetrics, "bad_message"}, 1)
+
 				errorCh <- err
 
 				break
@@ -392,6 +393,7 @@ func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *types.
 			block, err := fromProto(protoBlock)
 			if err != nil {
 				metrics.IncrCounter([]string{syncerMetrics, "bad_block"}, 1)
+
 				errorCh <- err
 
 				break

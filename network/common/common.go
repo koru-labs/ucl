@@ -32,7 +32,6 @@ func StringToAddrInfo(addr string) (*peer.AddrInfo, error) {
 	}
 
 	addr1, err := peer.AddrInfoFromP2pAddr(addr0)
-
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +124,6 @@ func MultiAddrFromDNS(addr string, port int) (multiaddr.Multiaddr, error) {
 			port,
 		),
 	)
-
 	if err != nil {
 		return nil, errors.New("could not create a multi address")
 	}

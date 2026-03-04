@@ -77,7 +77,6 @@ func (s *systemService) Subscribe(req *empty.Empty, stream proto.System_Subscrib
 		}
 
 		err := stream.Send(pEvent)
-
 		if err != nil {
 			break
 		}
@@ -294,7 +293,6 @@ func (w *blockStreamWriter) flush() error {
 		Latest: w.blockchain.Header().Number,
 		Data:   w.buf.Bytes(),
 	})
-
 	if err != nil {
 		return err
 	}

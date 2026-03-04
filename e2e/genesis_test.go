@@ -78,11 +78,11 @@ func TestGenesisBlockGasLimit(t *testing.T) {
 }
 
 func extractABIFromJSONBody(body string) string {
-	r, _ := regexp.Compile("\"abi\": \\[(?s).*\\]")
+	r := regexp.MustCompile("\"abi\": \\[(?s).*\\]")
 
 	match := r.FindString(body)
 
-	return match[strings.Index(match, "["):]
+	return match[strings.Index(match, "["):] //nolint:gocritic
 }
 
 // ArgGroup is the type of the third argument of HRM contract

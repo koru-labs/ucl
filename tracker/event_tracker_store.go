@@ -52,7 +52,7 @@ func NewEventTrackerStore(
 	}
 
 	if err := store.setupDB(); err != nil {
-		store.Close()
+		store.Close() //nolint
 
 		return nil, err
 	}
@@ -186,8 +186,8 @@ func (b *EventTrackerStore) GetEntry(hash string) (store.Entry, error) {
 }
 
 func (b *EventTrackerStore) getImplEntry(hash string) (*Entry, error) {
-	logsBucketName := append(dbLogs, []byte(hash)...)
-	nextToProcessBucketName := append(dbNextToProcess, []byte(hash)...)
+	logsBucketName := append(dbLogs, []byte(hash)...)                   //nolint:gocritic
+	nextToProcessBucketName := append(dbNextToProcess, []byte(hash)...) //nolint:gocritic
 
 	if err := b.conn.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(logsBucketName); err != nil {

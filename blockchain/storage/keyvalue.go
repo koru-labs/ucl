@@ -1,4 +1,4 @@
-//nolint:stylecheck
+//nolint:staticcheck
 package storage
 
 import (
@@ -182,8 +182,8 @@ func (s *KeyValueStorage) ReadTxLookup(hash types.Hash) (types.Hash, bool) {
 	}
 
 	blockHash := []byte{}
-	blockHash, err := v.GetBytes(blockHash[:0], 32)
 
+	blockHash, err := v.GetBytes(blockHash[:0], 32)
 	if err != nil {
 		return types.Hash{}, false
 	}
@@ -195,8 +195,8 @@ var ErrNotFound = fmt.Errorf("not found")
 
 func (s *KeyValueStorage) readRLP(p, k []byte, raw types.RLPUnmarshaler) error {
 	p = append(p, k...)
-	data, ok, err := s.db.Get(p)
 
+	data, ok, err := s.db.Get(p)
 	if err != nil {
 		return err
 	}
@@ -236,8 +236,8 @@ func (s *KeyValueStorage) read2(p, k []byte, parser *fastrlp.Parser) *fastrlp.Va
 
 func (s *KeyValueStorage) get(p []byte, k []byte) ([]byte, bool) {
 	p = append(p, k...)
-	data, ok, err := s.db.Get(p)
 
+	data, ok, err := s.db.Get(p)
 	if err != nil {
 		return nil, false
 	}

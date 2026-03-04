@@ -150,7 +150,6 @@ func GetNextNonce(address types.Address, number BlockNumber, store nonceGetter) 
 
 	acc, err := store.GetAccount(header.StateRoot, address)
 
-	//nolint:govet
 	if errors.Is(err, ErrStateNotFound) {
 		// If the account doesn't exist / isn't initialized,
 		// return a nonce value of 0
@@ -176,6 +175,7 @@ func DecodeTxn(arg *txnArgs, blockNumber uint64, store nonceGetter, forceSetNonc
 		if err != nil {
 			return nil, err
 		}
+
 		arg.Nonce = argUintPtr(nonce)
 	}
 

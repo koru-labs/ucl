@@ -11,13 +11,14 @@ on: # yamllint disable-line rule:truthy
 jobs:
   golangci_lint:
     name: Run Golang Lint
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     outputs:
       output_failure: ${{ steps.lint_failure.outputs.result }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Install Go
@@ -27,8 +28,9 @@ jobs:
           cache: false
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6.1.1
+        uses: golangci/golangci-lint-action@v9.2.0
         with:
+          version: v2.10.1
           args: --timeout 10m --verbose
 
       - name: Lint Failed

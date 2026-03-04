@@ -21,6 +21,7 @@ func WaitForSubscribers(ctx context.Context, srv *Server, topic string, expected
 		if n := NumSubscribers(srv, topic); n >= expectedNumPeers {
 			return nil
 		}
+
 		select {
 		case <-ctx.Done():
 			return errors.New("canceled")

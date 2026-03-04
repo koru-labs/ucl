@@ -34,7 +34,7 @@ func createTestTempDirectory(t *testing.T) string {
 	}
 
 	t.Cleanup(func() {
-		os.RemoveAll(path)
+		_ = os.RemoveAll(path)
 	})
 
 	return path
@@ -149,6 +149,7 @@ func Test_readDataStore(t *testing.T) {
 
 		dirPath := createTestTempDirectory(t)
 		filePath := path.Join(dirPath, "test.dat")
+
 		var data interface{}
 
 		assert.Equal(

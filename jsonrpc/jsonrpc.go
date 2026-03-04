@@ -87,7 +87,6 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
 		},
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +157,7 @@ func middlewareFactory(config *Config) func(http.Handler) http.Handler {
 					break
 				}
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -194,8 +194,8 @@ func (w *wsWrapper) GetFilterID() string {
 func (w *wsWrapper) WriteMessage(messageType int, data []byte) error {
 	w.Lock()
 	defer w.Unlock()
-	writeErr := w.ws.WriteMessage(messageType, data)
 
+	writeErr := w.ws.WriteMessage(messageType, data)
 	if writeErr != nil {
 		w.logger.Error(
 			fmt.Sprintf("Unable to write WS message, %s", writeErr.Error()),

@@ -281,7 +281,6 @@ func (p *genesisParams) setValidatorSetFromPrefixPath() error {
 		p.validatorsPrefixPath,
 		p.ibftValidatorType,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to read from prefix: %w", err)
 	}

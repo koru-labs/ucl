@@ -10,7 +10,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/common"
 	"github.com/0xPolygon/polygon-edge/network/dial"
 	"github.com/0xPolygon/polygon-edge/network/discovery"
-	"github.com/armon/go-metrics"
+	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	rawGrpc "google.golang.org/grpc"
@@ -433,7 +433,7 @@ func (s *Server) Peers() []*PeerConnInfo {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
-	peers := make([]*PeerConnInfo, 0)
+	peers := make([]*PeerConnInfo, 0) //nolint:prealloc
 	for _, connectionInfo := range s.peers {
 		peers = append(peers, connectionInfo)
 	}
@@ -667,7 +667,7 @@ func (s *Server) Subscribe(ctx context.Context, handler func(evnt *peerEvent.Pee
 	}
 
 	go func() {
-		defer sub.Close()
+		defer sub.Close() //nolint:errcheck
 
 		for {
 			select {

@@ -188,8 +188,8 @@ func TestDispatcher_WebsocketConnection_RequestFormats(t *testing.T) {
 	for _, c := range cases {
 		data, err := dispatcher.HandleWs(c.msg, mockConnection)
 		resp := new(SuccessResponse)
-		merr := json.Unmarshal(data, resp)
 
+		merr := json.Unmarshal(data, resp)
 		if merr != nil {
 			t.Fatal("Invalid response")
 		}
@@ -469,20 +469,25 @@ func TestDispatcherBatchRequest(t *testing.T) {
 			assert.Equal(t, c.err, resp.Error)
 		} else {
 			var batchResp []SuccessResponse
+
 			assert.NoError(t, expectBatchJSONResult(res, &batchResp))
 
-			if c.name == "leading-whitespace" {
+			switch c.name {
+			case "leading-whitespace":
 				assert.Len(t, batchResp, 4)
+
 				for index, resp := range batchResp {
 					assert.Equal(t, c.batchResponse[index].Error, resp.Error)
 				}
-			} else if c.name == "valid-batch-req" {
+			case "valid-batch-req":
 				assert.Len(t, batchResp, 6)
+
 				for index, resp := range batchResp {
 					assert.Equal(t, c.batchResponse[index].Error, resp.Error)
 				}
-			} else if c.name == "no-limits" {
+			case "no-limits":
 				assert.Len(t, batchResp, 12)
+
 				for index, resp := range batchResp {
 					assert.Equal(t, c.batchResponse[index].Error, resp.Error)
 				}

@@ -35,10 +35,10 @@ type (
 
 const (
 	projectID configExtraParamFields = "project-id"
-	//nolint:gosec
-	gcpSSMCredFile configExtraParamFields = "gcp-ssm-cred"
-	//nolint:gosec
-	secretsManagerCredentials envVarsName = "GOOGLE_APPLICATION_CREDENTIALS"
+
+	gcpSSMCredFile configExtraParamFields = "gcp-ssm-cred" //nolint:gosec
+
+	secretsManagerCredentials envVarsName = "GOOGLE_APPLICATION_CREDENTIALS" //nolint:gosec
 )
 
 var (

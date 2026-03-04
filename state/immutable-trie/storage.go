@@ -127,7 +127,7 @@ func (m *memStorage) Put(p []byte, v []byte) error {
 	defer m.l.Unlock()
 
 	buf := make([]byte, len(v))
-	copy(buf[:], v[:])
+	copy(buf, v)
 	m.db[hex.EncodeToHex(p)] = buf
 
 	return nil
@@ -171,7 +171,7 @@ func (m *memBatch) Put(p, v []byte) {
 	defer m.l.Unlock()
 
 	buf := make([]byte, len(v))
-	copy(buf[:], v[:])
+	copy(buf, v)
 	(*m.db)[hex.EncodeToHex(p)] = buf
 }
 
@@ -249,11 +249,13 @@ func decodeNode(v *fastrlp.Value, s Storage) (Node, error) {
 	} else if ll == 17 {
 		// full node
 		nc := &FullNode{}
+
 		for i := 0; i < 16; i++ {
 			if v.Get(i).Type() == fastrlp.TypeBytes && len(v.Get(i).Raw()) == 0 {
 				// empty
 				continue
 			}
+
 			nc.children[i], err = decodeNode(v.Get(i), s)
 			if err != nil {
 				return nil, err
@@ -263,6 +265,7 @@ func decodeNode(v *fastrlp.Value, s Storage) (Node, error) {
 		if v.Get(16).Type() != fastrlp.TypeBytes {
 			return nil, fmt.Errorf("full node value expected to be bytes")
 		}
+
 		if len(v.Get(16).Raw()) != 0 {
 			vv := &ValueNode{}
 			vv.buf = append(vv.buf[:0], v.Get(16).Raw()...)

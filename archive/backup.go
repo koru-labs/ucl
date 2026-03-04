@@ -27,7 +27,7 @@ func CreateBackup(
 	outPath string,
 ) (uint64, uint64, error) {
 	// always create new file, throw error if the file exists
-	fs, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	fs, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return 0, 0, err
 	}

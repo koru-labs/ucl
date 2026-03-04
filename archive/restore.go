@@ -246,8 +246,8 @@ func (b *blockStream) loadPrefixSize(offset uint64, prefix byte) (uint64, uint64
 
 		b.reserveCap(offset + payloadSizeSize)
 		payloadSizeBytes := b.buffer[offset : offset+payloadSizeSize]
-		n, err := b.input.Read(payloadSizeBytes)
 
+		n, err := b.input.Read(payloadSizeBytes)
 		if err != nil {
 			return 0, 0, err
 		}

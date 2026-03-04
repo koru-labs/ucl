@@ -220,8 +220,8 @@ func (d *DiscoveryService) addPeersToTable(nodeAddrStrs []string) {
 // to see their peer list
 func (d *DiscoveryService) attemptToFindPeers(peerID peer.ID) error {
 	d.logger.Debug("Querying a peer for near peers", "peer", peerID)
-	nodes, err := d.findPeersCall(peerID, false)
 
+	nodes, err := d.findPeersCall(peerID, false)
 	if err != nil {
 		return err
 	}

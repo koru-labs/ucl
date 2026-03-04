@@ -50,7 +50,7 @@ const (
 	nonValidatorPrefix = "test-non-validator-"
 
 	// NativeTokenMintableTestCfg is the test native token config for Supernets originated native tokens
-	NativeTokenMintableTestCfg = "Mintable Edge Coin:MEC:18:true:%s" //nolint:gosec
+	NativeTokenMintableTestCfg = "Mintable Edge Coin:MEC:18:true:%s"
 )
 
 type NodeType int
@@ -610,6 +610,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		if proxyAdminAddr == "" {
 			proxyAdminAddr = ProxyContractAdminAddr
 		}
+
 		args = append(args, "--proxy-contracts-admin", proxyAdminAddr)
 
 		// run genesis command with all the arguments

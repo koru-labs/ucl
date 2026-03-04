@@ -182,6 +182,7 @@ func TestGasHelper_FeeHistory(t *testing.T) {
 			},
 			GetBackend: func() Blockchain {
 				backend := createTestBlocks(t, 10)
+
 				rand.Seed(time.Now().UTC().UnixNano())
 
 				senderKey, sender := tests.GenerateKeyAndAddr(t)
@@ -205,6 +206,7 @@ func TestGasHelper_FeeHistory(t *testing.T) {
 
 						tx, err := signer.SignTx(tx, senderKey)
 						require.NoError(t, err)
+
 						b.Transactions[i] = tx
 					}
 				}
@@ -269,7 +271,7 @@ func (b *backendMock) GetBlockByNumber(number uint64, full bool) (*types.Block, 
 	if len(b.blocks) == 0 {
 		args := b.Called(number, full)
 
-		return args.Get(0).(*types.Block), args.Get(1).(bool) //nolint:forcetypeassert
+		return args.Get(0).(*types.Block), args.Get(1).(bool)
 	}
 
 	block, exists := b.blocksByNumber[number]

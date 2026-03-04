@@ -36,6 +36,7 @@ func TestClusterBlockSync(t *testing.T) {
 
 		startContext, startCancelFn := context.WithTimeout(context.Background(), time.Minute)
 		defer startCancelFn()
+
 		ibftManager.StartServers(startContext)
 
 		servers := make([]*framework.TestServer, 0)

@@ -716,7 +716,7 @@ func TestVerifyCommittedSeal(t *testing.T) {
 				assert.Equal(t, testAddr1, author)
 				assert.Equal(t, sig, s)
 				assert.Equal(t, crypto.Keccak256(
-					wrapCommitHash(hash[:]),
+					wrapCommitHash(hash),
 				), h)
 
 				return errTest

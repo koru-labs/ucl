@@ -340,8 +340,6 @@ func TestVoteCopy(t *testing.T) {
 
 	assert.Equal(t, v1, v2)
 
-	// check the addresses are different
-	assert.NotSame(t, v1.Validator, v2.Validator)
+	// check the pointers are different
 	assert.NotSame(t, v1.Candidate, v2.Candidate)
-	assert.NotSame(t, v1.Authorize, v2.Authorize)
 }

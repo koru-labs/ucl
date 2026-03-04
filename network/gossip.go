@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/armon/go-metrics"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
@@ -51,7 +51,7 @@ func (t *Topic) Close() {
 
 	// if all subscribers are finished, close the topic
 	if t.topic != nil {
-		t.topic.Close()
+		t.topic.Close() //nolint
 		t.topic = nil
 	}
 }

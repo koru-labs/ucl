@@ -57,7 +57,7 @@ func TestE2E_Migration(t *testing.T) {
 	relayer, err := txrelayer.NewTxRelayer(txrelayer.WithClient(rpcClient))
 	require.NoError(t, err)
 
-	//send transaction to user2
+	// send transaction to user2
 	sendAmount := ethgo.Gwei(10000)
 	receipt, err := relayer.SendTransaction(&ethgo.Transaction{
 		From:     userAddr,
@@ -177,18 +177,18 @@ func TestE2E_Migration(t *testing.T) {
 	require.Equal(t, deployedCode, *common.EncodeBytes(contractsapi.TestWriteBlockMetadata.DeployedBytecode))
 	require.NoError(t, cluster.WaitForBlock(10, 1*time.Minute))
 
-	//stop last node of validator and non-validator
+	// stop last node of validator and non-validator
 	cluster.Servers[4].Stop()
 	cluster.Servers[6].Stop()
 
 	require.NoError(t, cluster.WaitForBlock(15, time.Minute))
 
-	//wait sync of that nodes
+	// wait sync of that nodes
 	cluster.Servers[4].Start()
 	cluster.Servers[6].Start()
 	require.NoError(t, cluster.WaitForBlock(20, time.Minute))
 
-	//stop all nodes
+	// stop all nodes
 	for i := range cluster.Servers {
 		cluster.Servers[i].Stop()
 	}

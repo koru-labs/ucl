@@ -90,6 +90,7 @@ func TestEth_Block_GetBlockTransactionCountByNumber(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		block.Transactions = append(block.Transactions, []*types.Transaction{{Nonce: 0, From: addr0}}...)
 	}
+
 	store.add(block)
 
 	eth := newTestEthEndpoint(store)
@@ -124,7 +125,6 @@ func TestEth_GetTransactionByHash(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 
-		//nolint:forcetypeassert
 		foundTxn := res.(*transaction)
 		assert.Equal(t, argUint64(testTxn.Nonce), foundTxn.Nonce)
 		assert.Equal(t, argUint64(block.Number()), *foundTxn.BlockNumber)
@@ -149,7 +149,6 @@ func TestEth_GetTransactionByHash(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 
-		//nolint:forcetypeassert
 		foundTxn := res.(*transaction)
 		assert.Equal(t, argUint64(testTxn.Nonce), foundTxn.Nonce)
 		assert.Nil(t, foundTxn.BlockNumber)
@@ -190,7 +189,9 @@ func TestEth_GetTransactionReceipt(t *testing.T) {
 		store := newMockBlockStore()
 		eth := newTestEthEndpoint(store)
 		block := newTestBlock(1, hash4)
+
 		store.add(block)
+
 		txn0 := newTestTransaction(uint64(0), addr0)
 		txn1 := newTestTransaction(uint64(1), addr1)
 		block.Transactions = []*types.Transaction{txn0, txn1}
@@ -216,7 +217,9 @@ func TestEth_GetTransactionReceipt(t *testing.T) {
 				},
 			},
 		}
+
 		receipt1.SetStatus(types.ReceiptSuccess)
+
 		receipt2 := &types.Receipt{
 			Logs: []*types.Log{
 				{
@@ -235,7 +238,6 @@ func TestEth_GetTransactionReceipt(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 
-		//nolint:forcetypeassert
 		response := res.(*receipt)
 		assert.Equal(t, txn1.Hash, response.TxHash)
 		assert.Equal(t, block.Hash(), response.BlockHash)
@@ -258,7 +260,6 @@ func TestEth_Syncing(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 
-		//nolint:forcetypeassert
 		response := res.(progression)
 		assert.NotEqual(t, progress.ChainSyncBulk, response.Type)
 		assert.Equal(t, argUint64(1), response.StartingBlock)
@@ -272,7 +273,7 @@ func TestEth_Syncing(t *testing.T) {
 		res, err := eth.Syncing()
 
 		assert.NoError(t, err)
-		//nolint:forcetypeassert
+
 		assert.False(t, res.(bool))
 	})
 }
@@ -435,7 +436,7 @@ func TestEth_Call(t *testing.T) {
 		res, err := eth.Call(contractCall, BlockNumberOrHash{}, nil)
 		assert.Error(t, err)
 		assert.NotNil(t, res)
-		bres := res.([]byte) //nolint:forcetypeassert
+		bres := res.([]byte)
 		assert.Equal(t, []byte(hex.EncodeToString(returnValue)), bres)
 	})
 }

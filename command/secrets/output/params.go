@@ -131,7 +131,7 @@ func (op *outputParams) initLocalSecretsManager() error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf(strings.Join(errs, "\n"))
+		return errors.New(strings.Join(errs, "\n"))
 	}
 
 	local, err := helper.SetupLocalSecretsManager(op.dataDir)

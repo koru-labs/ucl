@@ -224,7 +224,6 @@ func ParseJSONRPCAddress(jsonrpcAddress string) (*url.URL, error) {
 // The second param is the default ip to bind to, if no ip address is specified
 func ResolveAddr(address string, defaultIP IPBinding) (*net.TCPAddr, error) {
 	addr, err := net.ResolveTCPAddr("tcp", address)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse addr '%s': %w", address, err)
 	}

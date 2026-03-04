@@ -46,6 +46,7 @@ func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInT
 
 	// We are probably doing this append magic to make sure that the slice doesn't have more capacity than it needs
 	var returnValue []byte
+
 	returnValue = append(returnValue[:0], ret...)
 
 	gasLeft := contract.gas

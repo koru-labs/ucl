@@ -33,8 +33,7 @@ type AwsSsmManager struct {
 // SecretsManagerFactory implements the factory method
 func SecretsManagerFactory(
 	config *secrets.SecretsManagerConfig,
-	params *secrets.SecretsManagerParams) (secrets.SecretsManager, error) { //nolint
-
+	params *secrets.SecretsManagerParams) (secrets.SecretsManager, error) {
 	// Check if the node name is present
 	if config.Name == "" {
 		return nil, errors.New("no node name specified for AWS SSM secrets manager")

@@ -65,6 +65,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 	// Start servers
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	// Test in PoA
@@ -104,6 +105,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 			validateSnapshot(ctx, srv, 1, genesisValidatorAddrs)
 		}(srv)
 	}
+
 	wg.Wait()
 
 	// Wait until the staking contract is deployed
@@ -135,6 +137,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 			assert.NoError(t, err)
 		}(srv, key, addr)
 	}
+
 	wg.Wait()
 
 	// Wait until PoS begins
@@ -163,5 +166,6 @@ func TestPoAPoSSwitch(t *testing.T) {
 			validateSnapshot(ctx, srv, posStartAt, expectedPoSValidators)
 		}(srv)
 	}
+
 	wg.Wait()
 }

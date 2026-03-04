@@ -105,13 +105,13 @@ func QueryValidators(t TxQueryHandler, from types.Address) ([]types.Address, err
 	}
 
 	t.SetNonPayable(true)
+
 	res, err := t.Apply(createCallViewTx(
 		from,
 		AddrStakingContract,
 		method.ID(),
 		t.GetNonce(from),
 	))
-
 	if err != nil {
 		return nil, err
 	}
@@ -149,13 +149,13 @@ func QueryBLSPublicKeys(t TxQueryHandler, from types.Address) ([][]byte, error) 
 	}
 
 	t.SetNonPayable(true)
+
 	res, err := t.Apply(createCallViewTx(
 		from,
 		AddrStakingContract,
 		method.ID(),
 		t.GetNonce(from),
 	))
-
 	if err != nil {
 		return nil, err
 	}

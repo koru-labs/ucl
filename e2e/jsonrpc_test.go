@@ -49,7 +49,7 @@ func TestJsonRPC(t *testing.T) {
 		// Test. return zero if the account does not exists
 		balance1, err := client.GetBalance(key1.Address(), ethgo.Latest)
 		require.NoError(t, err)
-		require.Equal(t, balance1, big.NewInt(0))
+		require.Zero(t, balance1.BitLen()) // check for 0
 
 		// Test. return the balance of an account
 		newBalance := ethgo.Ether(1)
@@ -75,6 +75,7 @@ func TestJsonRPC(t *testing.T) {
 
 		estimatedGas, err := client.EstimateGas(msg)
 		require.NoError(t, err)
+
 		txPrice := gasPrice * estimatedGas
 		// subtract gasPrice * estimatedGas from the balance and transfer the rest to the other account
 		// in order to leave no funds on the account
@@ -87,7 +88,7 @@ func TestJsonRPC(t *testing.T) {
 
 		balance1, err = client.GetBalance(key1.Address(), ethgo.Latest)
 		require.NoError(t, err)
-		require.Equal(t, big.NewInt(0), balance1)
+		require.Zero(t, balance1.BitLen()) // check for 0
 	})
 
 	t.Run("eth_getTransactionCount", func(t *testing.T) {
@@ -197,7 +198,9 @@ func TestJsonRPC(t *testing.T) {
 
 	t.Run("eth_getBlockByHash", func(t *testing.T) {
 		key1, err := wallet.GenerateKey()
+
 		require.NoError(t, err)
+
 		txn := srv.Txn(fund)
 		txn, err = txn.Transfer(key1.Address(), one).Send()
 		require.NoError(t, err)
@@ -212,7 +215,9 @@ func TestJsonRPC(t *testing.T) {
 
 	t.Run("eth_getBlockByNumber", func(t *testing.T) {
 		key1, err := wallet.GenerateKey()
+
 		require.NoError(t, err)
+
 		txn := srv.Txn(fund)
 		txn, err = txn.Transfer(key1.Address(), one).Send()
 		require.NoError(t, err)

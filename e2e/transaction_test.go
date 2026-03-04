@@ -60,6 +60,7 @@ func TestPreminedBalance(t *testing.T) {
 
 	srvs := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
+
 		for _, acc := range preminedAccounts {
 			config.Premine(acc.address, acc.balance)
 		}
@@ -72,7 +73,12 @@ func TestPreminedBalance(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			balance, err := rpcClient.Eth().GetBalance(ethgo.Address(testCase.address), ethgo.Latest)
 			assert.NoError(t, err)
-			assert.Equal(t, testCase.balance, balance)
+
+			if testCase.balance.BitLen() == 0 {
+				assert.Zero(t, balance.BitLen())
+			} else {
+				assert.Equal(t, testCase.balance, balance)
+			}
 		})
 	}
 }
@@ -135,6 +141,7 @@ func TestEthTransfer(t *testing.T) {
 
 	srvs := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
+
 		for _, acc := range validAccounts {
 			config.Premine(acc.address, acc.balance)
 		}
@@ -199,6 +206,7 @@ func TestEthTransfer(t *testing.T) {
 
 			expectedSenderBalance := previousSenderBalance
 			expectedReceiverBalance := previousReceiverBalance
+
 			if testCase.shouldSucceed {
 				fee := new(big.Int).Mul(
 					big.NewInt(int64(receipt.GasUsed)),
@@ -241,6 +249,7 @@ func getCount(
 	}
 
 	selector := stressTestMethod.ID()
+
 	response, err := rpcClient.Eth().Call(
 		&ethgo.CallMsg{
 			From:     ethgo.Address(from),
@@ -251,7 +260,6 @@ func getCount(
 		},
 		ethgo.Latest,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to call StressTest contract method, %w", err)
 	}
@@ -261,7 +269,6 @@ func getCount(
 	}
 
 	bigResponse, decodeErr := common.ParseUint256orHex(&response)
-
 	if decodeErr != nil {
 		return nil, fmt.Errorf("wnable to decode hex response, %w", decodeErr)
 	}
@@ -380,6 +387,7 @@ func Test_TransactionIBFTLoop(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
+
 		ibftManager.StartServers(ctx)
 
 		srv := ibftManager.GetServer(0)
@@ -401,8 +409,8 @@ func Test_TransactionIBFTLoop(t *testing.T) {
 			Value:    big.NewInt(0),
 			Input:    buf,
 		}
-		receipt, err := srv.SendRawTx(deployCtx, deployTx, senderKey)
 
+		receipt, err := srv.SendRawTx(deployCtx, deployTx, senderKey)
 		if err != nil {
 			t.Fatalf("Unable to send transaction, %v", err)
 		}

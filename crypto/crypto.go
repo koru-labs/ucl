@@ -160,8 +160,8 @@ func RecoverPubkey(signature, hash []byte) (*ecdsa.PublicKey, error) {
 	}
 
 	sig := append([]byte{term}, signature[:size-1]...)
-	pub, _, err := btcec.RecoverCompact(S256, sig, hash)
 
+	pub, _, err := btcec.RecoverCompact(S256, sig, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -239,10 +239,10 @@ func Keccak256(v ...[]byte) []byte {
 func Keccak256Hash(v ...[]byte) (hash types.Hash) {
 	h := NewKeccakState()
 	for _, b := range v {
-		h.Write(b)
+		_, _ = h.Write(b)
 	}
 
-	h.Read(hash[:]) //nolint:errcheck
+	_, _ = h.Read(hash[:])
 
 	return hash
 }

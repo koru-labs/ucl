@@ -479,7 +479,7 @@ func Test_putIbftExtra(t *testing.T) {
 
 			expectedExtraHeader := make([]byte, IstanbulExtraVanity)
 			expectedExtraBody := test.extra.MarshalRLPTo(nil)
-			expectedExtra := append(expectedExtraHeader, expectedExtraBody...) //nolint:makezero
+			expectedExtra := append(expectedExtraHeader, expectedExtraBody...) //nolint
 
 			assert.Equal(
 				t,

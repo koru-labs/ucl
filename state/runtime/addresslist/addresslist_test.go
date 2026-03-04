@@ -32,7 +32,7 @@ func newMockAddressList() *AddressList {
 func TestAddressList_WrongInput(t *testing.T) {
 	a := newMockAddressList()
 
-	input := []byte{}
+	input := []byte{} //nolint:prealloc
 
 	// no function signature
 	_, _, err := a.runInputCall(types.Address{}, input, 0, false)

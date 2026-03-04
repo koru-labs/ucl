@@ -450,6 +450,7 @@ func TestInsertHeaders(t *testing.T) {
 				if len(a) != len(b) {
 					t.Fatal("bad size")
 				}
+
 				for indx := range a {
 					if chain.headers[a[indx].hash].Hash != b[indx].Hash {
 						t.Fatal("bad")
@@ -506,10 +507,8 @@ func TestInsertHeaders(t *testing.T) {
 			if len(forks) != 0 {
 				if len(forks) != len(expectedForks) {
 					t.Fatalf("forks length dont match, expected %d but found %d", len(expectedForks), len(forks))
-				} else {
-					if !reflect.DeepEqual(forks, expectedForks) {
-						t.Fatal("forks dont match")
-					}
+				} else if !reflect.DeepEqual(forks, expectedForks) {
+					t.Fatal("forks dont match")
 				}
 			}
 
@@ -601,6 +600,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash, "t1")
 		defer chain.db.Close()
+
 		batchWriter := storage.NewBatchWriter(chain.db)
 
 		assert.NoError(
@@ -632,6 +632,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash, "t2")
 		defer chain.db.Close()
+
 		batchWriter := storage.NewBatchWriter(chain.db)
 
 		assert.ErrorIs(
@@ -666,12 +667,11 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash, "t3")
 		defer chain.db.Close()
-		batchWriter := storage.NewBatchWriter(chain.db)
 
+		batchWriter := storage.NewBatchWriter(chain.db)
 		batchWriter.PutHeader(block.Header)
 
 		assert.NoError(t, chain.writeBody(batchWriter, block))
-
 		assert.NoError(t, batchWriter.WriteBatch())
 
 		readBody, ok := chain.readBody(block.Hash())

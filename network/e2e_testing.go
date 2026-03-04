@@ -262,8 +262,8 @@ func initBootnodes(server *Server, bootnodes ...string) {
 
 func CreateServer(params *CreateServerParams) (*Server, error) {
 	cfg := DefaultConfig()
-	port, portErr := tests.GetFreePort()
 
+	port, portErr := tests.GetFreePort()
 	if portErr != nil {
 		return nil, fmt.Errorf("unable to fetch free port, %w", portErr)
 	}
@@ -332,6 +332,7 @@ func MeshJoin(servers ...*Server) []error {
 
 	appendJoinError := func(joinErr error) {
 		joinErrorsLock.Lock()
+
 		joinErrors = append(joinErrors, joinErr)
 		joinErrorsLock.Unlock()
 	}

@@ -367,6 +367,7 @@ func (f *FilterManager) Run() {
 			if evnt == nil {
 				return
 			}
+
 			blockWatchCh <- evnt
 		}
 	}()
@@ -973,6 +974,7 @@ func (h *headElem) getUpdates() ([]*block, *headElem) {
 			if nextElem.header != nil {
 				res = append(res, nextElem.header)
 			}
+
 			cur = nextElem
 		}
 	}

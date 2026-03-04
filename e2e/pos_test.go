@@ -45,8 +45,8 @@ func getBigDefaultStakedBalance(t *testing.T) *big.Int {
 	t.Helper()
 
 	val := stakingHelper.DefaultStakedBalance
-	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 
+	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
 	if err != nil {
 		t.Fatalf("unable to parse DefaultStakedBalance, %v", err)
 	}
@@ -118,9 +118,11 @@ func TestPoS_ValidatorBoundaries(t *testing.T) {
 		func(i int, config *framework.TestServerConfig) {
 			config.SetEpochSize(2)
 			config.PremineValidatorBalance(defaultBalance)
+
 			for j := 0; j < numNewStakers; j++ {
 				config.Premine(accounts[j].address, defaultBalance)
 			}
+
 			config.SetIBFTPoS(true)
 			config.SetMinValidatorCount(minValidatorCount)
 			config.SetMaxValidatorCount(maxValidatorCount)
@@ -132,6 +134,7 @@ func TestPoS_ValidatorBoundaries(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)
@@ -193,6 +196,7 @@ func TestPoS_Stake(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)
@@ -256,6 +260,7 @@ func TestPoS_Unstake(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 	srv := ibftManager.GetServer(0)
 
@@ -430,8 +435,8 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError = framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError = framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -587,8 +592,8 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -720,8 +725,8 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
-	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 
+	actualStakingSCBalance, fetchError := framework.GetStakedAmount(senderAddr, client)
 	if fetchError != nil {
 		t.Fatalf("Unable to fetch staking SC balance, %v", fetchError)
 	}
@@ -800,6 +805,7 @@ func TestSnapshotUpdating(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 	firstValidator := ibftManager.GetServer(0)
 
@@ -833,7 +839,6 @@ func TestSnapshotUpdating(t *testing.T) {
 		stakeAmount,
 		firstValidator,
 	)
-
 	if stakeError != nil {
 		t.Fatalf("Unable to stake amount, %v", stakeError)
 	}
@@ -870,8 +875,8 @@ func TestSnapshotUpdating(t *testing.T) {
 		referenceAddr types.Address,
 	) bool {
 		snapshotCtx, ctxCancelFn := context.WithTimeout(context.Background(), time.Second*5)
-		snapshot, snapshotErr := getSnapshot(client, blockNumber, snapshotCtx)
 
+		snapshot, snapshotErr := getSnapshot(client, blockNumber, snapshotCtx)
 		if snapshotErr != nil {
 			t.Fatalf("Unable to fetch snapshot, %v", snapshotErr)
 		}

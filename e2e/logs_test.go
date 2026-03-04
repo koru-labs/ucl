@@ -198,7 +198,6 @@ func TestFilterValue(t *testing.T) {
 		defer deployCancel()
 
 		contractAddr, err := srv.DeployContract(deployCtx, bloomFilterTestBytecode, key)
-
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -215,10 +214,10 @@ func TestFilterValue(t *testing.T) {
 
 		// Convert to right format
 		var (
-			placeholderWrapper []*ethgo.Hash
+			placeholderWrapper []*ethgo.Hash //nolint:prealloc
 			placeholder        ethgo.Hash
-			filterEventHashes  [][]*ethgo.Hash
-			filterAddresses    []ethgo.Address
+			filterEventHashes  [][]*ethgo.Hash //nolint:prealloc
+			filterAddresses    []ethgo.Address //nolint:prealloc
 		)
 
 		copy(placeholder[:], buf)
@@ -248,7 +247,6 @@ func TestFilterValue(t *testing.T) {
 			GasPrice:      big.NewInt(framework.DefaultGasPrice),
 			Input:         framework.MethodSig("TriggerMyEvent"),
 		})
-
 		if err != nil {
 			return
 		}

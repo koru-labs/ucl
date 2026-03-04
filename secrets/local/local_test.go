@@ -232,8 +232,8 @@ func TestLocalSecretsManager_RemoveSecret(t *testing.T) {
 
 	// Set the secret
 	manager := getLocalSecretsManager(t)
-	setErr := manager.SetSecret(secrets.ValidatorKey, validatorKeyEncoded)
 
+	setErr := manager.SetSecret(secrets.ValidatorKey, validatorKeyEncoded)
 	if setErr != nil {
 		t.Fatalf("Unable to save validator private key, %v", setErr)
 	}

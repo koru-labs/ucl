@@ -71,9 +71,13 @@ func (h *hasher) AcquireArena() (*fastrlp.Arena, int) {
 
 func (h *hasher) Hash(data []byte) []byte {
 	h.hash.Reset()
-	h.hash.Write(data)
-	n, err := h.hash.Read(h.tmp[:])
 
+	_, err := h.hash.Write(data)
+	if err != nil {
+		panic(err) //nolint:gocritic
+	}
+
+	n, err := h.hash.Read(h.tmp[:])
 	if err != nil {
 		panic(err) //nolint:gocritic
 	}
@@ -117,6 +121,7 @@ func (t *Txn) Hash() ([]byte, error) {
 		}
 	} else {
 		tmp := val.MarshalTo(nil)
+
 		h.hash.Reset()
 		h.hash.Write(tmp)
 

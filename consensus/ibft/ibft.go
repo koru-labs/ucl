@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	protomsg "github.com/0xPolygon/go-ibft/messages/proto"
 	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/fork"
@@ -132,7 +133,6 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 		epochSize,
 		params.Config.Config,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +168,16 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 	p.SetHeaderHash()
 
 	return p, nil
+}
+
+// TBD
+func (i *backendIBFT) RoundStarts(view *protomsg.View) error {
+	return nil
+}
+
+// TBD
+func (i *backendIBFT) SequenceCancelled(view *protomsg.View) error {
+	return nil
 }
 
 func (i *backendIBFT) Initialize() error {
@@ -681,7 +691,6 @@ func (i *backendIBFT) ValidateExtraDataFormat(header *types.Header) error {
 		i.forkManager,
 		header.Number,
 	)
-
 	if err != nil {
 		return err
 	}

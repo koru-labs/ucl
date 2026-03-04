@@ -44,6 +44,7 @@ func NewIBFTServersManager(
 		for _, s := range srvs {
 			s.Stop()
 		}
+
 		if err := os.RemoveAll(dataDir); err != nil {
 			t.Log(err)
 		}
@@ -67,8 +68,8 @@ func NewIBFTServersManager(
 			config.SetName(fmt.Sprintf("node-%d", i))
 			callback(i, config)
 		})
-		res, err := srv.SecretsInit()
 
+		res, err := srv.SecretsInit()
 		if err != nil {
 			t.Fatal(err)
 		}

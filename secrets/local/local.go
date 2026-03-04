@@ -161,6 +161,7 @@ func (l *LocalSecretsManager) HasSecret(name string) bool {
 // RemoveSecret removes the local SecretsManager's secret from disk
 func (l *LocalSecretsManager) RemoveSecret(name string) error {
 	l.secretPathMapLock.Lock()
+
 	secretPath, ok := l.secretPathMap[name]
 	defer l.secretPathMapLock.Unlock()
 

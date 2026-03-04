@@ -60,7 +60,7 @@ func RegenesisCMD() *cobra.Command {
 
 			return
 		}
-		defer trieDB.Close()
+		defer trieDB.Close() //nolint:errcheck
 
 		snapshotDB, err := leveldb.OpenFile(params.SnapshotTrieDBPath, nil)
 		if err != nil {
@@ -68,7 +68,7 @@ func RegenesisCMD() *cobra.Command {
 
 			return
 		}
-		defer snapshotDB.Close()
+		defer snapshotDB.Close() //nolint:errcheck
 
 		snapshotStorage := itrie.NewKV(snapshotDB)
 

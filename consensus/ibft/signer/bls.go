@@ -187,7 +187,6 @@ func (s *AggregatedSeal) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 func (s *AggregatedSeal) UnmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	vals, err := v.GetElems()
-
 	if err != nil {
 		return fmt.Errorf("mismatch of RLP type for CommittedSeal, expected list but found %s", v.Type())
 	}

@@ -90,7 +90,7 @@ func TestEventTrackerStore_SetNotLastBlock(t *testing.T) {
 	tstore, closeFn := createSetupDB(subs, 2)(t)
 	defer closeFn()
 
-	assert.NoError(t, tstore.(*EventTrackerStore).Set("dummy", "dummy")) //nolint
+	assert.NoError(t, tstore.(*EventTrackerStore).Set("dummy", "dummy"))
 	assert.Len(t, subs.logs, 0)
 }
 
@@ -98,8 +98,8 @@ func TestEventTrackerStore_onNewBlockBad(t *testing.T) {
 	tstore, closeFn := createSetupDB(nil, 0)(t)
 	defer closeFn()
 
-	assert.Error(t, tstore.(*EventTrackerStore).onNewBlock("dummy", "dummy"))                          //nolint
-	assert.Error(t, tstore.(*EventTrackerStore).onNewBlock("dummy", hex.EncodeToString([]byte{0, 1}))) //nolint
+	assert.Error(t, tstore.(*EventTrackerStore).onNewBlock("dummy", "dummy"))
+	assert.Error(t, tstore.(*EventTrackerStore).onNewBlock("dummy", hex.EncodeToString([]byte{0, 1})))
 }
 
 func TestEventTrackerStore_OnNewBlockNothingToProcess(t *testing.T) {
@@ -116,7 +116,7 @@ func TestEventTrackerStore_OnNewBlockNothingToProcess(t *testing.T) {
 	value := hex.EncodeToString(bytes)
 
 	// block less than numBlockConfirmations
-	assert.NoError(t, tstore.(*EventTrackerStore).onNewBlock("dummy", value)) //nolint
+	assert.NoError(t, tstore.(*EventTrackerStore).onNewBlock("dummy", value))
 	assert.Len(t, subs.logs, 0)
 
 	block = ethgo.Block{Number: 12}
@@ -127,7 +127,7 @@ func TestEventTrackerStore_OnNewBlockNothingToProcess(t *testing.T) {
 	value = hex.EncodeToString(bytes)
 
 	// no logs
-	assert.NoError(t, tstore.(*EventTrackerStore).onNewBlock("dummy", value)) //nolint
+	assert.NoError(t, tstore.(*EventTrackerStore).onNewBlock("dummy", value))
 	assert.Len(t, subs.logs, 0)
 }
 
@@ -164,6 +164,6 @@ func TestEventTrackerStore_SetLastBlockSubscriberNotified(t *testing.T) {
 
 		subs.logs = nil
 
-		require.NoError(t, entry.(*Entry).saveNextToProcessIndx(0)) //nolint
+		require.NoError(t, entry.(*Entry).saveNextToProcessIndx(0))
 	}
 }

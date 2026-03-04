@@ -48,8 +48,8 @@ func decodeConsole(input []byte) (val []string) {
 	}
 
 	input = input[4:]
-	raw, err := logSig.Decode(input)
 
+	raw, err := logSig.Decode(input)
 	if err != nil {
 		return
 	}

@@ -40,7 +40,6 @@ func getWSResponse(t *testing.T, ws *websocket.Conn, request []byte) jsonrpc.Suc
 	}
 
 	_, response, wsError := ws.ReadMessage()
-
 	if wsError != nil {
 		t.Fatalf("Unable to read message from WS connection: %v", wsError)
 	}
@@ -85,7 +84,6 @@ func TestWS_Response(t *testing.T) {
 			"eth_getBalance",
 			[]string{preminedAccounts[0].address.String(), "latest"},
 		)
-
 		if constructErr != nil {
 			t.Fatalf("Unable to construct request: %v", constructErr)
 		}
@@ -124,12 +122,12 @@ func TestWS_Response(t *testing.T) {
 		}
 
 		requestID := 2
+
 		request, constructErr := constructWSRequest(
 			requestID,
 			"eth_blockNumber",
 			[]string{},
 		)
-
 		if constructErr != nil {
 			t.Fatalf("Unable to construct request: %v", constructErr)
 		}

@@ -29,7 +29,7 @@ func leftPad(buf []byte, n int) []byte {
 }
 
 func appendAll(bytesArrays ...[]byte) []byte {
-	var res []byte
+	var res []byte //nolint:prealloc
 
 	for idx := range bytesArrays {
 		res = append(res, bytesArrays[idx]...)
@@ -113,6 +113,7 @@ func Test_decodeValidators(t *testing.T) {
 			} else {
 				assert.Error(t, err)
 			}
+
 			assert.Equal(t, tt.expected, res)
 		})
 	}
@@ -221,6 +222,7 @@ func TestQueryValidators(t *testing.T) {
 			} else {
 				assert.Error(t, err)
 			}
+
 			assert.Equal(t, tt.expected, res)
 		})
 	}

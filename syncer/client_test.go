@@ -581,6 +581,7 @@ func Test_EmitMultipleBlocks(t *testing.T) {
 
 		go func() {
 			defer close(c)
+
 			wg.Wait()
 		}()
 

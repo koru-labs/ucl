@@ -91,6 +91,7 @@ func TestIbft_Transfer(t *testing.T) {
 				SendRawTx(ctxForTx, txn, senderKey)
 
 			assert.NoError(t, err)
+
 			if receipt == nil {
 				t.Fatalf("receipt not received")
 			}
@@ -133,6 +134,7 @@ func TestIbft_TransactionFeeRecipient(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
+
 			ibftManager.StartServers(ctx)
 
 			srv := ibftManager.GetServer(0)
@@ -156,7 +158,9 @@ func TestIbft_TransactionFeeRecipient(t *testing.T) {
 					Input:    framework.MethodSig("setA1"),
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), framework.DefaultTimeout)
+
 				defer cancel()
+
 				receipt, err := srv.SendRawTx(ctx, deployTx, senderKey)
 				assert.NoError(t, err)
 				assert.NotNil(t, receipt)
@@ -167,7 +171,9 @@ func TestIbft_TransactionFeeRecipient(t *testing.T) {
 			}
 
 			ctx1, cancel1 := context.WithTimeout(context.Background(), framework.DefaultTimeout)
+
 			defer cancel1()
+
 			receipt, err := srv.SendRawTx(ctx1, txn, senderKey)
 			assert.NoError(t, err)
 
@@ -179,6 +185,7 @@ func TestIbft_TransactionFeeRecipient(t *testing.T) {
 			assert.NotNil(t, receipt.BlockHash)
 			block, err := clt.Eth().GetBlockByHash(receipt.BlockHash, false)
 			assert.NoError(t, err)
+
 			extraData := &ibftSigner.IstanbulExtra{
 				Validators:           validators.NewECDSAValidatorSet(),
 				CommittedSeals:       &ibftSigner.SerializedSeal{},

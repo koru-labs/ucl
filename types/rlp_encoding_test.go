@@ -285,6 +285,7 @@ func TestRLPMarshall_And_Unmarshall_TxType(t *testing.T) {
 		ar := &fastrlp.Arena{}
 
 		var txType TxType
+
 		err := txType.unmarshalRLPFrom(nil, ar.NewBytes([]byte{byte(tt.txType)}))
 
 		if tt.expectedErr {
@@ -356,6 +357,7 @@ func testRLPData(arena *fastrlp.Arena, omitValues map[string]bool) []byte {
 	}
 
 	var testData []byte
+
 	testData = vv.MarshalTo(testData)
 
 	return testData

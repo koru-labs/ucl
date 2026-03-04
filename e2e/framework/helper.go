@@ -91,6 +91,7 @@ func GetValidatorSet(from types.Address, rpcClient *jsonrpc.Client) ([]types.Add
 
 	toAddress := ethgo.Address(staking.AddrStakingContract)
 	selector := validatorsMethod.ID()
+
 	response, err := rpcClient.Eth().Call(
 		&ethgo.CallMsg{
 			From:     ethgo.Address(from),
@@ -101,7 +102,6 @@ func GetValidatorSet(from types.Address, rpcClient *jsonrpc.Client) ([]types.Add
 		},
 		ethgo.Latest,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to call Staking contract method validators, %w", err)
 	}
@@ -135,7 +135,6 @@ func StakeAmount(
 	defer cancel()
 
 	_, err := srv.SendRawTx(ctx, txn, senderKey)
-
 	if err != nil {
 		return fmt.Errorf("unable to call Staking contract method stake, %w", err)
 	}
@@ -163,7 +162,6 @@ func UnstakeAmount(
 	defer cancel()
 
 	receipt, err := srv.SendRawTx(ctx, txn, senderKey)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to call Staking contract method unstake, %w", err)
 	}
@@ -180,6 +178,7 @@ func GetStakedAmount(from types.Address, rpcClient *jsonrpc.Client) (*big.Int, e
 
 	toAddress := ethgo.Address(staking.AddrStakingContract)
 	selector := stakedAmountMethod.ID()
+
 	response, err := rpcClient.Eth().Call(
 		&ethgo.CallMsg{
 			From:     ethgo.Address(from),
@@ -190,7 +189,6 @@ func GetStakedAmount(from types.Address, rpcClient *jsonrpc.Client) (*big.Int, e
 		},
 		ethgo.Latest,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to call Staking contract method stakedAmount, %w", err)
 	}
@@ -221,6 +219,7 @@ func MultiJoinSerial(t *testing.T, srvs []*TestServer) {
 		srv, dst := srvs[i], srvs[i+1]
 		dials = append(dials, srv, dst)
 	}
+
 	MultiJoin(t, dials...)
 }
 
@@ -264,7 +263,6 @@ func MultiJoin(t *testing.T, srvs ...*TestServer) {
 			_, err = srcClient.PeersAdd(ctxForConnecting, &proto.PeersAddRequest{
 				Id: dstAddr,
 			})
-
 			if err != nil {
 				errors.Append(fmt.Errorf("failed to connect from %d to %d, error=%w", srcIndex, dstIndex, err))
 			}
@@ -286,17 +284,19 @@ func MultiJoin(t *testing.T, srvs ...*TestServer) {
 // otherwise returns timeout
 func WaitUntilPeerConnects(ctx context.Context, srv *TestServer, requiredNum int) (*proto.PeersListResponse, error) {
 	clt := srv.Operator()
+
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		subCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
 		res, _ := clt.PeersList(subCtx, &empty.Empty{})
+
 		if res != nil && len(res.Peers) >= requiredNum {
 			return res, false
 		}
 
 		return nil, true
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -317,17 +317,20 @@ func WaitUntilTxPoolFilled(
 	requiredNum uint64,
 ) (*txpoolProto.TxnPoolStatusResp, error) {
 	clt := srv.TxnPoolOperator()
+
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		subCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
 		defer cancel()
+
 		res, _ := clt.Status(subCtx, &empty.Empty{})
+
 		if res != nil && res.Length >= requiredNum {
 			return res, false
 		}
 
 		return nil, true
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +347,7 @@ func WaitUntilTxPoolFilled(
 // otherwise returns timeout
 func WaitUntilBlockMined(ctx context.Context, srv *TestServer, desiredHeight uint64) (uint64, error) {
 	clt := srv.JSONRPC().Eth()
+
 	res, err := tests.RetryUntilTimeout(ctx, func() (interface{}, bool) {
 		height, err := clt.BlockNumber()
 		if err == nil && height >= desiredHeight {
@@ -352,7 +356,6 @@ func WaitUntilBlockMined(ctx context.Context, srv *TestServer, desiredHeight uin
 
 		return nil, true
 	})
-
 	if err != nil {
 		return 0, err
 	}
@@ -434,7 +437,9 @@ func FindAvailablePorts(n, from, to int) ([]ReservedPort, error) {
 		if newPort == nil {
 			// Close current reserved ports
 			for _, p := range ports {
-				p.Close()
+				if err := p.Close(); err != nil {
+					return nil, err
+				}
 			}
 
 			return nil, errors.New("couldn't reserve required number of ports")
@@ -455,6 +460,7 @@ func NewTestServers(t *testing.T, num int, conf func(*TestServerConfig)) []*Test
 	t.Cleanup(func() {
 		for _, srv := range srvs {
 			srv.Stop()
+
 			if err := os.RemoveAll(srv.Config.RootDir); err != nil {
 				t.Log(err)
 			}
@@ -545,6 +551,7 @@ func WaitForServersToSeal(servers []*TestServer, desiredHeight uint64) []error {
 
 		go func(indx int) {
 			waitCtx, waitCancelFn := context.WithTimeout(context.Background(), time.Minute)
+
 			defer func() {
 				waitCancelFn()
 				wg.Done()
@@ -556,6 +563,7 @@ func WaitForServersToSeal(servers []*TestServer, desiredHeight uint64) []error {
 			}
 		}(i)
 	}
+
 	wg.Wait()
 
 	return waitErrors

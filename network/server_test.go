@@ -187,6 +187,7 @@ func TestPeerEvent_EmitAndSubscribe(t *testing.T) {
 			id, event := getIDAndEventType(i)
 			server.emitEvent(id, event)
 		}
+
 		for i := 0; i < count; i++ {
 			received := <-receiver
 			id, event := getIDAndEventType(i)
@@ -653,6 +654,7 @@ func TestRunDial(t *testing.T) {
 				t.Fatalf("Unable to join peer, %v", joinErr)
 			}
 		}
+
 		closeServers(servers...)
 	})
 
@@ -673,6 +675,7 @@ func TestRunDial(t *testing.T) {
 				assert.Error(t, joinErr)
 			}
 		}
+
 		closeServers(servers...)
 	})
 
@@ -711,7 +714,6 @@ func TestSubscribe(t *testing.T) {
 				},
 			},
 		)
-
 		if err != nil {
 			t.Fatalf("Unable to create server, %v", err)
 		}
@@ -769,6 +771,7 @@ func TestSubscribe(t *testing.T) {
 		server := setupServer(t, true)
 
 		ctx, cancel := context.WithCancel(context.Background())
+
 		t.Cleanup(func() {
 			cancel()
 		})
@@ -808,6 +811,7 @@ func TestSubscribe(t *testing.T) {
 		server := setupServer(t, false)
 
 		ctx, cancel := context.WithCancel(context.Background())
+
 		t.Cleanup(func() {
 			cancel()
 		})
@@ -1105,14 +1109,17 @@ func TestPeerAdditionDeletion(t *testing.T) {
 
 		// Prune off every other peer
 		prunedPeers := 0
+
 		for i := 0; i < len(randomPeers); i += 2 {
 			prunedPeers++
+
 			server.removePeer(randomPeers[i].peerID)
 
 			assert.False(t, server.hasPeer(randomPeers[i].peerID))
 		}
 
 		leftoverPeers := make([]*randomPeer, 0)
+
 		for i := 1; i < len(randomPeers); i += 2 {
 			leftoverPeers = append(leftoverPeers, randomPeers[i])
 		}

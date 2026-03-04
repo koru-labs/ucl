@@ -199,7 +199,7 @@ func (t *TestServer) SecretsInit() (*InitIBFTResult, error) {
 	args = append(args, "--data-dir", filepath.Join(t.Config.IBFTDir, "tmp"))
 	args = append(args, "--insecure")
 
-	cmd := exec.Command(resolveBinary(), args...) //nolint:gosec
+	cmd := exec.Command(resolveBinary(), args...)
 	cmd.Dir = t.Config.RootDir
 
 	if _, err := cmd.Output(); err != nil {
@@ -362,7 +362,7 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(args, "--burn-contract", "0:0x0000000000000000000000000000000000000000")
 	}
 
-	cmd := exec.Command(resolveBinary(), args...) //nolint:gosec
+	cmd := exec.Command(resolveBinary(), args...)
 	cmd.Dir = t.Config.RootDir
 
 	stdout := t.GetStdout()
@@ -401,7 +401,7 @@ func (t *TestServer) GenesisPredeploy() error {
 	// Add the path to the artifacts file
 	args = append(args, "--artifacts-path", t.Config.PredeployParams.ArtifactsPath)
 
-	cmd := exec.Command(resolveBinary(), args...) //nolint:gosec
+	cmd := exec.Command(resolveBinary(), args...)
 	cmd.Dir = t.Config.RootDir
 
 	stdout := t.GetStdout()
@@ -459,7 +459,7 @@ func (t *TestServer) Start(ctx context.Context) error {
 	t.ReleaseReservedPorts()
 
 	// Start the server
-	t.cmd = exec.Command(resolveBinary(), args...) //nolint:gosec
+	t.cmd = exec.Command(resolveBinary(), args...)
 	t.cmd.Dir = t.Config.RootDir
 
 	stdout := t.GetStdout()
@@ -523,7 +523,7 @@ func (t *TestServer) SwitchIBFTType(typ fork.IBFTType, from uint64, to, deployme
 	}
 
 	// Start the server
-	t.cmd = exec.Command(resolveBinary(), args...) //nolint:gosec
+	t.cmd = exec.Command(resolveBinary(), args...)
 	t.cmd.Dir = t.Config.RootDir
 
 	stdout := t.GetStdout()
@@ -801,6 +801,7 @@ func (t *TestServer) WaitForReceipt(ctx context.Context, hash ethgo.Hash) (*ethg
 		if err != nil && err.Error() != "not found" {
 			return result{receipt, err}, false
 		}
+
 		if receipt != nil {
 			return result{receipt, nil}, false
 		}
@@ -919,7 +920,7 @@ func (t *TestServer) CallJSONRPC(req map[string]interface{}) map[string]interfac
 
 	url := fmt.Sprintf("http://%s", t.JSONRPCAddr())
 
-	//nolint:gosec // this is not used because it can't be defined as a global variable
+	// this is not used because it can't be defined as a global variable
 	response, err := http.Post(url, "application/json", bytes.NewReader(reqJSON))
 	if err != nil {
 		t.t.Fatalf("failed to send request to JSON-RPC server: %v", err)

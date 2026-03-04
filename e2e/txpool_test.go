@@ -184,6 +184,7 @@ func TestTxPool_ErrorCodes(t *testing.T) {
 				defer waitCancelFn()
 
 				convertedHash := types.StringToHash(addResponse.TxHash)
+
 				_, receiptErr := tests.WaitForReceipt(receiptCtx, srv.JSONRPC().Eth(), ethgo.Hash(convertedHash))
 				if receiptErr != nil {
 					t.Fatalf("Unable to get receipt, %v", receiptErr)
@@ -227,6 +228,7 @@ func TestTxPool_TransactionCoalescing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
 	ibftManager.StartServers(ctx)
 
 	srv := ibftManager.GetServer(0)
@@ -250,7 +252,6 @@ func TestTxPool_TransactionCoalescing(t *testing.T) {
 			Value:    oneEth,
 			V:        big.NewInt(1), // it is necessary to encode in rlp
 		}, referenceKey)
-
 		if signErr != nil {
 			t.Fatalf("Unable to sign transaction, %v", signErr)
 		}
