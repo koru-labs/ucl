@@ -7,7 +7,6 @@ require (
 	github.com/0xPolygon/go-ibft v0.4.1-0.20240621090555-e81a63ff50d7
 	github.com/Ethernal-Tech/ethgo v0.0.0-20240801172627-47215d9e504c
 	github.com/Ethernal-Tech/kryptology v0.0.0-20260304134443-1af416680e7b
-	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/docker/docker v28.5.2+incompatible
@@ -80,6 +79,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
