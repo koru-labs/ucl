@@ -95,7 +95,7 @@ jobs:
                     },
                     {
                       "type": "mrkdwn",
-                      "text": "${{ inputs.unit_test_output == '' && env.succeed_job || env.failed_job }} *Unit Tests Tests*"
+                      "text": "${{ inputs.unit_test_output == '' && env.succeed_job || env.failed_job }} *Unit Tests*"
                     },
                     {
                       "type": "mrkdwn",

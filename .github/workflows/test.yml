@@ -14,16 +14,16 @@ jobs:
     outputs:
       output_failure: ${{ steps.tests_failure.outputs.result }}
     steps:
-      - name: Setup Go
-        uses: actions/setup-go@v6.3.0
-        with:
-          go-version: ${{ vars.GO_VERSION }}
-
       - name: Checkout Code
         uses: actions/checkout@v6.0.2
         with:
           submodules: recursive
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      - name: Setup Go
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Install Dependencies
         run: ./setup-ci.sh
