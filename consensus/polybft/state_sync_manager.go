@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/umbracle/ethgo"
 	bolt "go.etcd.io/bbolt"
 	"google.golang.org/protobuf/proto"
 

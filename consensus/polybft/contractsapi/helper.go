@@ -2,8 +2,8 @@ package contractsapi
 
 import (
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/abi"
 )
 
 // StateTransactionInput is an abstraction for different state transaction inputs

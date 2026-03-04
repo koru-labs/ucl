@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/0xPolygon/polygon-edge/command"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/spf13/cobra"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/jsonrpc"
 )
 
 var (

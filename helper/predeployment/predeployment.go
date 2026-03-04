@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/umbracle/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo/abi"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/helper/hex"

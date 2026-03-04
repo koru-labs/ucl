@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/0xPolygon/go-ibft/messages/proto"
-	"github.com/umbracle/ethgo"
+	"github.com/Ethernal-Tech/ethgo"
 	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/signer"

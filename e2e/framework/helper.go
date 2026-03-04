@@ -22,9 +22,9 @@ import (
 	"github.com/0xPolygon/polygon-edge/server/proto"
 	txpoolProto "github.com/0xPolygon/polygon-edge/txpool/proto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/stretchr/testify/assert"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/jsonrpc"
 	"golang.org/x/crypto/sha3"
 	empty "google.golang.org/protobuf/types/known/emptypb"
 )

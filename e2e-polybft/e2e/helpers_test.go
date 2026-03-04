@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/abi"
-	"github.com/umbracle/ethgo/jsonrpc"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"

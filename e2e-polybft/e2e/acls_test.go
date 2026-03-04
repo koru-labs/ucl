@@ -10,8 +10,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state/runtime/addresslist"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo/wallet"
 )
 
 // Contract used as bytecode

@@ -10,8 +10,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/abi"
 )
 
 //go:embed console.sol

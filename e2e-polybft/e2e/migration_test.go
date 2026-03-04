@@ -15,10 +15,10 @@ import (
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/wallet"
 )
 
 func TestE2E_Migration(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/spf13/cobra"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/wallet"
 
 	"github.com/0xPolygon/polygon-edge/command"
 	"github.com/0xPolygon/polygon-edge/command/bridge/common"

@@ -1,7 +1,7 @@
 package abis
 
 import (
-	"github.com/umbracle/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo/abi"
 )
 
 var (

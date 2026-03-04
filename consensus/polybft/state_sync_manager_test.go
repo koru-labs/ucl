@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo/testutil"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/abi"
-	"github.com/umbracle/ethgo/testutil"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"

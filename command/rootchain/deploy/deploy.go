@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/spf13/cobra"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/jsonrpc"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/0xPolygon/polygon-edge/chain"
