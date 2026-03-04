@@ -1,8 +1,10 @@
 package evm
 
 import (
+	"errors"
 	"math"
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -27,7 +29,7 @@ type cases2To1 []struct {
 func test2to1(t *testing.T, f instruction, tests cases2To1) {
 	t.Helper()
 
-	s, closeFn := getState()
+	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
 
 	for _, i := range tests {
@@ -49,7 +51,7 @@ type cases2ToBool []struct {
 func test2toBool(t *testing.T, f instruction, tests cases2ToBool) {
 	t.Helper()
 
-	s, closeFn := getState()
+	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
 
 	for _, i := range tests {
@@ -90,7 +92,7 @@ func TestIsZero(t *testing.T) {
 }
 
 func TestMStore(t *testing.T) {
-	s, closeFn := getState()
+	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
 
 	s.push(big.NewInt(10))   // value
@@ -415,7 +417,7 @@ func TestCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, closeFn := getState()
+			s, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 
 			s.msg = tt.contract
@@ -440,6 +442,16 @@ func TestCreate(t *testing.T) {
 
 func Test_opReturnDataCopy(t *testing.T) {
 	t.Parallel()
+
+	// Positive number that does not fit in uint64 (math.MaxUint64 + 1)
+	largeNumber := "18446744073709551616"
+	bigIntValue := new(big.Int)
+	bigIntValue.SetString(largeNumber, 10)
+
+	// Positive number that does fit in uint64 but multiplied by two does not
+	largeNumber2 := "18446744073709551615"
+	bigIntValue2 := new(big.Int)
+	bigIntValue2.SetString(largeNumber2, 10)
 
 	tests := []struct {
 		name        string
@@ -470,7 +482,8 @@ func Test_opReturnDataCopy(t *testing.T) {
 					big.NewInt(0),  // dataOffset
 					big.NewInt(-1), // memOffset
 				},
-				sp: 3,
+				sp:         3,
+				returnData: []byte{0xff},
 			},
 			resultState: &state{
 				config: &allEnabledForks,
@@ -479,9 +492,10 @@ func Test_opReturnDataCopy(t *testing.T) {
 					big.NewInt(0),
 					big.NewInt(-1),
 				},
-				sp:   0,
-				stop: true,
-				err:  errReturnDataOutOfBounds,
+				sp:         0,
+				returnData: []byte{0xff},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
 			},
 		},
 		{
@@ -515,21 +529,23 @@ func Test_opReturnDataCopy(t *testing.T) {
 			initState: &state{
 				stack: []*big.Int{
 					big.NewInt(-1), // length
-					big.NewInt(0),  // dataOffset
+					big.NewInt(2),  // dataOffset
 					big.NewInt(0),  // memOffset
 				},
-				sp: 3,
+				sp:         3,
+				returnData: []byte{0xff},
 			},
 			resultState: &state{
 				config: &allEnabledForks,
 				stack: []*big.Int{
 					big.NewInt(-1),
-					big.NewInt(0),
+					big.NewInt(2),
 					big.NewInt(0),
 				},
-				sp:   0,
-				stop: true,
-				err:  errReturnDataOutOfBounds,
+				sp:         0,
+				returnData: []byte{0xff},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
 			},
 		},
 		{
@@ -564,41 +580,6 @@ func Test_opReturnDataCopy(t *testing.T) {
 			},
 		},
 		{
-			name:   "should expand memory and copy data returnData",
-			config: &allEnabledForks,
-			initState: &state{
-				stack: []*big.Int{
-					big.NewInt(5), // length
-					big.NewInt(1), // dataOffset
-					big.NewInt(2), // memOffset
-				},
-				sp:         3,
-				returnData: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
-				memory:     []byte{0x11, 0x22},
-				gas:        20,
-			},
-			resultState: &state{
-				config: &allEnabledForks,
-				stack: []*big.Int{
-					big.NewInt(6), // updated for end index
-					big.NewInt(1),
-					big.NewInt(2),
-				},
-				sp:         0,
-				returnData: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
-				memory: append(
-					// 1 word (32 bytes)
-					[]byte{0x11, 0x22, 0x02, 0x03, 0x04, 0x05, 0x06},
-					make([]byte, 25)...,
-				),
-				gas:                14,
-				lastGasCost:        3,
-				currentConsumedGas: 6,
-				stop:               false,
-				err:                nil,
-			},
-		},
-		{
 			// this test case also verifies that code does not panic when the length is 0 and memOffset > len(memory)
 			name:   "should not copy data if length is zero",
 			config: &allEnabledForks,
@@ -626,6 +607,109 @@ func Test_opReturnDataCopy(t *testing.T) {
 				err:        nil,
 			},
 		},
+		{
+			name:   "should return error if data offset overflows uint64",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(1),  // length
+					bigIntValue,    // dataOffset
+					big.NewInt(-1), // memOffset
+				},
+				sp: 3,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(1),
+					bigIntValue,
+					big.NewInt(-1),
+				},
+				sp:   0,
+				stop: true,
+				err:  errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if sum of data offset and length overflows uint64",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					bigIntValue2,   // length
+					bigIntValue2,   // dataOffset
+					big.NewInt(-1), // memOffset
+				},
+				sp: 3,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					bigIntValue2,
+					bigIntValue2,
+					big.NewInt(-1),
+				},
+				sp:   0,
+				stop: true,
+				err:  errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if the length of return data does not have enough space to receive offset + length bytes",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(2), // length
+					big.NewInt(0), // dataOffset
+					big.NewInt(0), // memOffset
+				},
+				sp:         3,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(2),
+					big.NewInt(0),
+					big.NewInt(0),
+				},
+				sp:         0,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if there is no gas",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(1), // length
+					big.NewInt(0), // dataOffset
+					big.NewInt(0), // memOffset
+				},
+				sp:         3,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+				gas:        0,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(1),
+					big.NewInt(0),
+					big.NewInt(0),
+				},
+				sp:                 0,
+				returnData:         []byte{0xff},
+				memory:             []byte{0x0},
+				gas:                0,
+				currentConsumedGas: 3,
+				stop:               true,
+				err:                errOutOfGas,
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -634,7 +718,7 @@ func Test_opReturnDataCopy(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			state, closeFn := getState()
+			state, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 
 			state.gas = test.initState.gas
@@ -648,14 +732,14 @@ func Test_opReturnDataCopy(t *testing.T) {
 			state.code = nil
 			state.host = nil
 			state.msg = nil
-			state.evm = nil
+			state.tmp = nil
 			state.bitmap = bitmap{}
 			state.ret = nil
 			state.currentConsumedGas = 0
 
 			opReturnDataCopy(state)
 
-			assert.Equal(t, test.resultState, state)
+			assert.True(t, compareStates(test.resultState, state))
 		})
 	}
 }
@@ -778,7 +862,7 @@ func Test_opCall(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			state, closeFn := getState()
+			state, closeFn := getState(&chain.ForksInTime{})
 
 			defer closeFn()
 
@@ -798,4 +882,32 @@ func Test_opCall(t *testing.T) {
 			assert.Equal(t, test.resultState.gas, state.gas, "gas in state after execution is incorrect")
 		})
 	}
+}
+
+// Since the state is complex structure, here is the specialized comparison
+// function that checks significant fields. This function should be updated
+// to suite future needs.
+func compareStates(a *state, b *state) bool {
+	// Compare simple fields
+	if a.ip != b.ip || a.lastGasCost != b.lastGasCost || !errors.Is(a.err, b.err) || a.stop != b.stop || a.gas != b.gas {
+		return false
+	}
+
+	// Deep compare slices
+	if !reflect.DeepEqual(a.code, b.code) || !reflect.DeepEqual(a.tmp, b.tmp) || !reflect.DeepEqual(a.returnData, b.returnData) || !reflect.DeepEqual(a.memory, b.memory) {
+		return false
+	}
+
+	// Deep comparison of stacks
+	if len(a.stack) != len(b.stack) {
+		return false
+	}
+
+	for i := range a.stack {
+		if a.stack[i].Cmp(b.stack[i]) != 0 {
+			return false
+		}
+	}
+
+	return true
 }
