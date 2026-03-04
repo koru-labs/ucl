@@ -79,6 +79,8 @@ type state struct {
 
 	returnData []byte
 	ret        []byte
+
+	unsafepool common.UnsafePool[*big.Int]
 }
 
 func (c *state) reset() {
@@ -98,6 +100,11 @@ func (c *state) reset() {
 		c.memory[i] = 0
 	}
 
+	// Before stack cleanup, return instances of big.Int to the pool
+	// for the future usage
+	for i := range c.stack {
+		c.unsafepool.Put(resetBigIntFn, c.stack[i])
+	}
 	c.stack = c.stack[:0]
 	c.tmp = c.tmp[:0]
 	c.ret = c.ret[:0]
@@ -139,7 +146,7 @@ func (c *state) push1() *big.Int {
 		return c.stack[c.sp-1]
 	}
 
-	v := big.NewInt(0)
+	v := c.unsafepool.Get(bigInt0FactoryFn)
 	c.stack = append(c.stack, v)
 	c.sp++
 
@@ -260,7 +267,9 @@ func (c *state) Run() ([]byte, error) {
 		// execute the instruction
 		inst.inst(c)
 
-		c.captureExecution(op.String(), ipCopy, gasCopy, gasCopy-c.gas)
+		if c.host.GetTracer() != nil {
+			c.captureExecution(op.String(), ipCopy, gasCopy, gasCopy-c.gas)
+		}
 
 		// check if stack size exceeds the max size
 		if c.sp > stackSize {
@@ -412,4 +421,12 @@ func (c *state) captureExecution(
 		c.err,
 		c.host,
 	)
+}
+
+func bigInt0FactoryFn() *big.Int {
+	return big.NewInt(0)
+}
+
+func resetBigIntFn(x *big.Int) *big.Int {
+	return x.SetInt64(0)
 }
