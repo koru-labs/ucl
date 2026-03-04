@@ -6,9 +6,9 @@ import (
 	"path"
 	"testing"
 
+	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo/wallet"
 
 	"github.com/0xPolygon/polygon-edge/bls"
 	"github.com/0xPolygon/polygon-edge/secrets/helper"

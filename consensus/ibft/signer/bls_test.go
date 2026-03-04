@@ -12,7 +12,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
-	"github.com/coinbase/kryptology/pkg/signatures/bls/bls_sig"
+	"github.com/Ethernal-Tech/kryptology/pkg/signatures/bls/bls_sig"
 	"github.com/stretchr/testify/assert"
 )
 

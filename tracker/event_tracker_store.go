@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/tracker/store"
 	hcf "github.com/hashicorp/go-hclog"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/tracker/store"
 	bolt "go.etcd.io/bbolt"
 )
 

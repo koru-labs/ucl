@@ -11,8 +11,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/contracts"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/hashicorp/go-hclog"
-	"github.com/umbracle/ethgo"
 	bolt "go.etcd.io/bbolt"
 )
 

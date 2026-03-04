@@ -11,8 +11,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/tests"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/stretchr/testify/assert"
-	"github.com/umbracle/ethgo"
 )
 
 // TestIbft_Transfer sends a transfer transaction (EOA -> EOA)

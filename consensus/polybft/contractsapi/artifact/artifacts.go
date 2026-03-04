@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
-	"github.com/umbracle/ethgo/abi"
+	"github.com/Ethernal-Tech/ethgo/abi"
 )
 
 func ReadArtifactData(rootFolder, contractPath, contractName string) ([]byte, error) {

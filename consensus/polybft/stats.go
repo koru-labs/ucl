@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/txrelayer"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/umbracle/ethgo"
 )
 
 // startStatsReleasing starts the process that releases BoltDB stats into prometheus periodically.

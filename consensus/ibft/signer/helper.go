@@ -11,7 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/secrets/helper"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
-	"github.com/coinbase/kryptology/pkg/signatures/bls/bls_sig"
+	"github.com/Ethernal-Tech/kryptology/pkg/signatures/bls/bls_sig"
 	"github.com/umbracle/fastrlp"
 )
 
@@ -86,7 +86,7 @@ func calculateHeaderHash(h *types.Header) types.Hash {
 
 // ecrecover recovers signer address from the given digest and signature
 func ecrecover(sig, msg []byte) (types.Address, error) {
-	pub, err := crypto.RecoverPubkey(sig, msg)
+	pub, err := crypto.RecoverPubKey(sig, msg)
 	if err != nil {
 		return types.Address{}, err
 	}

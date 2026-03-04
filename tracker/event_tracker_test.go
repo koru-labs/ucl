@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/testutil"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/testutil"
 )
 
 type mockEventSubscriber struct {

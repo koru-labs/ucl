@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/tracker/store"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/tracker/store"
 )
 
 func createSetupDB(subscriber eventSubscription, numBlockConfirmations uint64) store.SetupDB {

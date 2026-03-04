@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/txpool"
-	"github.com/umbracle/ethgo"
+	"github.com/Ethernal-Tech/ethgo"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/e2e/framework"

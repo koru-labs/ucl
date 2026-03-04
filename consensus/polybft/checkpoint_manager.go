@@ -14,8 +14,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/merkle-tree"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	hclog "github.com/hashicorp/go-hclog"
-	"github.com/umbracle/ethgo"
 	bolt "go.etcd.io/bbolt"
 )
 

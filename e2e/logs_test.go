@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/umbracle/ethgo"
+	"github.com/Ethernal-Tech/ethgo"
 
 	"github.com/0xPolygon/polygon-edge/e2e/framework"
 	"github.com/0xPolygon/polygon-edge/helper/hex"

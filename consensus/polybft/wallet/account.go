@@ -8,7 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/bls"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/umbracle/ethgo/wallet"
+	"github.com/Ethernal-Tech/ethgo/wallet"
 )
 
 // Account is an account for key signatures

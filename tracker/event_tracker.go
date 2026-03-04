@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/blocktracker"
+	"github.com/Ethernal-Tech/ethgo/jsonrpc"
+	"github.com/Ethernal-Tech/ethgo/tracker"
 	hcf "github.com/hashicorp/go-hclog"
-	"github.com/umbracle/ethgo"
-	"github.com/umbracle/ethgo/blocktracker"
-	"github.com/umbracle/ethgo/jsonrpc"
-	"github.com/umbracle/ethgo/tracker"
 )
 
 const minBlockMaxBacklog = 96

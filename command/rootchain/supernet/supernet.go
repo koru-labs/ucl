@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/spf13/cobra"
-	"github.com/umbracle/ethgo"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/command"
