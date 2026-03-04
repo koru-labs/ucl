@@ -39,13 +39,13 @@ jobs:
       - name: Notify Slack
         uses: slackapi/slack-github-action@v2.1.1
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
           succeed_bnt: "primary"
           failed_bnt: "danger"
           succeed_job: ":green:"
           failed_job: ":red:"
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
             {
               "blocks": [
