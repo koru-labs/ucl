@@ -857,6 +857,10 @@ func opCodeCopy(c *state) {
 	dataOffset := c.pop()
 	length := c.pop()
 
+	if length.Uint64() <= 0 {
+		return
+	}
+
 	if !c.allocateMemory(memOffset, length) {
 		return
 	}
