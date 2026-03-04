@@ -11,6 +11,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 const nodeIDBytes = 512 / 8
@@ -113,7 +114,7 @@ func NodeIDToPubKey(buf []byte) (*ecdsa.PublicKey, error) {
 		return nil, fmt.Errorf("not enough length: expected %d but found %d", nodeIDBytes, len(buf))
 	}
 
-	p := &ecdsa.PublicKey{Curve: crypto.S256, X: new(big.Int), Y: new(big.Int)}
+	p := &ecdsa.PublicKey{Curve: btcec.S256(), X: new(big.Int), Y: new(big.Int)}
 	half := len(buf) / 2
 	p.X.SetBytes(buf[:half])
 	p.Y.SetBytes(buf[half:])
