@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"math/big"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +32,23 @@ type testCase struct {
 	Pre         map[types.Address]*chain.GenesisAccount `json:"pre"`
 	Post        map[string]postState                    `json:"post"`
 	Transaction *stTransaction                          `json:"transaction"`
+}
+
+func (t *testCase) checkError(fork string, index int, err error) error {
+	expectedError := t.Post[fork][index].ExpectException
+	if err == nil && expectedError == "" {
+		return nil
+	}
+
+	if err == nil && expectedError != "" {
+		return fmt.Errorf("expected error %q, got no error", expectedError)
+	}
+
+	if err != nil && expectedError == "" {
+		return fmt.Errorf("unexpected error: %w", err)
+	}
+
+	return nil
 }
 
 type env struct {
@@ -218,20 +233,22 @@ type indexes struct {
 }
 
 type postEntry struct {
-	Root    types.Hash
-	Logs    types.Hash
-	Indexes indexes
-	TxBytes []byte
+	Root            types.Hash
+	Logs            types.Hash
+	Indexes         indexes
+	ExpectException string
+	TxBytes         []byte
 }
 
 type postState []postEntry
 
 func (p *postEntry) UnmarshalJSON(input []byte) error {
 	type stateUnmarshall struct {
-		Root    string  `json:"hash"`
-		Logs    string  `json:"logs"`
-		Indexes indexes `json:"indexes"`
-		TxBytes string  `json:"txbytes"`
+		Root            string  `json:"hash"`
+		Logs            string  `json:"logs"`
+		Indexes         indexes `json:"indexes"`
+		ExpectException string  `json:"expectException"`
+		TxBytes         string  `json:"txbytes"`
 	}
 
 	var dec stateUnmarshall
@@ -242,6 +259,7 @@ func (p *postEntry) UnmarshalJSON(input []byte) error {
 	p.Root = types.StringToHash(dec.Root)
 	p.Logs = types.StringToHash(dec.Logs)
 	p.Indexes = dec.Indexes
+	p.ExpectException = dec.ExpectException
 	p.TxBytes = types.StringToBytes(dec.TxBytes)
 
 	return nil
@@ -483,53 +501,6 @@ func contains(l []string, name string) bool {
 	return false
 }
 
-var (
-	//go:embed tests
-	testsFS embed.FS
-
-	//go:embed evm-benchmarks
-	evmBenchmarksFS embed.FS
-)
-
-func listFolders(isTestsFolder bool, paths ...string) ([]string, error) {
-	var folders []string
-
-	for _, rootPath := range paths {
-		var fsys fs.FS
-		if isTestsFolder {
-			fsys = testsFS
-		} else {
-			fsys = evmBenchmarksFS
-		}
-
-		if err := fs.WalkDir(fsys, rootPath, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if d.IsDir() {
-				files, err := os.ReadDir(path)
-				if err != nil {
-					return err
-				}
-
-				if len(files) > 0 {
-					folders = append(folders, path)
-				}
-			}
-
-			return nil
-		}); err != nil {
-			return nil, err
-		}
-
-		// Excluding root dir
-		folders = folders[1:]
-	}
-
-	return folders, nil
-}
-
 func listFiles(folder string, extensions ...string) ([]string, error) {
 	var files []string
 
@@ -553,7 +524,6 @@ func listFiles(folder string, extensions ...string) ([]string, error) {
 			// if no extensions filter is provided, add all files
 			files = append(files, path)
 		}
-
 		return nil
 	})
 
