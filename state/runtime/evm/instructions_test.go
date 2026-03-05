@@ -1,8 +1,10 @@
 package evm
 
 import (
+	"errors"
 	"math"
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -10,96 +12,1366 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 var (
-	two = big.NewInt(2)
+	two   = big.NewInt(2)
+	three = big.NewInt(3)
+	four  = big.NewInt(4)
+	five  = big.NewInt(5)
 
 	allEnabledForks = chain.AllForksEnabled.At(0)
 )
 
-type cases2To1 []struct {
-	a *big.Int
-	b *big.Int
-	c *big.Int
+type OperandsLogical struct {
+	operands       []*big.Int
+	expectedResult bool
 }
 
-func test2to1(t *testing.T, f instruction, tests cases2To1) {
+func testLogicalOperation(t *testing.T, f instruction, test OperandsLogical, s *state) {
 	t.Helper()
 
-	s, closeFn := getState()
-	defer closeFn()
+	for _, operand := range test.operands {
+		s.push(operand)
+	}
 
-	for _, i := range tests {
-		s.push(i.a)
-		s.push(i.b)
+	f(s)
 
-		f(s)
-
-		assert.Equal(t, i.c, s.pop())
+	if test.expectedResult {
+		assert.Equal(t, uint64(1), s.pop().Uint64())
+	} else {
+		assert.Equal(t, uint64(0), s.pop().Uint64())
 	}
 }
 
-type cases2ToBool []struct {
-	a *big.Int
-	b *big.Int
-	c bool
+type OperandsArithmetic struct {
+	operands       []*big.Int
+	expectedResult *big.Int
 }
 
-func test2toBool(t *testing.T, f instruction, tests cases2ToBool) {
+func testArithmeticOperation(t *testing.T, f instruction, test OperandsArithmetic, s *state) {
 	t.Helper()
 
-	s, closeFn := getState()
-	defer closeFn()
-
-	for _, i := range tests {
-		s.push(i.a)
-		s.push(i.b)
-
-		f(s)
-
-		if i.c {
-			assert.Equal(t, uint64(1), s.pop().Uint64())
-		} else {
-			assert.Equal(t, uint64(0), s.pop().Uint64())
-		}
+	for _, operand := range test.operands {
+		s.push(operand)
 	}
+
+	f(s)
+
+	assert.EqualValues(t, test.expectedResult.Uint64(), s.pop().Uint64())
 }
 
 func TestAdd(t *testing.T) {
-	test2to1(t, opAdd, cases2To1{
-		{one, one, two},
-		{zero, one, one},
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{one, one}, two},
+		{[]*big.Int{zero, one}, one},
+		{[]*big.Int{three, two}, five},
+		{[]*big.Int{zero, zero}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opAdd, testOperand, s)
+	}
+}
+
+func TestMul(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{two, two}, four},
+		{[]*big.Int{three, two}, big.NewInt(6)},
+		{[]*big.Int{three, one}, three},
+		{[]*big.Int{zero, one}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opMul, testOperand, s)
+	}
+}
+
+func TestSub(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{one, two}, one},
+		{[]*big.Int{zero, two}, two},
+		{[]*big.Int{two, two}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opSub, testOperand, s)
+	}
+}
+
+func TestDiv(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{two, two}, one},
+		{[]*big.Int{one, two}, two},
+		{[]*big.Int{one, zero}, zero},
+		{[]*big.Int{zero, one}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opDiv, testOperand, s)
+	}
+}
+
+func TestSDiv(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{two, two}, one},
+		{[]*big.Int{one, two}, two},
+		{[]*big.Int{zero, one}, zero},
+		{[]*big.Int{one, zero}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opSDiv, testOperand, s)
+	}
+}
+
+func TestMod(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{two, three}, one},
+		{[]*big.Int{two, two}, zero},
+		{[]*big.Int{one, three}, zero},
+		{[]*big.Int{zero, one}, zero},
+		{[]*big.Int{three, five}, two},
+	}
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opMod, testOperand, s)
+	}
+}
+
+func TestSMod(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{two, three}, one},
+		{[]*big.Int{two, two}, zero},
+		{[]*big.Int{one, three}, zero},
+		{[]*big.Int{zero, one}, zero},
+		{[]*big.Int{three, five}, two},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opSMod, testOperand, s)
+	}
+}
+
+func TestExp(t *testing.T) {
+	t.Run("EIP158", func(t *testing.T) {
+		gasConsumed := 50
+		startGas := 1000
+
+		s, cancelFn := getState(&chain.ForksInTime{EIP158: true})
+		defer cancelFn()
+
+		testOperands := []OperandsArithmetic{
+			{[]*big.Int{one, one}, one},
+			{[]*big.Int{two, two}, four},
+			{[]*big.Int{two, three}, big.NewInt(9)},
+			{[]*big.Int{four, two}, big.NewInt(16)},
+		}
+
+		for i, testOperand := range testOperands {
+			testArithmeticOperation(t, opExp, testOperand, s)
+			assert.Equal(t, uint64(startGas-gasConsumed*(i+1)), s.gas)
+		}
 	})
+
+	t.Run("NoForks", func(t *testing.T) {
+		gasConsumed := 10
+		startGas := 1000
+
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		testOperands := []OperandsArithmetic{
+			{[]*big.Int{one, one}, one},
+			{[]*big.Int{two, two}, four},
+			{[]*big.Int{two, three}, big.NewInt(9)},
+			{[]*big.Int{four, two}, big.NewInt(16)},
+		}
+
+		for i, testOperand := range testOperands {
+			testArithmeticOperation(t, opExp, testOperand, s)
+			assert.Equal(t, uint64(startGas-gasConsumed*(i+1)), s.gas)
+		}
+	})
+}
+
+func TestAddMod(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{three, one, two}, zero},
+		{[]*big.Int{two, one, two}, one},
+		{[]*big.Int{zero, one, one}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opAddMod, testOperand, s)
+	}
+}
+
+func TestMulMod(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{three, two, four}, two},
+		{[]*big.Int{two, two, four}, zero},
+		{[]*big.Int{zero, one, one}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opMulMod, testOperand, s)
+	}
+}
+
+func TestAnd(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, true},
+		{[]*big.Int{one, zero}, false},
+		{[]*big.Int{zero, one}, false},
+		{[]*big.Int{zero, zero}, false},
+	}
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opAnd, testOperand, s)
+	}
+}
+
+func TestOr(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, true},
+		{[]*big.Int{one, zero}, true},
+		{[]*big.Int{zero, one}, true},
+		{[]*big.Int{zero, zero}, false},
+	}
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opOr, testOperand, s)
+	}
+}
+
+func TestXor(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{one, zero}, true},
+		{[]*big.Int{zero, one}, true},
+		{[]*big.Int{zero, zero}, false},
+	}
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opXor, testOperand, s)
+	}
+}
+
+func TestByte(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{one, big.NewInt(31)}, one},
+		{[]*big.Int{five, big.NewInt(31)}, five},
+		{[]*big.Int{two, big.NewInt(32)}, zero},
+		{[]*big.Int{one, big.NewInt(30)}, zero},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opByte, testOperand, s)
+	}
+}
+
+func TestShl(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{Constantinople: true})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{three, one}, big.NewInt(6)},
+		{[]*big.Int{three, zero}, three},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opShl, testOperand, s)
+	}
+}
+
+func TestShr(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{Constantinople: true})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{five, one}, two},
+		{[]*big.Int{five, two}, one},
+		{[]*big.Int{five, zero}, five},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opShr, testOperand, s)
+	}
+}
+
+func TestSar(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{Constantinople: true})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{five, one}, two},
+		{[]*big.Int{five, two}, one},
+		{[]*big.Int{five, zero}, five},
+	}
+
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opSar, testOperand, s)
+	}
 }
 
 func TestGt(t *testing.T) {
-	test2toBool(t, opGt, cases2ToBool{
-		{one, one, false},
-		{two, one, false},
-		{one, two, true},
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{two, one}, false},
+		{[]*big.Int{one, two}, true},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opGt, testOperand, s)
+	}
+}
+
+func TestLt(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{two, one}, true},
+		{[]*big.Int{one, two}, false},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opLt, testOperand, s)
+	}
+}
+
+func TestEq(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{zero, zero}, true},
+		{[]*big.Int{one, zero}, false},
+		{[]*big.Int{zero, one}, false},
+		{[]*big.Int{one, one}, true},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opEq, testOperand, s)
+	}
+}
+
+func TestSlt(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{zero, one}, false},
+		{[]*big.Int{one, zero}, true},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opSlt, testOperand, s)
+	}
+}
+
+func TestSgt(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{zero, one}, true},
+		{[]*big.Int{one, zero}, false},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opSgt, testOperand, s)
+	}
+}
+
+func TestSignExtension(t *testing.T) {
+	t.Run("BitAboveZero", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		testOperands := []OperandsArithmetic{
+			{[]*big.Int{big.NewInt(128), zero}, new(big.Int).SetUint64(18446744073709551488)},
+			{[]*big.Int{big.NewInt(32768), one}, new(big.Int).SetUint64(18446744073709518848)},
+			{[]*big.Int{big.NewInt(8388608), two}, new(big.Int).SetUint64(18446744073701163008)},
+		}
+
+		for _, testOperand := range testOperands {
+			testArithmeticOperation(t, opSignExtension, testOperand, s)
+		}
 	})
+	t.Run("BitZero", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		testOperands := []OperandsArithmetic{
+			{[]*big.Int{one, two}, one},
+			{[]*big.Int{two, one}, two},
+			{[]*big.Int{two, zero}, two},
+		}
+
+		for _, testOperand := range testOperands {
+			testArithmeticOperation(t, opSignExtension, testOperand, s)
+		}
+	})
+}
+
+func TestNot(t *testing.T) {
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsArithmetic{
+		{[]*big.Int{zero}, new(big.Int).SetUint64(uint64(math.MaxUint64))},
+		{[]*big.Int{one}, new(big.Int).SetUint64(uint64(math.MaxUint64) - 1)},
+	}
+	for _, testOperand := range testOperands {
+		testArithmeticOperation(t, opNot, testOperand, s)
+	}
 }
 
 func TestIsZero(t *testing.T) {
-	test2toBool(t, opIsZero, cases2ToBool{
-		{one, one, false},
-		{zero, zero, true},
-		{two, two, false},
-	})
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	testOperands := []OperandsLogical{
+		{[]*big.Int{one, one}, false},
+		{[]*big.Int{zero, zero}, true},
+		{[]*big.Int{two, two}, false},
+	}
+
+	for _, testOperand := range testOperands {
+		testLogicalOperation(t, opIsZero, testOperand, s)
+	}
 }
 
 func TestMStore(t *testing.T) {
-	s, closeFn := getState()
+	offset := big.NewInt(62)
+
+	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
 
-	s.push(big.NewInt(10))   // value
-	s.push(big.NewInt(1024)) // offset
+	s.push(one)    // value
+	s.push(offset) // offset
 
-	s.gas = 1000
 	opMStore(s)
 
-	assert.Len(t, s.memory, 1024+32)
+	s.push(offset)
+
+	opMload(s)
+
+	assert.Equal(t, one.Uint64(), s.pop().Uint64())
+}
+
+func TestMStore8(t *testing.T) {
+	offsetStore := big.NewInt(62)
+	offsetLoad := big.NewInt(31)
+
+	s, closeFn := getState(&chain.ForksInTime{})
+	defer closeFn()
+
+	s.push(one)         // value
+	s.push(offsetStore) // offset
+
+	opMStore8(s)
+
+	s.push(offsetLoad)
+
+	opMload(s)
+
+	assert.Equal(t, one.Uint64(), s.pop().Uint64())
+}
+
+func TestSload(t *testing.T) {
+	t.Run("Istanbul", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{Istanbul: true})
+		defer closeFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetStorage", mock.Anything, mock.Anything).Return(bigToHash(one)).Once()
+		s.host = mockHost
+
+		s.push(one)
+
+		opSload(s)
+		assert.Equal(t, uint64(200), s.gas)
+		assert.Equal(t, bigToHash(one), bigToHash(s.pop()))
+	})
+
+	t.Run("EIP150", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{EIP150: true})
+		defer closeFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetStorage", mock.Anything, mock.Anything).Return(bigToHash(one)).Once()
+		s.host = mockHost
+
+		s.push(one)
+
+		opSload(s)
+		assert.Equal(t, uint64(800), s.gas)
+		assert.Equal(t, bigToHash(one), bigToHash(s.pop()))
+	})
+
+	t.Run("NoForks", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetStorage", mock.Anything, mock.Anything).Return(bigToHash(one)).Once()
+		s.host = mockHost
+
+		s.push(one)
+
+		opSload(s)
+		assert.Equal(t, uint64(950), s.gas)
+		assert.Equal(t, bigToHash(one), bigToHash(s.pop()))
+	})
+}
+
+func TestSStore(t *testing.T) {
+	t.Run("ErrOutOfGas", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{
+			Istanbul: true,
+		})
+		defer closeFn()
+
+		s.push(one)
+
+		opSStore(s)
+		assert.True(t, s.stop)
+		assert.Equal(t, errOutOfGas, s.err)
+	})
+	t.Run("StorageUnchanged", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{
+			Istanbul:       true,
+			Constantinople: true,
+		})
+		defer closeFn()
+
+		s.gas = 10000
+
+		mockHost := &mockHost{}
+		mockHost.On("SetStorage", mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything).Return(runtime.StorageUnchanged).Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+
+		opSStore(s)
+		assert.Equal(t, uint64(9200), s.gas)
+	})
+	t.Run("StorageModified", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{
+			Istanbul:       true,
+			Constantinople: true,
+		})
+		defer closeFn()
+
+		s.gas = 10000
+
+		mockHost := &mockHost{}
+		mockHost.On("SetStorage", mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything).Return(runtime.StorageModified).Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+
+		opSStore(s)
+		assert.Equal(t, uint64(5000), s.gas)
+	})
+	t.Run("StorageAdded", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{Istanbul: true, Constantinople: true})
+		defer closeFn()
+
+		s.gas = 25000
+
+		mockHost := &mockHost{}
+		mockHost.On("SetStorage", mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything).Return(runtime.StorageAdded).Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+
+		opSStore(s)
+		assert.Equal(t, uint64(5000), s.gas)
+	})
+	t.Run("StorageDeleted", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{
+			Istanbul:       true,
+			Constantinople: true,
+		})
+		defer closeFn()
+
+		s.gas = 10000
+
+		mockHost := &mockHost{}
+		mockHost.On("SetStorage", mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything).Return(runtime.StorageDeleted).Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+
+		opSStore(s)
+		assert.Equal(t, uint64(5000), s.gas)
+	})
+}
+
+func TestBalance(t *testing.T) {
+	balance := big.NewInt(100)
+
+	createMockHost := func() *mockHost {
+		mockHost := &mockHost{}
+		mockHost.On("GetBalance", mock.Anything).Return(balance)
+
+		return mockHost
+	}
+
+	t.Run("Istanbul", func(t *testing.T) {
+		gasLeft := uint64(300)
+
+		s, cancelFn := getState(&chain.ForksInTime{Istanbul: true})
+		defer cancelFn()
+
+		s.host = createMockHost()
+
+		opBalance(s)
+
+		assert.EqualValues(t, balance, s.pop())
+		assert.Equal(t, gasLeft, s.gas)
+	})
+
+	t.Run("EIP150", func(t *testing.T) {
+		gasLeft := uint64(600)
+
+		s, cancelFn := getState(&chain.ForksInTime{EIP150: true})
+		defer cancelFn()
+
+		s.host = createMockHost()
+
+		opBalance(s)
+
+		assert.Equal(t, int64(100), s.pop().Int64())
+		assert.Equal(t, gasLeft, s.gas)
+	})
+
+	t.Run("OtherForks", func(t *testing.T) {
+		gasLeft := uint64(980)
+
+		s, cancelFn := getState(&chain.ForksInTime{London: true})
+		defer cancelFn()
+
+		s.host = createMockHost()
+
+		opBalance(s)
+
+		assert.EqualValues(t, balance, s.pop())
+		assert.Equal(t, gasLeft, s.gas)
+	})
+}
+
+func TestSelfBalance(t *testing.T) {
+	balance := big.NewInt(100)
+
+	t.Run("IstanbulFork", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{Istanbul: true})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetBalance", mock.Anything).Return(balance).Once()
+		s.host = mockHost
+
+		opSelfBalance(s)
+
+		assert.Equal(t, int64(100), s.pop().Int64())
+	})
+
+	t.Run("NoForkErrorExpected", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetBalance", mock.Anything).Return(balance).Once()
+		s.host = mockHost
+
+		opSelfBalance(s)
+
+		assert.True(t, s.stop)
+		assert.Equal(t, s.err, errOpCodeNotFound)
+	})
+}
+
+func TestChainID(t *testing.T) {
+	chainID := int64(4)
+
+	t.Run("IstanbulFork", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{Istanbul: true})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetTxContext").Return(runtime.TxContext{ChainID: 4}).Once()
+		s.host = mockHost
+
+		opChainID(s)
+
+		assert.Equal(t, chainID, s.pop().Int64())
+	})
+	t.Run("NoForksErrorExpected", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetTxContext").Return(runtime.TxContext{ChainID: 4}).Once()
+		s.host = mockHost
+
+		opChainID(s)
+
+		assert.True(t, s.stop)
+		assert.Equal(t, s.err, errOpCodeNotFound)
+	})
+}
+
+func TestOrigin(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Origin: types.StringToAddress("0x1")}).Once()
+	s.host = mockHost
+
+	opOrigin(s)
+
+	addr, ok := s.popAddr()
+	assert.True(t, ok)
+	assert.Equal(t, types.StringToAddress("0x1").Bytes(), addr.Bytes())
+}
+
+func TestCaller(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	callerAddr := types.StringToAddress("0xabcd")
+	s.msg.Caller = callerAddr
+
+	opCaller(s)
+
+	addr, ok := s.popAddr()
+	assert.True(t, ok)
+	assert.Equal(t, callerAddr, addr)
+}
+
+func TestCallValue(t *testing.T) {
+	t.Run("Msg Value non nil", func(t *testing.T) {
+		value := big.NewInt(10)
+
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.msg.Value = value
+
+		opCallValue(s)
+		assert.Equal(t, value, s.pop())
+	})
+
+	t.Run("Msg Value nil", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		opCallValue(s)
+		assert.Equal(t, uint64(0), s.pop().Uint64())
+	})
+}
+
+func TestCallDataLoad(t *testing.T) {
+	t.Run("Zero", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.push(one)
+
+		opCallDataLoad(s)
+		assert.Equal(t, zero.Uint64(), s.pop().Uint64())
+	})
+	t.Run("NotZero", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.push(zero)
+
+		opCallDataLoad(s)
+		assert.NotEqual(t, zero, s.pop())
+	})
+}
+
+func TestCallDataSize(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.msg.Input = make([]byte, 10)
+
+	opCallDataSize(s)
+	assert.Equal(t, uint64(10), s.pop().Uint64())
+}
+
+func TestCodeSize(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.code = make([]byte, 10)
+
+	opCodeSize(s)
+	assert.Equal(t, uint64(10), s.pop().Uint64())
+}
+
+func TestExtCodeSize(t *testing.T) {
+	codeSize := 10
+
+	t.Run("EIP150", func(t *testing.T) {
+		gasLeft := uint64(300)
+
+		s, cancelFn := getState(&chain.ForksInTime{EIP150: true})
+		defer cancelFn()
+
+		s.push(one)
+
+		mockHost := &mockHost{}
+		mockHost.On("GetCodeSize", types.StringToAddress("0x1")).Return(codeSize).Once()
+		s.host = mockHost
+
+		opExtCodeSize(s)
+
+		assert.Equal(t, gasLeft, s.gas)
+		assert.Equal(t, uint64(codeSize), s.pop().Uint64())
+	})
+	t.Run("NoForks", func(t *testing.T) {
+		gasLeft := uint64(980)
+
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.push(one)
+
+		mockHost := &mockHost{}
+		mockHost.On("GetCodeSize", types.StringToAddress("0x1")).Return(codeSize).Once()
+		s.host = mockHost
+
+		opExtCodeSize(s)
+
+		assert.Equal(t, gasLeft, s.gas)
+		assert.Equal(t, uint64(codeSize), s.pop().Uint64())
+	})
+}
+
+func TestGasPrice(t *testing.T) {
+	gasPrice := 10
+
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{GasPrice: bigToHash(big.NewInt(int64(gasPrice)))}).Once()
+	s.host = mockHost
+
+	opGasPrice(s)
+
+	assert.Equal(t, bigToHash(big.NewInt(int64(gasPrice))), s.popHash())
+}
+
+func TestReturnDataSize(t *testing.T) {
+	dataSize := uint64(1024)
+
+	t.Run("Byzantium", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{Byzantium: true})
+		defer cancelFn()
+
+		s.returnData = make([]byte, dataSize)
+
+		opReturnDataSize(s)
+
+		assert.Equal(t, dataSize, s.pop().Uint64())
+	})
+	t.Run("NoForks", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.returnData = make([]byte, dataSize)
+
+		opReturnDataSize(s)
+
+		assert.True(t, s.stop)
+		assert.Equal(t, errOpCodeNotFound, s.err)
+	})
+}
+
+func TestExtCodeHash(t *testing.T) {
+	t.Run("Istanbul", func(t *testing.T) {
+		gasLeft := uint64(300)
+
+		s, cancelFn := getState(&chain.ForksInTime{
+			Constantinople: true,
+			Istanbul:       true,
+		})
+		defer cancelFn()
+
+		s.push(one)
+
+		mockHost := &mockHost{}
+		mockHost.On("Empty", types.StringToAddress("0x1")).Return(false).Once()
+		mockHost.On("GetCodeHash", types.StringToAddress("0x1")).Return("0x1").Once()
+		s.host = mockHost
+
+		opExtCodeHash(s)
+
+		assert.Equal(t, s.gas, gasLeft)
+		assert.Equal(t, one.Uint64(), s.pop().Uint64())
+	})
+
+	t.Run("NonIstanbul", func(t *testing.T) {
+		gasLeft := uint64(600)
+
+		s, cancelFn := getState(&chain.ForksInTime{
+			Constantinople: true,
+		})
+		defer cancelFn()
+
+		s.push(one)
+
+		mockHost := &mockHost{}
+		mockHost.On("Empty", mock.Anything).Return(true).Once()
+		s.host = mockHost
+
+		opExtCodeHash(s)
+		assert.Equal(t, gasLeft, s.gas)
+		assert.Equal(t, zero.Int64(), s.pop().Int64())
+	})
+
+	t.Run("NoForks", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.push(one)
+
+		mockHost := &mockHost{}
+		mockHost.On("Empty", mock.Anything).Return(true).Once()
+		s.host = mockHost
+
+		opExtCodeHash(s)
+		assert.True(t, s.stop)
+		assert.Equal(t, errOpCodeNotFound, s.err)
+	})
+}
+
+func TestPCMSizeGas(t *testing.T) {
+	memorySize := uint64(1024)
+	gasLeft := uint64(1000)
+
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	t.Run("PC", func(t *testing.T) {
+		s.ip = 1
+		opPC(s)
+
+		assert.Equal(t, uint64(1), s.pop().Uint64())
+	})
+
+	t.Run("MSize", func(t *testing.T) {
+		s.memory = make([]byte, memorySize)
+
+		opMSize(s)
+
+		assert.Equal(t, memorySize, s.pop().Uint64())
+	})
+
+	t.Run("Gas", func(t *testing.T) {
+		opGas(s)
+
+		assert.Equal(t, gasLeft, s.pop().Uint64())
+	})
+}
+
+func TestExtCodeCopy(t *testing.T) {
+	t.Run("EIP150", func(t *testing.T) {
+		leftGas := uint64(294)
+
+		s, cancelFn := getState(&chain.ForksInTime{EIP150: true})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetCode", mock.Anything).Return("0x1").Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+		s.push(big.NewInt(31))
+		s.push(big.NewInt(32))
+
+		opExtCodeCopy(s)
+
+		assert.Equal(t, leftGas, s.gas)
+		assert.Equal(t, big.NewInt(1).FillBytes(make([]byte, 32)), s.memory)
+	})
+
+	t.Run("NonEIP150Fork", func(t *testing.T) {
+		leftGas := uint64(974)
+
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetCode", mock.Anything).Return("0x1").Once()
+		s.host = mockHost
+
+		s.push(one)
+		s.push(zero)
+		s.push(big.NewInt(31))
+		s.push(big.NewInt(32))
+
+		opExtCodeCopy(s)
+
+		assert.Equal(t, leftGas, s.gas)
+		assert.Equal(t, big.NewInt(1).FillBytes(make([]byte, 32)), s.memory)
+	})
+}
+
+func TestCallDataCopy(t *testing.T) {
+	gasLeft := uint64(994)
+
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.msg.Input = one.Bytes()
+
+	s.push(big.NewInt(1))
+	s.push(zero)
+	s.push(big.NewInt(31))
+
+	opCallDataCopy(s)
+
+	assert.Equal(t, gasLeft, s.gas)
+	assert.Equal(t, big.NewInt(1).FillBytes(make([]byte, 32)), s.memory)
+}
+
+func TestCodeCopyLenZero(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	var expectedGas = s.gas
+
+	s.push(big.NewInt(0)) // length
+	s.push(big.NewInt(0)) // dataOffset
+	s.push(big.NewInt(0)) // memOffset
+
+	opCodeCopy(s)
+
+	// We check that no gas was spent and there was no error
+	assert.Equal(t, expectedGas, s.gas)
+	assert.NoError(t, s.err)
+}
+
+func TestCodeCopy(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.push(big.NewInt(1))  // length
+	s.push(zero)           // dataOffset
+	s.push(big.NewInt(31)) // memOffset
+
+	s.code = one.Bytes()
+
+	opCodeCopy(s)
+	assert.Equal(t, one.FillBytes(make([]byte, 32)), s.memory)
+}
+
+func TestBlockHash(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.push(three)
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Number: 5}).Once()
+	mockHost.On("GetBlockHash", mock.Anything).Return(bigToHash(three)).Once()
+	s.host = mockHost
+
+	opBlockHash(s)
+
+	assert.Equal(t, bigToHash(three), bigToHash(s.pop()))
+}
+
+func TestCoinBase(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Coinbase: types.StringToAddress("0x1")}).Once()
+	s.host = mockHost
+
+	opCoinbase(s)
+
+	assert.Equal(t, types.StringToAddress("0x1").Bytes(), s.pop().FillBytes(make([]byte, 20)))
+}
+
+func TestTimeStamp(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Timestamp: 335}).Once()
+	s.host = mockHost
+
+	opTimestamp(s)
+
+	assert.Equal(t, uint64(335), s.pop().Uint64())
+}
+
+func TestNumber(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Number: 5}).Once()
+	s.host = mockHost
+
+	opNumber(s)
+
+	assert.Equal(t, uint64(5), s.pop().Uint64())
+}
+
+func TestDifficulty(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	mockHost := &mockHost{}
+	mockHost.On("GetTxContext").Return(runtime.TxContext{Difficulty: bigToHash(five)}).Once()
+	s.host = mockHost
+
+	opDifficulty(s)
+
+	assert.Equal(t, bigToHash(five), bigToHash(s.pop()))
+}
+
+func TestGasLimit(t *testing.T) {
+	baseFee := uint64(11)
+
+	t.Run("NonLondonFork", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetTxContext").Return(runtime.TxContext{GasLimit: 11}).Once()
+		s.host = mockHost
+
+		opBaseFee(s)
+		assert.EqualError(t, errOpCodeNotFound, s.err.Error())
+	})
+
+	t.Run("LondonFork", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{London: true})
+		defer cancelFn()
+
+		mockHost := &mockHost{}
+		mockHost.On("GetTxContext").Return(runtime.TxContext{BaseFee: big.NewInt(11)}).Once()
+		s.host = mockHost
+
+		opBaseFee(s)
+
+		assert.Equal(t, baseFee, s.pop().Uint64())
+	})
+}
+
+func TestSelfDestruct(t *testing.T) {
+	addr := types.StringToAddress("0x1")
+
+	s, cancelFn := getState(&chain.ForksInTime{
+		EIP150: true,
+		EIP158: true})
+	defer cancelFn()
+
+	s.msg.Address = types.StringToAddress("0x2")
+
+	s.gas = 100000
+	s.push(one)
+
+	mockHost := &mockHost{}
+	mockHost.On("Empty", addr).Return(true).Once()
+	mockHost.On("Selfdestruct", mock.Anything, mock.Anything)
+	mockHost.On("GetBalance", types.StringToAddress("0x2")).Return(big.NewInt(100)).Once()
+	s.host = mockHost
+
+	opSelfDestruct(s)
+
+	assert.Equal(t, uint64(70000), s.gas)
+	assert.True(t, s.stop)
+}
+
+func TestJump(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.code = make([]byte, 10)
+	s.bitmap = bitmap{big.NewInt(255).Bytes()}
+	s.push(five)
+
+	opJump(s)
+
+	assert.Equal(t, 4, s.ip)
+}
+
+func TestJumpI(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.code = make([]byte, 10)
+	s.bitmap = bitmap{big.NewInt(255).Bytes()}
+	s.push(one)
+	s.push(five)
+
+	opJumpi(s)
+
+	assert.Equal(t, 4, s.ip)
+}
+
+func TestDup(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.sp = 6
+
+	for i := 0; i < 10; i++ {
+		s.stack = append(s.stack, big.NewInt(int64(i)))
+	}
+
+	instr := opDup(4)
+	instr(s)
+
+	assert.Equal(t, uint64(2), s.pop().Uint64())
+}
+
+func TestSwap(t *testing.T) {
+	s, cancelFn := getState(&chain.ForksInTime{})
+	defer cancelFn()
+
+	s.sp = 6
+
+	for i := 0; i < 10; i++ {
+		s.stack = append(s.stack, big.NewInt(int64(i)))
+	}
+
+	instr := opSwap(4)
+	instr(s)
+
+	assert.Equal(t, uint64(5), s.stack[1].Uint64())
+	assert.Equal(t, uint64(1), s.stack[6-1].Uint64())
+}
+
+func TestLog(t *testing.T) {
+	t.Run("StaticCall", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.msg.Static = true
+		s.sp = 1
+
+		s.push(big.NewInt(3))
+		s.push(big.NewInt(20))
+
+		for i := 0; i < 20; i++ {
+			s.push(big.NewInt(int64(i)))
+		}
+
+		instr := opLog(10)
+		instr(s)
+
+		assert.Equal(t, errWriteProtection, s.err)
+	})
+
+	t.Run("StackUnderflow", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.sp = 1
+
+		s.push(big.NewInt(3))
+		s.push(big.NewInt(20))
+
+		for i := 0; i < 20; i++ {
+			s.push(big.NewInt(int64(i)))
+		}
+
+		instr := opLog(35)
+		instr(s)
+
+		assert.Error(t, s.err)
+	})
+
+	t.Run("Log", func(t *testing.T) {
+		s, cancelFn := getState(&chain.ForksInTime{})
+		defer cancelFn()
+
+		s.gas = 25000
+
+		s.push(big.NewInt(3))
+		s.push(big.NewInt(20))
+
+		mockHost := &mockHost{}
+		mockHost.On("EmitLog", mock.Anything, mock.Anything, mock.Anything).Once()
+		s.host = mockHost
+
+		for i := 0; i < 20; i++ {
+			s.push(big.NewInt(int64(i)))
+		}
+
+		instr := opLog(10)
+		instr(s)
+
+		assert.Equal(t, uint64(21475), s.gas)
+	})
 }
 
 type mockHostForInstructions struct {
@@ -415,7 +1687,7 @@ func TestCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, closeFn := getState()
+			s, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 
 			s.msg = tt.contract
@@ -440,6 +1712,16 @@ func TestCreate(t *testing.T) {
 
 func Test_opReturnDataCopy(t *testing.T) {
 	t.Parallel()
+
+	// Positive number that does not fit in uint64 (math.MaxUint64 + 1)
+	largeNumber := "18446744073709551616"
+	bigIntValue := new(big.Int)
+	bigIntValue.SetString(largeNumber, 10)
+
+	// Positive number that does fit in uint64 but multiplied by two does not
+	largeNumber2 := "18446744073709551615"
+	bigIntValue2 := new(big.Int)
+	bigIntValue2.SetString(largeNumber2, 10)
 
 	tests := []struct {
 		name        string
@@ -470,7 +1752,8 @@ func Test_opReturnDataCopy(t *testing.T) {
 					big.NewInt(0),  // dataOffset
 					big.NewInt(-1), // memOffset
 				},
-				sp: 3,
+				sp:         3,
+				returnData: []byte{0xff},
 			},
 			resultState: &state{
 				config: &allEnabledForks,
@@ -479,9 +1762,10 @@ func Test_opReturnDataCopy(t *testing.T) {
 					big.NewInt(0),
 					big.NewInt(-1),
 				},
-				sp:   0,
-				stop: true,
-				err:  errReturnDataOutOfBounds,
+				sp:         0,
+				returnData: []byte{0xff},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
 			},
 		},
 		{
@@ -515,21 +1799,23 @@ func Test_opReturnDataCopy(t *testing.T) {
 			initState: &state{
 				stack: []*big.Int{
 					big.NewInt(-1), // length
-					big.NewInt(0),  // dataOffset
+					big.NewInt(2),  // dataOffset
 					big.NewInt(0),  // memOffset
 				},
-				sp: 3,
+				sp:         3,
+				returnData: []byte{0xff},
 			},
 			resultState: &state{
 				config: &allEnabledForks,
 				stack: []*big.Int{
 					big.NewInt(-1),
-					big.NewInt(0),
+					big.NewInt(2),
 					big.NewInt(0),
 				},
-				sp:   0,
-				stop: true,
-				err:  errReturnDataOutOfBounds,
+				sp:         0,
+				returnData: []byte{0xff},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
 			},
 		},
 		{
@@ -564,41 +1850,6 @@ func Test_opReturnDataCopy(t *testing.T) {
 			},
 		},
 		{
-			name:   "should expand memory and copy data returnData",
-			config: &allEnabledForks,
-			initState: &state{
-				stack: []*big.Int{
-					big.NewInt(5), // length
-					big.NewInt(1), // dataOffset
-					big.NewInt(2), // memOffset
-				},
-				sp:         3,
-				returnData: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
-				memory:     []byte{0x11, 0x22},
-				gas:        20,
-			},
-			resultState: &state{
-				config: &allEnabledForks,
-				stack: []*big.Int{
-					big.NewInt(6), // updated for end index
-					big.NewInt(1),
-					big.NewInt(2),
-				},
-				sp:         0,
-				returnData: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
-				memory: append(
-					// 1 word (32 bytes)
-					[]byte{0x11, 0x22, 0x02, 0x03, 0x04, 0x05, 0x06},
-					make([]byte, 25)...,
-				),
-				gas:                14,
-				lastGasCost:        3,
-				currentConsumedGas: 6,
-				stop:               false,
-				err:                nil,
-			},
-		},
-		{
 			// this test case also verifies that code does not panic when the length is 0 and memOffset > len(memory)
 			name:   "should not copy data if length is zero",
 			config: &allEnabledForks,
@@ -626,6 +1877,109 @@ func Test_opReturnDataCopy(t *testing.T) {
 				err:        nil,
 			},
 		},
+		{
+			name:   "should return error if data offset overflows uint64",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(1),  // length
+					bigIntValue,    // dataOffset
+					big.NewInt(-1), // memOffset
+				},
+				sp: 3,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(1),
+					bigIntValue,
+					big.NewInt(-1),
+				},
+				sp:   0,
+				stop: true,
+				err:  errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if sum of data offset and length overflows uint64",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					bigIntValue2,   // length
+					bigIntValue2,   // dataOffset
+					big.NewInt(-1), // memOffset
+				},
+				sp: 3,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					bigIntValue2,
+					bigIntValue2,
+					big.NewInt(-1),
+				},
+				sp:   0,
+				stop: true,
+				err:  errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if the length of return data does not have enough space to receive offset + length bytes",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(2), // length
+					big.NewInt(0), // dataOffset
+					big.NewInt(0), // memOffset
+				},
+				sp:         3,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(2),
+					big.NewInt(0),
+					big.NewInt(0),
+				},
+				sp:         0,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+				stop:       true,
+				err:        errReturnDataOutOfBounds,
+			},
+		},
+		{
+			name:   "should return error if there is no gas",
+			config: &allEnabledForks,
+			initState: &state{
+				stack: []*big.Int{
+					big.NewInt(1), // length
+					big.NewInt(0), // dataOffset
+					big.NewInt(0), // memOffset
+				},
+				sp:         3,
+				returnData: []byte{0xff},
+				memory:     []byte{0x0},
+				gas:        0,
+			},
+			resultState: &state{
+				config: &allEnabledForks,
+				stack: []*big.Int{
+					big.NewInt(1),
+					big.NewInt(0),
+					big.NewInt(0),
+				},
+				sp:                 0,
+				returnData:         []byte{0xff},
+				memory:             []byte{0x0},
+				gas:                0,
+				currentConsumedGas: 3,
+				stop:               true,
+				err:                errOutOfGas,
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -634,7 +1988,7 @@ func Test_opReturnDataCopy(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			state, closeFn := getState()
+			state, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 
 			state.gas = test.initState.gas
@@ -648,14 +2002,14 @@ func Test_opReturnDataCopy(t *testing.T) {
 			state.code = nil
 			state.host = nil
 			state.msg = nil
-			state.evm = nil
+			state.tmp = nil
 			state.bitmap = bitmap{}
 			state.ret = nil
 			state.currentConsumedGas = 0
 
 			opReturnDataCopy(state)
 
-			assert.Equal(t, test.resultState, state)
+			assert.True(t, compareStates(test.resultState, state))
 		})
 	}
 }
@@ -773,13 +2127,11 @@ func Test_opCall(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		test := tt
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			state, closeFn := getState()
-
+			state, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 
 			state.gas = test.initState.gas
@@ -798,4 +2150,32 @@ func Test_opCall(t *testing.T) {
 			assert.Equal(t, test.resultState.gas, state.gas, "gas in state after execution is incorrect")
 		})
 	}
+}
+
+// Since the state is complex structure, here is the specialized comparison
+// function that checks significant fields. This function should be updated
+// to suite future needs.
+func compareStates(a *state, b *state) bool {
+	// Compare simple fields
+	if a.ip != b.ip || a.lastGasCost != b.lastGasCost || !errors.Is(a.err, b.err) || a.stop != b.stop || a.gas != b.gas {
+		return false
+	}
+
+	// Deep compare slices
+	if !reflect.DeepEqual(a.code, b.code) || !reflect.DeepEqual(a.tmp, b.tmp) || !reflect.DeepEqual(a.returnData, b.returnData) || !reflect.DeepEqual(a.memory, b.memory) {
+		return false
+	}
+
+	// Deep comparison of stacks
+	if len(a.stack) != len(b.stack) {
+		return false
+	}
+
+	for i := range a.stack {
+		if a.stack[i].Cmp(b.stack[i]) != 0 {
+			return false
+		}
+	}
+
+	return true
 }

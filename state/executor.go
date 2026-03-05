@@ -1201,3 +1201,36 @@ func (t *Transition) captureCallEnd(c *runtime.Contract, result *runtime.Executi
 		result.Err,
 	)
 }
+
+func (t *Transition) Snapshot() int {
+	snapshot := t.state.Snapshot()
+
+	// Journaling is not implemented.
+	// t.journalRevisions = append(t.journalRevisions, runtime.JournalRevision{ID: snapshot, Index: t.journal.Len()})
+
+	return snapshot
+}
+
+func (t *Transition) RevertToSnapshot(snapshot int) error {
+	if err := t.state.RevertToSnapshot(snapshot); err != nil {
+		return err
+	}
+
+	// Journaling is not implemented.
+	// Find the snapshot in the stack of valid snapshots.
+	// idx := sort.Search(len(t.journalRevisions), func(i int) bool {
+	// 	return t.journalRevisions[i].ID >= snapshot
+	// })
+
+	// if idx == len(t.journalRevisions) || t.journalRevisions[idx].ID != snapshot {
+	// 	return fmt.Errorf("journal revision id %d cannot be reverted", snapshot)
+	// }
+
+	// journalIndex := t.journalRevisions[idx].Index
+
+	// // Replay the journal to undo changes and remove invalidated snapshots
+	// t.journal.Revert(t, journalIndex)
+	// t.journalRevisions = t.journalRevisions[:idx]
+
+	return nil
+}

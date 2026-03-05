@@ -1,0 +1,34 @@
+---
+name: Benchmark Tests
+on: # yamllint disable-line rule:truthy
+    workflow_call:
+      outputs:
+        workflow_output:
+          description: "Benchmark Tests output"
+          value: ${{ jobs.benchmark_test.outputs.output_failure }}
+
+jobs:
+  benchmark_test:
+    name: Run Benchmark Tests
+    runs-on: ubuntu-latest
+    outputs:
+      test_output_failure: ${{ steps.benchmark_tests_failure.outputs.result }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          
+      - name: Setup Go
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Run Go Test
+        run: make benchmark-test
+        
+      - name: Run Go Test Failed
+        if: failure()
+        id: benchmark_tests_failure
+        run: echo "result=false" >> $GITHUB_OUTPUT
