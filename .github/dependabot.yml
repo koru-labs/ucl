@@ -8,7 +8,6 @@ updates:
     ignore:
       - dependency-name: "github.com/aws/aws-sdk-go"
         update-types: [ "version-update:semver-patch" ]
-      - dependency-name: "github.com/consensys/gnark-crypto"
     open-pull-requests-limit: 20
     pull-request-branch-name:
       separator: "-"
