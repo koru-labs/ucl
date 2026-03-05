@@ -123,10 +123,20 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
       github.event_name == 'schedule'
 
+  benchmark_test:
+    name: Benchmark Tests
+    uses: ./.github/workflows/benchmark-test.yml
+    needs: build
+    if: |
+      inputs.benchmark_test || 
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      github.event_name == 'schedule'
+
   notification:
     name: Notification
     uses: ./.github/workflows/ci-notification.yml
-    needs: [build, lint, unit_test, fuzz_test, e2e_ibft_test]
+    needs: [build, lint, unit_test, fuzz_test, e2e_ibft_test, benchmark_test]
     if: (!cancelled() && github.event_name == 'schedule')
     with:
       build_output: ${{ needs.build.outputs.workflow_output }}
@@ -134,13 +144,6 @@ jobs:
       unit_test_output: ${{ needs.unit_test.outputs.workflow_output }}
       fuzz_test_output: ${{ needs.fuzz_test.outputs.workflow_output }}
       e2e_ibft_test_output: ${{ needs.e2e_ibft_test.outputs.workflow_output }}
+      benchmark_test_output: ${{ needs.benchmark_test.outputs.workflow_output }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-  benchmark-test:
-    name: Benchmark Tests
-    uses: ./.github/workflows/benchmark-test.yml
-    needs: build-blade
-    if: |
-      inputs.benchmark-test || 
-      github.event_name == 'pull_request' || 
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))

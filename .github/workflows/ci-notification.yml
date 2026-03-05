@@ -24,6 +24,10 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Tests output
         type: string
         required: true
+      benchmark_test_output:
+        description: Benchmark Tests output
+        type: string
+        required: true
     secrets:
       SLACK_WEBHOOK_URL:
         required: true
