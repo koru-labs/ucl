@@ -13,7 +13,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/grpc"
 
-	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/network"
@@ -516,68 +515,6 @@ func (p *TxPool) ResetWithBlock(blocks ...*types.Block) {
 	p.resetAccounts(stateNonces)
 
 	if !p.sealing.Load() {
-		p.updateAccountSkipsCounts(stateNonces)
-	}
-}
-
-// processEvent collects the latest nonces for each account contained
-// in the received event. Resets all known accounts with the new nonce.
-func (p *TxPool) processEvent(event *blockchain.Event) {
-	// Grab the latest state root now that the block has been inserted
-	stateRoot := p.store.Header().StateRoot
-	stateNonces := make(map[types.Address]uint64)
-
-	// discover latest (next) nonces for all accounts
-	for _, header := range event.NewChain {
-		block, ok := p.store.GetBlockByHash(header.Hash, true)
-		if !ok {
-			p.logger.Error("could not find block in store", "hash", header.Hash.String())
-
-			continue
-		}
-
-		// remove mined txs from the lookup map
-		p.index.remove(block.Transactions...)
-
-		// Extract latest nonces
-		for _, tx := range block.Transactions {
-			var err error
-
-			addr := tx.From
-			if addr == types.ZeroAddress {
-				// From field is not set, extract the signer
-				if addr, err = p.signer.Sender(tx); err != nil {
-					p.logger.Error(
-						fmt.Sprintf("unable to extract signer for transaction, %v", err),
-					)
-
-					continue
-				}
-			}
-
-			// skip already processed accounts
-			if _, processed := stateNonces[addr]; processed {
-				continue
-			}
-
-			// fetch latest nonce from the state
-			latestNonce := p.store.GetNonce(stateRoot, addr)
-
-			// update the result map
-			stateNonces[addr] = latestNonce
-		}
-	}
-
-	// update base fee
-	if ln := len(event.NewChain); ln > 0 {
-		p.SetBaseFee(event.NewChain[ln-1])
-	}
-
-	// reset accounts with the new state
-	p.resetAccounts(stateNonces)
-
-	if !p.sealing.Load() {
-		// only non-validator cleanup inactive accounts
 		p.updateAccountSkipsCounts(stateNonces)
 	}
 }
