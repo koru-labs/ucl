@@ -177,6 +177,28 @@ func TestAddTxErrors(t *testing.T) {
 		)
 	})
 
+	t.Run("ErrTxTypeNotSupported London hardfork not enabled - AddTx", func(t *testing.T) {
+		t.Parallel()
+
+		pool := setupPool()
+
+		pool.forks.RemoveFork(chain.London)
+
+		tx := newTx(defaultAddr, 0, 1)
+		tx.Type = types.DynamicFeeTx
+
+		err := pool.AddTx(signTx(tx))
+
+		assert.ErrorContains(t,
+			err,
+			ErrTxTypeNotSupported.Error(),
+		)
+		assert.ErrorContains(t,
+			err,
+			"london hardfork is not enabled",
+		)
+	})
+
 	t.Run("ErrNegativeValue", func(t *testing.T) {
 		t.Parallel()
 
@@ -304,6 +326,26 @@ func TestAddTxErrors(t *testing.T) {
 		<-pool.promoteReqCh
 	})
 
+	t.Run("FillTxPoolToTheLimit - AddTx", func(t *testing.T) {
+		t.Parallel()
+
+		pool := setupPool()
+
+		// fill the pool leaving only 1 slot
+		pool.gauge.increase(defaultMaxSlots - 1)
+
+		// create tx requiring 1 slot
+		tx := newTx(defaultAddr, 0, 1)
+		tx = signTx(tx)
+
+		// enqueue tx
+		assert.NoError(t, pool.addTx(local, tx))
+
+		_, exists := pool.index.get(tx.Hash)
+		assert.True(t, exists)
+		<-pool.promoteReqCh
+	})
+
 	t.Run("ErrIntrinsicGas", func(t *testing.T) {
 		t.Parallel()
 
@@ -337,7 +379,7 @@ func TestAddTxErrors(t *testing.T) {
 		)
 	})
 
-	t.Run("ErrAlreadyKnown", func(t *testing.T) {
+	t.Run("ErrReplacementUnderpriced", func(t *testing.T) {
 		t.Parallel()
 
 		pool := setupPool()
@@ -409,6 +451,22 @@ func TestAddTxErrors(t *testing.T) {
 		assert.ErrorIs(t,
 			pool.addTx(local, tx),
 			ErrInsufficientFunds,
+		)
+	})
+
+	t.Run("runtime.ErrMaxCodeSizeExceeded", func(t *testing.T) {
+		t.Parallel()
+
+		pool := setupPool()
+		pool.forks = chain.AllForksEnabled.Copy()
+
+		tx := newTx(defaultAddr, 0, 1)
+		tx.Input = (make([]byte, state.TxPoolMaxInitCodeSize+1))
+		tx = signTx(tx)
+
+		assert.ErrorIs(t,
+			pool.addTx(local, tx),
+			runtime.ErrMaxCodeSizeExceeded,
 		)
 	})
 }
@@ -3376,6 +3434,86 @@ func TestGetTxs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFreeSlots(t *testing.T) {
+	pool, err := newTestPool()
+	require.NoError(t, err)
+
+	freeslot := pool.gauge.freeSlots()
+	require.Greater(t, freeslot, uint64(0))
+}
+
+func TestGetNonceAccountNotExist(t *testing.T) {
+	pool, err := newTestPool()
+	require.NoError(t, err)
+
+	_, addr := tests.GenerateKeyAndAddr(t)
+
+	nonce := pool.GetNonce(addr)
+	require.Equal(t, nonce, uint64(0))
+}
+
+func TestGetNonceAccountExist(t *testing.T) {
+	pool, err := newTestPool()
+	require.NoError(t, err)
+
+	signer := crypto.NewEIP155Signer(100, true)
+	key, err := crypto.GenerateECDSAKey()
+	require.NoError(t, err)
+
+	pool.SetSigner(signer)
+
+	addr := crypto.PubKeyToAddress(&key.PublicKey)
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	require.NoError(t, err)
+
+	assert.NoError(t, pool.addTx(local, tx))
+
+	nonce := pool.GetNonce(addr)
+	require.Equal(t, nonce, uint64(0))
+}
+
+func TestGetPendingTx(t *testing.T) {
+	pool, err := newTestPool()
+	require.NoError(t, err)
+
+	signer := crypto.NewEIP155Signer(100, true)
+	key, err := crypto.GenerateECDSAKey()
+	require.NoError(t, err)
+
+	pool.SetSigner(signer)
+
+	addr := crypto.PubKeyToAddress(&key.PublicKey)
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	require.NoError(t, err)
+
+	assert.NoError(t, pool.addTx(local, tx))
+
+	txPending, isPending := pool.GetPendingTx(tx.Hash)
+	assert.True(t, isPending)
+	assert.Equal(t, tx.Hash, txPending.Hash)
+}
+
+func TestGetCapacity(t *testing.T) {
+	pool, err := newTestPool()
+	require.NoError(t, err)
+
+	signer := crypto.NewEIP155Signer(100, true)
+	key, err := crypto.GenerateECDSAKey()
+	require.NoError(t, err)
+
+	pool.SetSigner(signer)
+
+	addr := crypto.PubKeyToAddress(&key.PublicKey)
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	require.NoError(t, err)
+
+	assert.NoError(t, pool.addTx(local, tx))
+
+	read, maxCapacity := pool.GetCapacity()
+	assert.Greater(t, read, uint64(0))
+	assert.Greater(t, maxCapacity, uint64(0))
 }
 
 func TestSetSealing(t *testing.T) {
