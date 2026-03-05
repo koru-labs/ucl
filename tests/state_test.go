@@ -20,9 +20,8 @@ import (
 // It does not include Merge hardfork test cases.
 
 const (
-	stateTests         = "tests/GeneralStateTests"
-	legacyStateTests   = "tests/LegacyTests/Constantinople/GeneralStateTests"
-	testGenesisBaseFee = 0x0a
+	stateTests       = "tests/GeneralStateTests"
+	legacyStateTests = "tests/LegacyTests/Constantinople/GeneralStateTests"
 )
 
 var (
@@ -140,7 +139,7 @@ func TestState(t *testing.T) {
 
 	// There are two folders in spec tests, one for the current tests for the Istanbul fork
 	// and one for the legacy tests for the other forks
-	folders, err := listFolders(stateTests, legacyStateTests)
+	folders, err := listFolders(true, stateTests, legacyStateTests)
 	if err != nil {
 		t.Fatal(err)
 	}
