@@ -3745,7 +3745,7 @@ func TestAddTxsInOrder(t *testing.T) {
 	}
 }
 
-func TestResetWithHeadersSetsBaseFee(t *testing.T) {
+func TestResetWithBlockSetsBaseFee(t *testing.T) {
 	t.Parallel()
 
 	blocks := []*types.Block{
@@ -3770,25 +3770,16 @@ func TestResetWithHeadersSetsBaseFee(t *testing.T) {
 	}
 
 	store := NewDefaultMockStore(blocks[0].Header)
-	store.getBlockByHashFn = func(h types.Hash, b bool) (*types.Block, bool) {
-		for _, b := range blocks {
-			if b.Header.Hash == h {
-				return b, true
-			}
-		}
-
-		return nil, false
-	}
 
 	pool, err := newTestPool(store)
 	require.NoError(t, err)
 
 	pool.SetBaseFee(blocks[0].Header)
 
-	pool.ResetWithHeaders()
+	pool.ResetWithBlock()
 	assert.Equal(t, blocks[0].Header.BaseFee, pool.GetBaseFee())
 
-	pool.ResetWithHeaders(blocks[len(blocks)-2].Header, blocks[len(blocks)-1].Header)
+	pool.ResetWithBlock(blocks[len(blocks)-2], blocks[len(blocks)-1])
 	assert.Equal(t, blocks[len(blocks)-1].Header.BaseFee, pool.GetBaseFee())
 }
 

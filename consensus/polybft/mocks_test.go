@@ -355,7 +355,7 @@ func (tp *txPoolMock) SetSealing(v bool) {
 	tp.Called(v)
 }
 
-func (tp *txPoolMock) ResetWithHeaders(values ...*types.Header) {
+func (tp *txPoolMock) ResetWithBlock(values ...*types.Block) {
 	tp.Called(values)
 }
 

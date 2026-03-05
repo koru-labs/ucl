@@ -478,14 +478,46 @@ func (p *TxPool) Demote(tx *types.Transaction) {
 	p.eventManager.signalEvent(proto.EventType_DEMOTED, tx.Hash)
 }
 
-// ResetWithHeaders processes the transactions from the new
-// headers to sync the pool with the new state.
-func (p *TxPool) ResetWithHeaders(headers ...*types.Header) {
-	// process the txs in the event
-	// to make sure the pool is up-to-date
-	p.processEvent(&blockchain.Event{
-		NewChain: headers,
-	})
+// ResetWithBlock processes the transactions from the provided blocks
+// to sync the pool with the new state, without redundant storage reads.
+// Nonces are derived directly from the mined transactions rather than
+// querying the state trie, since tx.Nonce + 1 equals the account's
+// post-execution nonce.
+func (p *TxPool) ResetWithBlock(blocks ...*types.Block) {
+	stateNonces := make(map[types.Address]uint64)
+
+	for _, block := range blocks {
+		p.index.remove(block.Transactions...)
+
+		for _, tx := range block.Transactions {
+			var err error
+
+			addr := tx.From
+			if addr == types.ZeroAddress {
+				if addr, err = p.signer.Sender(tx); err != nil {
+					p.logger.Error(
+						fmt.Sprintf("unable to extract signer for transaction, %v", err),
+					)
+
+					continue
+				}
+			}
+
+			if nextNonce := tx.Nonce + 1; nextNonce > stateNonces[addr] {
+				stateNonces[addr] = nextNonce
+			}
+		}
+	}
+
+	if ln := len(blocks); ln > 0 {
+		p.SetBaseFee(blocks[ln-1].Header)
+	}
+
+	p.resetAccounts(stateNonces)
+
+	if !p.sealing.Load() {
+		p.updateAccountSkipsCounts(stateNonces)
+	}
 }
 
 // processEvent collects the latest nonces for each account contained
