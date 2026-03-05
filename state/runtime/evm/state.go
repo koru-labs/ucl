@@ -247,6 +247,12 @@ func (c *state) Run() ([]byte, error) {
 			c.captureExecution(op.String(), ipCopy, gasCopy, gasCopy-c.gas)
 		}
 
+		// In case there was an error set in current instruction, let the execution trace
+		// to allow easier debugging and stop the execution.
+		if c.err != nil {
+			break
+		}
+
 		// check if stack size exceeds the max size
 		if c.stack.sp > stackSize {
 			c.exit(&runtime.StackOverflowError{StackLen: c.stack.sp, Limit: stackSize})
