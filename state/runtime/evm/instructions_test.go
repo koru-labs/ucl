@@ -511,8 +511,8 @@ func TestMStore8(t *testing.T) {
 	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
 
-	s.push(one)         //value
-	s.push(offsetStore) //offset
+	s.push(one)         // value
+	s.push(offsetStore) // offset
 
 	opMStore8(s)
 
@@ -876,6 +876,7 @@ func TestExtCodeSize(t *testing.T) {
 
 		s, cancelFn := getState(&chain.ForksInTime{EIP150: true})
 		defer cancelFn()
+
 		s.push(one)
 
 		mockHost := &mockHost{}
@@ -1058,6 +1059,7 @@ func TestExtCodeCopy(t *testing.T) {
 
 	t.Run("NonEIP150Fork", func(t *testing.T) {
 		leftGas := uint64(974)
+
 		s, cancelFn := getState(&chain.ForksInTime{})
 		defer cancelFn()
 
@@ -1101,9 +1103,9 @@ func TestCodeCopyLenZero(t *testing.T) {
 
 	var expectedGas = s.gas
 
-	s.push(big.NewInt(0)) //length
-	s.push(big.NewInt(0)) //dataOffset
-	s.push(big.NewInt(0)) //memOffset
+	s.push(big.NewInt(0)) // length
+	s.push(big.NewInt(0)) // dataOffset
+	s.push(big.NewInt(0)) // memOffset
 
 	opCodeCopy(s)
 
@@ -1116,9 +1118,9 @@ func TestCodeCopy(t *testing.T) {
 	s, cancelFn := getState(&chain.ForksInTime{})
 	defer cancelFn()
 
-	s.push(big.NewInt(1))  //length
-	s.push(zero)           //dataOffset
-	s.push(big.NewInt(31)) //memOffset
+	s.push(big.NewInt(1))  // length
+	s.push(zero)           // dataOffset
+	s.push(big.NewInt(31)) // memOffset
 
 	s.code = one.Bytes()
 
@@ -2125,10 +2127,10 @@ func Test_opCall(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		test := tt
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			state, closeFn := getState(&chain.ForksInTime{})
 			defer closeFn()
 

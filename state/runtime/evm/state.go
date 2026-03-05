@@ -105,6 +105,7 @@ func (c *state) reset() {
 	for i := range c.stack {
 		c.unsafepool.Put(resetBigIntFn, c.stack[i])
 	}
+
 	c.stack = c.stack[:0]
 	c.tmp = c.tmp[:0]
 	c.ret = c.ret[:0]
