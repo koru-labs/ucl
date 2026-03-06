@@ -3860,6 +3860,7 @@ func TestResetWithBlock(t *testing.T) {
 
 		acct1 := pool.accounts.get(addr1)
 		acct2 := pool.accounts.get(addr2)
+
 		assert.Equal(t, uint64(1), acct1.getNonce())
 		assert.Equal(t, uint64(1), acct2.getNonce())
 	})
