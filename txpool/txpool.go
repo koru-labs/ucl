@@ -483,10 +483,13 @@ func (p *TxPool) Demote(tx *types.Transaction) {
 // querying the state trie, since tx.Nonce + 1 equals the account's
 // post-execution nonce.
 func (p *TxPool) ResetWithBlock(block *types.Block) {
+	// Grab the latest state root now that the block has been inserted
+	stateRoot := p.store.Header().StateRoot
 	stateNonces := make(map[types.Address]uint64)
 
 	p.index.remove(block.Transactions...)
 
+	// Extract latest nonces
 	for _, tx := range block.Transactions {
 		var err error
 
@@ -502,10 +505,16 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 			}
 		}
 
-		// Extract latest nonces from the block
-		if nextNonce := tx.Nonce + 1; nextNonce > stateNonces[addr] {
-			stateNonces[addr] = nextNonce
+		// skip already processed accounts
+		if _, processed := stateNonces[addr]; processed {
+			continue
 		}
+
+		// fetch latest nonce from the state
+		latestNonce := p.store.GetNonce(stateRoot, addr)
+
+		// update the result map
+		stateNonces[addr] = latestNonce
 	}
 
 	p.SetBaseFee(block.Header)
@@ -515,7 +524,7 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 
 	if !p.sealing.Load() {
 		// only non-validator cleanup inactive accounts
-		p.updateAccountSkipsCounts(stateNonces)
+		p.updateAccountSkipsCounts(stateNonces, stateRoot)
 	}
 }
 
@@ -992,8 +1001,7 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 
 // updateAccountSkipsCounts update the accounts' skips,
 // the number of the consecutive blocks that doesn't have the account's transactions
-func (p *TxPool) updateAccountSkipsCounts(latestActiveAccounts map[types.Address]uint64) {
-	stateRoot := p.store.Header().StateRoot
+func (p *TxPool) updateAccountSkipsCounts(latestActiveAccounts map[types.Address]uint64, stateRoot types.Hash) {
 	p.accounts.Range(
 		func(key, value interface{}) bool {
 			address, _ := key.(types.Address)
