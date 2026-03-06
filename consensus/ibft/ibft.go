@@ -49,7 +49,7 @@ type txPoolInterface interface {
 	Pop(tx *types.Transaction)
 	Drop(tx *types.Transaction)
 	Demote(tx *types.Transaction)
-	ResetWithHeaders(headers ...*types.Header)
+	ResetWithBlock(block *types.Block)
 	SetSealing(bool)
 }
 
@@ -226,7 +226,7 @@ func (i *backendIBFT) startSyncing() {
 			i.logger.Error("failed to update sub modules", "height", fullBlock.Block.Number()+1, "err", err)
 		}
 
-		i.txpool.ResetWithHeaders(fullBlock.Block.Header)
+		i.txpool.ResetWithBlock(fullBlock.Block)
 
 		return false
 	}

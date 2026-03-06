@@ -204,7 +204,7 @@ func TestConsensusRuntime_OnBlockInserted_EndOfEpoch(t *testing.T) {
 	polybftBackendMock.On("GetValidatorsWithTx", mock.Anything, mock.Anything, mock.Anything).Return(validatorSet).Times(3)
 
 	txPool := new(txPoolMock)
-	txPool.On("ResetWithHeaders", mock.Anything).Once()
+	txPool.On("ResetWithBlock", mock.Anything).Once()
 
 	snapshot := NewProposerSnapshot(epochSize-1, validatorSet)
 	config := &runtimeConfig{
@@ -265,7 +265,7 @@ func TestConsensusRuntime_OnBlockInserted_MiddleOfEpoch(t *testing.T) {
 	polybftBackendMock.On("GetValidatorsWithTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	txPool := new(txPoolMock)
-	txPool.On("ResetWithHeaders", mock.Anything).Once()
+	txPool.On("ResetWithBlock", mock.Anything).Once()
 
 	snapshot := NewProposerSnapshot(blockNumber, []*validator.ValidatorMetadata{})
 	config := &runtimeConfig{

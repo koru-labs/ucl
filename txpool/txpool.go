@@ -13,7 +13,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/grpc"
 
-	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/network"
@@ -478,75 +477,51 @@ func (p *TxPool) Demote(tx *types.Transaction) {
 	p.eventManager.signalEvent(proto.EventType_DEMOTED, tx.Hash)
 }
 
-// ResetWithHeaders processes the transactions from the new
-// headers to sync the pool with the new state.
-func (p *TxPool) ResetWithHeaders(headers ...*types.Header) {
-	// process the txs in the event
-	// to make sure the pool is up-to-date
-	p.processEvent(&blockchain.Event{
-		NewChain: headers,
-	})
-}
-
-// processEvent collects the latest nonces for each account contained
-// in the received event. Resets all known accounts with the new nonce.
-func (p *TxPool) processEvent(event *blockchain.Event) {
+// ResetWithBlock processes the transactions from the provided block
+// to sync the pool with the new state, without redundant storage reads.
+func (p *TxPool) ResetWithBlock(block *types.Block) {
 	// Grab the latest state root now that the block has been inserted
 	stateRoot := p.store.Header().StateRoot
 	stateNonces := make(map[types.Address]uint64)
 
-	// discover latest (next) nonces for all accounts
-	for _, header := range event.NewChain {
-		block, ok := p.store.GetBlockByHash(header.Hash, true)
-		if !ok {
-			p.logger.Error("could not find block in store", "hash", header.Hash.String())
+	p.index.remove(block.Transactions...)
 
+	// Extract latest nonces
+	for _, tx := range block.Transactions {
+		var err error
+
+		addr := tx.From
+		if addr == types.ZeroAddress {
+			// From field is not set, extract the signer
+			if addr, err = p.signer.Sender(tx); err != nil {
+				p.logger.Error(
+					fmt.Sprintf("unable to extract signer for transaction, %v", err),
+				)
+
+				continue
+			}
+		}
+
+		// skip already processed accounts
+		if _, processed := stateNonces[addr]; processed {
 			continue
 		}
 
-		// remove mined txs from the lookup map
-		p.index.remove(block.Transactions...)
+		// fetch latest nonce from the state
+		latestNonce := p.store.GetNonce(stateRoot, addr)
 
-		// Extract latest nonces
-		for _, tx := range block.Transactions {
-			var err error
-
-			addr := tx.From
-			if addr == types.ZeroAddress {
-				// From field is not set, extract the signer
-				if addr, err = p.signer.Sender(tx); err != nil {
-					p.logger.Error(
-						fmt.Sprintf("unable to extract signer for transaction, %v", err),
-					)
-
-					continue
-				}
-			}
-
-			// skip already processed accounts
-			if _, processed := stateNonces[addr]; processed {
-				continue
-			}
-
-			// fetch latest nonce from the state
-			latestNonce := p.store.GetNonce(stateRoot, addr)
-
-			// update the result map
-			stateNonces[addr] = latestNonce
-		}
+		// update the result map
+		stateNonces[addr] = latestNonce
 	}
 
-	// update base fee
-	if ln := len(event.NewChain); ln > 0 {
-		p.SetBaseFee(event.NewChain[ln-1])
-	}
+	p.SetBaseFee(block.Header)
 
 	// reset accounts with the new state
 	p.resetAccounts(stateNonces)
 
 	if !p.sealing.Load() {
 		// only non-validator cleanup inactive accounts
-		p.updateAccountSkipsCounts(stateNonces)
+		p.updateAccountSkipsCounts(stateNonces, stateRoot)
 	}
 }
 
@@ -1023,8 +998,7 @@ func (p *TxPool) resetAccounts(stateNonces map[types.Address]uint64) {
 
 // updateAccountSkipsCounts update the accounts' skips,
 // the number of the consecutive blocks that doesn't have the account's transactions
-func (p *TxPool) updateAccountSkipsCounts(latestActiveAccounts map[types.Address]uint64) {
-	stateRoot := p.store.Header().StateRoot
+func (p *TxPool) updateAccountSkipsCounts(latestActiveAccounts map[types.Address]uint64, stateRoot types.Hash) {
 	p.accounts.Range(
 		func(key, value interface{}) bool {
 			address, _ := key.(types.Address)

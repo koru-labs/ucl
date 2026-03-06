@@ -2075,7 +2075,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
 			// empty
-		})
+		}, types.ZeroHash)
 
 		// make sure the account queue is empty and skips is reset
 		assert.Zero(t, accountMap.enqueued.length())
@@ -2110,7 +2110,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
 			// empty
-		})
+		}, types.ZeroHash)
 
 		// make sure the account queue is empty and skips is reset
 		assert.Zero(t, accountMap.enqueued.length())
@@ -2145,7 +2145,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
 			addr1: 1,
-		})
+		}, types.ZeroHash)
 
 		// make sure the account queue is empty and skips is reset
 		assert.Zero(t, accountMap.enqueued.length())
@@ -2191,7 +2191,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 		accountMap.setNonce(storeNonce + 3)
 		accountMap.skips = maxAccountSkips - 1
 
-		pool.updateAccountSkipsCounts(map[types.Address]uint64{})
+		pool.updateAccountSkipsCounts(map[types.Address]uint64{}, types.ZeroHash)
 
 		// make sure the account queue is empty and skips is reset
 		assert.Zero(t, accountMap.enqueued.length())
@@ -3745,51 +3745,150 @@ func TestAddTxsInOrder(t *testing.T) {
 	}
 }
 
-func TestResetWithHeadersSetsBaseFee(t *testing.T) {
+func TestResetWithBlock(t *testing.T) {
 	t.Parallel()
 
-	blocks := []*types.Block{
-		{
-			Header: &types.Header{
-				BaseFee: 100,
-				Hash:    types.Hash{1},
-			},
-		},
-		{
-			Header: &types.Header{
-				BaseFee: 1000,
-				Hash:    types.Hash{1},
-			},
-		},
-		{
-			Header: &types.Header{
-				BaseFee: 2000,
-				Hash:    types.Hash{2},
-			},
-		},
-	}
+	t.Run("removes mined transactions from pool and resets account nonces", func(t *testing.T) {
+		t.Parallel()
 
-	store := NewDefaultMockStore(blocks[0].Header)
-	store.getBlockByHashFn = func(h types.Hash, b bool) (*types.Block, bool) {
-		for _, b := range blocks {
-			if b.Header.Hash == h {
-				return b, true
-			}
+		store := defaultMockStore{
+			DefaultHeader: &types.Header{GasLimit: 4712388},
+			nonce:         0,
+			calculateBaseFeeFn: func(h *types.Header) uint64 {
+				return h.BaseFee
+			},
 		}
 
-		return nil, false
-	}
+		pool, err := newTestPool(store)
+		require.NoError(t, err)
 
-	pool, err := newTestPool(store)
-	require.NoError(t, err)
+		pool.SetSigner(&mockSigner{})
 
-	pool.SetBaseFee(blocks[0].Header)
+		tx0 := newTx(addr1, 0, 1)
+		tx1 := newTx(addr1, 1, 1)
+		tx2 := newTx(addr1, 2, 1)
 
-	pool.ResetWithHeaders()
-	assert.Equal(t, blocks[0].Header.BaseFee, pool.GetBaseFee())
+		require.NoError(t, pool.addTx(local, tx0))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
 
-	pool.ResetWithHeaders(blocks[len(blocks)-2].Header, blocks[len(blocks)-1].Header)
-	assert.Equal(t, blocks[len(blocks)-1].Header.BaseFee, pool.GetBaseFee())
+		require.NoError(t, pool.addTx(local, tx1))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
+
+		require.NoError(t, pool.addTx(local, tx2))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
+
+		account := pool.accounts.get(addr1)
+		require.NotNil(t, account)
+		assert.Equal(t, uint64(3), account.promoted.length())
+
+		_, exists := pool.index.get(tx0.Hash)
+		assert.True(t, exists)
+		_, exists = pool.index.get(tx1.Hash)
+		assert.True(t, exists)
+		_, exists = pool.index.get(tx2.Hash)
+		assert.True(t, exists)
+
+		// simulate post-block state: store now returns nonce 3
+		store.nonce = 3
+		pool.store = store
+
+		block := &types.Block{
+			Header:       &types.Header{BaseFee: 100, Hash: types.Hash{0xAA}},
+			Transactions: []*types.Transaction{tx0, tx1, tx2},
+		}
+
+		pool.ResetWithBlock(block)
+
+		_, exists = pool.index.get(tx0.Hash)
+		assert.False(t, exists, "mined tx0 should be removed from index")
+		_, exists = pool.index.get(tx1.Hash)
+		assert.False(t, exists, "mined tx1 should be removed from index")
+		_, exists = pool.index.get(tx2.Hash)
+		assert.False(t, exists, "mined tx2 should be removed from index")
+
+		assert.Equal(t, uint64(3), account.getNonce(),
+			"account nonce should be updated to post-block state nonce")
+		assert.Equal(t, uint64(100), pool.GetBaseFee(),
+			"base fee should be updated from the block header")
+	})
+
+	t.Run("handles multiple accounts in one block", func(t *testing.T) {
+		t.Parallel()
+
+		store := defaultMockStore{
+			DefaultHeader: &types.Header{GasLimit: 4712388},
+			nonce:         0,
+			calculateBaseFeeFn: func(h *types.Header) uint64 {
+				return h.BaseFee
+			},
+		}
+
+		pool, err := newTestPool(store)
+		require.NoError(t, err)
+
+		pool.SetSigner(&mockSigner{})
+
+		txA := newTx(addr1, 0, 1)
+		txB := newTx(addr2, 0, 1)
+
+		require.NoError(t, pool.addTx(local, txA))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
+
+		require.NoError(t, pool.addTx(local, txB))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
+
+		_, exists := pool.index.get(txA.Hash)
+		assert.True(t, exists)
+		_, exists = pool.index.get(txB.Hash)
+		assert.True(t, exists)
+
+		// simulate post-block state: store now returns nonce 1
+		store.nonce = 1
+		pool.store = store
+
+		block := &types.Block{
+			Header:       &types.Header{BaseFee: 300, Hash: types.Hash{0xBB}},
+			Transactions: []*types.Transaction{txA, txB},
+		}
+
+		pool.ResetWithBlock(block)
+
+		_, exists = pool.index.get(txA.Hash)
+		assert.False(t, exists, "addr1 mined tx should be removed")
+		_, exists = pool.index.get(txB.Hash)
+		assert.False(t, exists, "addr2 mined tx should be removed")
+
+		acct1 := pool.accounts.get(addr1)
+		acct2 := pool.accounts.get(addr2)
+
+		assert.Equal(t, uint64(1), acct1.getNonce())
+		assert.Equal(t, uint64(1), acct2.getNonce())
+	})
+
+	t.Run("empty block only updates base fee", func(t *testing.T) {
+		t.Parallel()
+
+		store := NewDefaultMockStore(&types.Header{GasLimit: 4712388})
+		pool, err := newTestPool(store)
+		require.NoError(t, err)
+
+		pool.SetSigner(&mockSigner{})
+
+		tx := newTx(addr1, 0, 1)
+		require.NoError(t, pool.addTx(local, tx))
+		pool.handlePromoteRequest(<-pool.promoteReqCh)
+
+		_, exists := pool.index.get(tx.Hash)
+		assert.True(t, exists)
+
+		pool.ResetWithBlock(&types.Block{
+			Header: &types.Header{BaseFee: 750, Hash: types.Hash{0xCC}},
+		})
+
+		_, exists = pool.index.get(tx.Hash)
+		assert.True(t, exists, "tx should remain when block has no transactions")
+		assert.Equal(t, uint64(750), pool.GetBaseFee())
+	})
 }
 
 func TestAddTx_TxReplacement(t *testing.T) {
