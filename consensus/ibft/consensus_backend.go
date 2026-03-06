@@ -129,7 +129,7 @@ func (i *backendIBFT) InsertProposal(
 
 	// after the block has been written we reset the txpool so that
 	// the old transactions are removed
-	i.txpool.ResetWithHeaders(newBlock.Header)
+	i.txpool.ResetWithBlock(newBlock)
 }
 
 func (i *backendIBFT) ID() []byte {
