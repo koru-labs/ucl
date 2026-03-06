@@ -355,8 +355,8 @@ func (tp *txPoolMock) SetSealing(v bool) {
 	tp.Called(v)
 }
 
-func (tp *txPoolMock) ResetWithBlock(values ...*types.Block) {
-	tp.Called(values)
+func (tp *txPoolMock) ResetWithBlock(block *types.Block) {
+	tp.Called(block)
 }
 
 var _ syncer.Syncer = (*syncerMock)(nil)

@@ -49,7 +49,7 @@ type txPoolInterface interface {
 	Pop(tx *types.Transaction)
 	Drop(tx *types.Transaction)
 	Demote(tx *types.Transaction)
-	ResetWithBlock(blocks ...*types.Block)
+	ResetWithBlock(block *types.Block)
 	SetSealing(bool)
 }
 

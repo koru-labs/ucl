@@ -3776,10 +3776,10 @@ func TestResetWithBlockSetsBaseFee(t *testing.T) {
 
 	pool.SetBaseFee(blocks[0].Header)
 
-	pool.ResetWithBlock()
+	pool.ResetWithBlock(blocks[0])
 	assert.Equal(t, blocks[0].Header.BaseFee, pool.GetBaseFee())
 
-	pool.ResetWithBlock(blocks[len(blocks)-2], blocks[len(blocks)-1])
+	pool.ResetWithBlock(blocks[len(blocks)-1])
 	assert.Equal(t, blocks[len(blocks)-1].Header.BaseFee, pool.GetBaseFee())
 }
 
