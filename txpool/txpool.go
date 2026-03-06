@@ -492,6 +492,7 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 
 		addr := tx.From
 		if addr == types.ZeroAddress {
+			// From field is not set, extract the signer
 			if addr, err = p.signer.Sender(tx); err != nil {
 				p.logger.Error(
 					fmt.Sprintf("unable to extract signer for transaction, %v", err),
@@ -501,6 +502,7 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 			}
 		}
 
+		// Extract latest nonces from the block
 		if nextNonce := tx.Nonce + 1; nextNonce > stateNonces[addr] {
 			stateNonces[addr] = nextNonce
 		}
@@ -508,9 +510,11 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 
 	p.SetBaseFee(block.Header)
 
+	// reset accounts with the new state
 	p.resetAccounts(stateNonces)
 
 	if !p.sealing.Load() {
+		// only non-validator cleanup inactive accounts
 		p.updateAccountSkipsCounts(stateNonces)
 	}
 }
