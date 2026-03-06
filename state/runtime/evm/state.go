@@ -2,7 +2,6 @@ package evm
 
 import (
 	"errors"
-	"math/big"
 	"strings"
 
 	"sync"
@@ -45,6 +44,8 @@ var (
 	errInvalidJump           = errors.New("invalid jump destination")
 	errOpCodeNotFound        = errors.New("opcode not found")
 	errReturnDataOutOfBounds = errors.New("return data out of bounds")
+	errInvalidBalanceValue   = errors.New("invalid balance value")
+	errInvalidMessageValue   = errors.New("invalid message value")
 )
 
 type state struct {
@@ -278,10 +279,6 @@ func uint256ToHash(b *uint256.Int) types.Hash {
 	return types.BytesToHash(b.Bytes())
 }
 
-func bigToHash(b *big.Int) types.Hash {
-	return types.BytesToHash(b.Bytes())
-}
-
 func (c *state) Len() int {
 	return len(c.memory)
 }
@@ -374,17 +371,9 @@ func (c *state) captureState(opCode int) {
 		return
 	}
 
-	bigIntArray := make([]*big.Int, 0, len(c.stack.data))
-
-	for _, num := range c.stack.data {
-		// Convert uint256 to *big.Int and append to bigIntArray as temp solution
-		bigNum := num.ToBig() // Adjust conversion based on your uint256 implementation
-		bigIntArray = append(bigIntArray, bigNum)
-	}
-
 	tracer.CaptureState(
 		c.memory,
-		bigIntArray,
+		c.stack.data,
 		opCode,
 		c.msg.Address,
 		c.stack.sp,

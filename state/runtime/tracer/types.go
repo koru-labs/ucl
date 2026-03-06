@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 // RuntimeHost is the interface defining the methods for accessing state by tracer
@@ -49,7 +50,7 @@ type Tracer interface {
 	// Op-level
 	CaptureState(
 		memory []byte,
-		stack []*big.Int,
+		stack []uint256.Int,
 		opCode int,
 		contractAddress types.Address,
 		sp int,

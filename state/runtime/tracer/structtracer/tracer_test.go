@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,9 +141,9 @@ func TestStructTracerClear(t *testing.T) {
 			},
 		},
 		currentMemory: [][]byte{[]byte("memory example")},
-		currentStack: []([]*big.Int){[]*big.Int{
-			new(big.Int).SetUint64(1),
-			new(big.Int).SetUint64(2),
+		currentStack: []([]uint256.Int){[]uint256.Int{
+			*uint256.NewInt(1),
+			*uint256.NewInt(2),
 		}},
 	}
 
@@ -169,7 +170,7 @@ func TestStructTracerClear(t *testing.T) {
 				make(map[types.Address]map[types.Hash]types.Hash),
 			},
 			currentMemory: make([]([]byte), 1),
-			currentStack:  make([]([]*big.Int), 1),
+			currentStack:  make([]([]uint256.Int), 1),
 		},
 		tracer, //nolint:govet
 	)
@@ -195,7 +196,7 @@ func TestStructTracerTxStart(t *testing.T) {
 			},
 			gasLimit:      gasLimit,
 			currentMemory: make([]([]byte), 1),
-			currentStack:  make([]([]*big.Int), 1),
+			currentStack:  make([]([]uint256.Int), 1),
 		},
 		tracer,
 	)
@@ -224,7 +225,7 @@ func TestStructTracerTxEnd(t *testing.T) {
 			gasLimit:      gasLimit,
 			consumedGas:   gasLimit - gasLeft,
 			currentMemory: make([]([]byte), 1),
-			currentStack:  make([]([]*big.Int), 1),
+			currentStack:  make([]([]uint256.Int), 1),
 		},
 		tracer,
 	)
@@ -281,7 +282,7 @@ func TestStructTracerCallEnd(t *testing.T) {
 				output:        output,
 				err:           err,
 				currentMemory: make([]([]byte), 1),
-				currentStack:  make([]([]*big.Int), 1),
+				currentStack:  make([]([]uint256.Int), 1),
 			},
 		},
 		{
@@ -295,7 +296,7 @@ func TestStructTracerCallEnd(t *testing.T) {
 					make(map[types.Address]map[types.Hash]types.Hash),
 				},
 				currentMemory: make([]([]byte), 1),
-				currentStack:  make([]([]*big.Int), 1),
+				currentStack:  make([]([]uint256.Int), 1),
 			},
 		},
 	}
@@ -324,9 +325,9 @@ func TestStructTracerCaptureState(t *testing.T) {
 
 	var (
 		memory = [][]byte{[]byte("memory")}
-		stack  = []([]*big.Int){[]*big.Int{
-			big.NewInt(1), /* value */
-			big.NewInt(2), /* key */
+		stack  = []([]uint256.Int){[]uint256.Int{
+			*uint256.NewInt(1), /* value */
+			*uint256.NewInt(2), /* key */
 		}}
 		contractAddress = types.StringToAddress("3")
 		storageValue    = types.StringToHash("4")
@@ -340,7 +341,7 @@ func TestStructTracerCaptureState(t *testing.T) {
 
 		// input
 		memory          [][]byte
-		stack           [][]*big.Int
+		stack           [][]uint256.Int
 		opCode          int
 		contractAddress types.Address
 		sp              int
@@ -385,7 +386,7 @@ func TestStructTracerCaptureState(t *testing.T) {
 					EnableStack:      true,
 					EnableStructLogs: true,
 				},
-				currentStack: make([]([]*big.Int), 1),
+				currentStack: make([]([]uint256.Int), 1),
 			},
 			memory:          memory,
 			stack:           stack,
@@ -754,9 +755,9 @@ func TestStructTracerExecuteState(t *testing.T) {
 					EnableStack:      true,
 					EnableStructLogs: true,
 				},
-				currentStack: [][]*big.Int{{
-					big.NewInt(1),
-					big.NewInt(2),
+				currentStack: [][]uint256.Int{{
+					*uint256.NewInt(1),
+					*uint256.NewInt(2),
 				}},
 			},
 			contractAddress: contractAddress,

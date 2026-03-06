@@ -235,7 +235,7 @@ type mockTracer struct {
 
 func (m *mockTracer) CaptureState(
 	memory []byte,
-	stack []*big.Int,
+	stack []uint256.Int,
 	opCode int,
 	contractAddress types.Address,
 	sp int,
@@ -306,7 +306,7 @@ func TestRunWithTracer(t *testing.T) {
 					name: "CaptureState",
 					args: map[string]interface{}{
 						"memory":          []byte{},
-						"stack":           []*big.Int{},
+						"stack":           []uint256.Int{},
 						"opCode":          int(PUSH1),
 						"contractAddress": contractAddress,
 						"sp":              0,
@@ -329,8 +329,8 @@ func TestRunWithTracer(t *testing.T) {
 					name: "CaptureState",
 					args: map[string]interface{}{
 						"memory": []byte{},
-						"stack": []*big.Int{
-							big.NewInt(1),
+						"stack": []uint256.Int{
+							*uint256.NewInt(1),
 						},
 						"opCode":          int(0),
 						"contractAddress": contractAddress,
@@ -351,7 +351,7 @@ func TestRunWithTracer(t *testing.T) {
 					name: "CaptureState",
 					args: map[string]interface{}{
 						"memory":          []byte{},
-						"stack":           []*big.Int{},
+						"stack":           []uint256.Int{},
 						"opCode":          int(POP),
 						"contractAddress": contractAddress,
 						"sp":              0,

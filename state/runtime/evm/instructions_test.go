@@ -17,6 +17,8 @@ import (
 )
 
 var (
+	zero  = big.NewInt(0)
+	one   = big.NewInt(1)
 	two   = big.NewInt(2)
 	three = big.NewInt(3)
 	four  = big.NewInt(4)
@@ -33,6 +35,10 @@ var (
 type OperandsLogical struct {
 	operands       []*big.Int
 	expectedResult bool
+}
+
+func bigToHash(b *big.Int) types.Hash {
+	return types.BytesToHash(b.Bytes())
 }
 
 func testLogicalOperation(t *testing.T, f instruction, test OperandsLogical, s *state) {
@@ -478,6 +484,9 @@ func TestSignExtension(t *testing.T) {
 func TestNot(t *testing.T) {
 	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
+
+	tt256 := new(big.Int).Lsh(big.NewInt(1), 256)     // 2 ** 256
+	tt256m1 := new(big.Int).Sub(tt256, big.NewInt(1)) // 2 ** 256 - 1
 
 	testOperands := []OperandsArithmetic{
 		{[]*big.Int{big.NewInt(-1)}, zero},

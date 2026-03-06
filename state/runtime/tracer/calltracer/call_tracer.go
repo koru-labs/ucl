@@ -7,6 +7,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 var (
@@ -143,7 +144,7 @@ func (c *CallTracer) CallEnd(depth int, output []byte, err error) {
 	}
 }
 
-func (c *CallTracer) CaptureState(memory []byte, stack []*big.Int, opCode int,
+func (c *CallTracer) CaptureState(memory []byte, stack []uint256.Int, opCode int,
 	contractAddress types.Address, sp int, host tracer.RuntimeHost, state tracer.VMState) {
 	if c.cancelled() {
 		state.Halt()

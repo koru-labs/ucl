@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 // TxContext is the context of the transaction
@@ -85,7 +86,7 @@ type Host interface {
 type VMTracer interface {
 	CaptureState(
 		memory []byte,
-		stack []*big.Int,
+		stack []uint256.Int,
 		opCode int,
 		contractAddress types.Address,
 		sp int,

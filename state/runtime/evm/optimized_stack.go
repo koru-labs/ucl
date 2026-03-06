@@ -15,6 +15,15 @@ type OptimizedStack struct {
 	data []uint256.Int // Slice to store the stack's elements
 }
 
+// NewOptimizedStack creates a new instance of OptimizedStack with an initialized
+// internal stack slice to avoid unnecessary reallocations.
+func NewOptimizedStack(capacity int32) *OptimizedStack {
+	return &OptimizedStack{
+		sp:   0,
+		data: make([]uint256.Int, 0, capacity), // Initialize the slice with provided capacity
+	}
+}
+
 // reset clears the stack by resetting the stack pointer to 0 and truncating
 // the data slice to zero length.
 func (s *OptimizedStack) reset() {
