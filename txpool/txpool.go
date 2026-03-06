@@ -479,9 +479,6 @@ func (p *TxPool) Demote(tx *types.Transaction) {
 
 // ResetWithBlock processes the transactions from the provided block
 // to sync the pool with the new state, without redundant storage reads.
-// Nonces are derived directly from the mined transactions rather than
-// querying the state trie, since tx.Nonce + 1 equals the account's
-// post-execution nonce.
 func (p *TxPool) ResetWithBlock(block *types.Block) {
 	// Grab the latest state root now that the block has been inserted
 	stateRoot := p.store.Header().StateRoot
