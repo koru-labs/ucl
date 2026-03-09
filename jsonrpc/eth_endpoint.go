@@ -559,7 +559,14 @@ func (e *Eth) EstimateGas(arg *txnArgs, rawNum *BlockNumber) (interface{}, error
 		highEnd = header.GasLimit
 	}
 
-	gasPriceInt := new(big.Int).Set(transaction.GasPrice)
+	gasPriceInt := big.NewInt(0)
+	gasprice := transaction.GasPrice
+
+	if gasprice != nil { // if dynamic transaction this will be nil
+		gasPriceInt.Set(gasprice)
+	}
+
+	valueInt := new(big.Int).Set(transaction.Value)
 
 	var availableBalance *big.Int
 
@@ -582,6 +589,14 @@ func (e *Eth) EstimateGas(arg *txnArgs, rawNum *BlockNumber) (interface{}, error
 		}
 
 		availableBalance = new(big.Int).Set(accountBalance)
+
+		if transaction.Value != nil {
+			if valueInt.Cmp(availableBalance) > 0 {
+				return 0, ErrInsufficientFunds
+			}
+
+			availableBalance.Sub(availableBalance, valueInt)
+		}
 	}
 
 	// Recalculate the gas ceiling based on the available funds (if any)

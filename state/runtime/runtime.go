@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 // TxContext is the context of the transaction
@@ -85,7 +86,7 @@ type Host interface {
 type VMTracer interface {
 	CaptureState(
 		memory []byte,
-		stack []*big.Int,
+		stack []uint256.Int,
 		opCode int,
 		contractAddress types.Address,
 		sp int,
@@ -119,11 +120,11 @@ func (r *ExecutionResult) Succeeded() bool { return r.Err == nil }
 func (r *ExecutionResult) Failed() bool    { return r.Err != nil }
 func (r *ExecutionResult) Reverted() bool  { return errors.Is(r.Err, ErrExecutionReverted) }
 
-func (r *ExecutionResult) UpdateGasUsed(gasLimit uint64, refund uint64) {
+func (r *ExecutionResult) UpdateGasUsed(gasLimit uint64, refund, refundQuotient uint64) {
 	r.GasUsed = gasLimit - r.GasLeft
 
 	// Refund can go up to half the gas used
-	if maxRefund := r.GasUsed / 2; refund > maxRefund {
+	if maxRefund := r.GasUsed / refundQuotient; refund > maxRefund {
 		refund = maxRefund
 	}
 
@@ -143,6 +144,7 @@ var (
 	ErrUnauthorizedCaller       = errors.New("unauthorized caller")
 	ErrInvalidInputData         = errors.New("invalid input data")
 	ErrNotAuth                  = errors.New("not in allow list")
+	ErrInvalidCode              = errors.New("invalid code: must not begin with 0xef")
 )
 
 // StackUnderflowError wraps an evm error when the items on the stack less
@@ -165,6 +167,17 @@ type StackOverflowError struct {
 
 func (e *StackOverflowError) Error() string {
 	return fmt.Sprintf("stack limit reached %d (%d)", e.StackLen, e.Limit)
+}
+
+// StackOutOfBoundsError is used to signal that stack is accessed out of
+// its bounds
+type StackOutOfBoundsError struct {
+	StackLen       int
+	RequestedIndex int
+}
+
+func (e *StackOutOfBoundsError) Error() string {
+	return fmt.Sprintf("accessing index out of bounds (index=%d, stack length=%d)", e.RequestedIndex, e.StackLen)
 }
 
 type CallType int

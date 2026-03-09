@@ -2,7 +2,6 @@ package evm
 
 import (
 	"errors"
-	"math/big"
 	"strings"
 
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 var statePool = sync.Pool{
@@ -44,9 +44,9 @@ var (
 	errInvalidJump           = errors.New("invalid jump destination")
 	errOpCodeNotFound        = errors.New("opcode not found")
 	errReturnDataOutOfBounds = errors.New("return data out of bounds")
+	errInvalidBalanceValue   = errors.New("invalid balance value")
+	errInvalidMessageValue   = errors.New("invalid message value")
 )
-
-// Instructions is the code of instructions
 
 type state struct {
 	ip   int
@@ -62,8 +62,7 @@ type state struct {
 	lastGasCost uint64
 
 	// stack
-	stack []*big.Int
-	sp    int
+	stack OptimizedStack
 
 	// remove later
 	evm *EVM
@@ -79,12 +78,9 @@ type state struct {
 
 	returnData []byte
 	ret        []byte
-
-	unsafepool common.UnsafePool[*big.Int]
 }
 
 func (c *state) reset() {
-	c.sp = 0
 	c.ip = 0
 	c.gas = 0
 	c.currentConsumedGas = 0
@@ -100,13 +96,7 @@ func (c *state) reset() {
 		c.memory[i] = 0
 	}
 
-	// Before stack cleanup, return instances of big.Int to the pool
-	// for the future usage
-	for i := range c.stack {
-		c.unsafepool.Put(resetBigIntFn, c.stack[i])
-	}
-
-	c.stack = c.stack[:0]
+	c.stack.reset()
 	c.tmp = c.tmp[:0]
 	c.ret = c.ret[:0]
 	c.code = c.code[:0]
@@ -114,9 +104,10 @@ func (c *state) reset() {
 	c.memory = c.memory[:0]
 }
 
-func (c *state) validJumpdest(dest *big.Int) bool {
-	udest := dest.Uint64()
-	if dest.BitLen() >= 63 || udest >= uint64(len(c.code)) {
+func (c *state) validJumpdest(dest uint256.Int) bool {
+	udest, overflow := dest.Uint64WithOverflow()
+
+	if overflow || udest >= uint64(len(c.code)) {
 		return false
 	}
 
@@ -136,35 +127,23 @@ func (c *state) exit(err error) {
 	c.err = err
 }
 
-func (c *state) push(val *big.Int) {
-	c.push1().Set(val)
-}
-
-func (c *state) push1() *big.Int {
-	if len(c.stack) > c.sp {
-		c.sp++
-
-		return c.stack[c.sp-1]
-	}
-
-	v := c.unsafepool.Get(bigInt0FactoryFn)
-	c.stack = append(c.stack, v)
-	c.sp++
-
-	return v
+func (c *state) push(val uint256.Int) {
+	c.stack.push(val)
 }
 
 func (c *state) stackAtLeast(n int) bool {
-	return c.sp >= n
+	return c.stack.size() >= n
 }
 
 func (c *state) popHash() types.Hash {
-	return types.BytesToHash(c.pop().Bytes())
+	v := c.pop()
+
+	return types.BytesToHash(v.Bytes())
 }
 
 func (c *state) popAddr() (types.Address, bool) {
-	b := c.pop()
-	if b == nil {
+	b, err := c.stack.pop()
+	if err != nil {
 		return types.Address{}, false
 	}
 
@@ -172,34 +151,27 @@ func (c *state) popAddr() (types.Address, bool) {
 }
 
 func (c *state) stackSize() int {
-	return c.sp
+	return c.stack.size()
 }
 
-func (c *state) top() *big.Int {
-	if c.sp == 0 {
-		return nil
-	}
+func (c *state) top() *uint256.Int {
+	v, _ := c.stack.top()
 
-	return c.stack[c.sp-1]
+	return v
 }
 
-func (c *state) pop() *big.Int {
-	if c.sp == 0 {
-		return nil
-	}
+func (c *state) pop() uint256.Int {
+	v, _ := c.stack.pop()
 
-	o := c.stack[c.sp-1]
-	c.sp--
-
-	return o
+	return v
 }
 
-func (c *state) peekAt(n int) *big.Int {
-	return c.stack[c.sp-n]
+func (c *state) peekAt(n int) (uint256.Int, error) {
+	return c.stack.peekAt(n)
 }
 
-func (c *state) swap(n int) {
-	c.stack[c.sp-1], c.stack[c.sp-n-1] = c.stack[c.sp-n-1], c.stack[c.sp-1]
+func (c *state) swap(n int) error {
+	return c.stack.swap(n)
 }
 
 func (c *state) consumeGas(gas uint64) bool {
@@ -229,11 +201,15 @@ func (c *state) Run() ([]byte, error) {
 		ok bool
 	)
 
+	tracer := c.host.GetTracer()
+
 	for !c.stop {
 		op, ok = c.CurrentOpCode()
 		gasCopy, ipCopy := c.gas, uint64(c.ip)
 
-		c.captureState(int(op))
+		if tracer != nil {
+			c.captureState(int(op))
+		}
 
 		if !ok {
 			c.Halt()
@@ -250,8 +226,8 @@ func (c *state) Run() ([]byte, error) {
 		}
 
 		// check if the depth of the stack is enough for the instruction
-		if c.sp < inst.stack {
-			c.exit(&runtime.StackUnderflowError{StackLen: c.sp, Required: inst.stack})
+		if c.stack.size() < inst.stack {
+			c.exit(&runtime.StackUnderflowError{StackLen: c.stack.size(), Required: inst.stack})
 			c.captureExecution(op.String(), uint64(c.ip), gasCopy, inst.gas)
 
 			break
@@ -268,13 +244,19 @@ func (c *state) Run() ([]byte, error) {
 		// execute the instruction
 		inst.inst(c)
 
-		if c.host.GetTracer() != nil {
+		if tracer != nil {
 			c.captureExecution(op.String(), ipCopy, gasCopy, gasCopy-c.gas)
 		}
 
+		// In case there was an error set in current instruction, let the execution trace
+		// to allow easier debugging and stop the execution.
+		if c.err != nil {
+			break
+		}
+
 		// check if stack size exceeds the max size
-		if c.sp > stackSize {
-			c.exit(&runtime.StackOverflowError{StackLen: c.sp, Limit: stackSize})
+		if c.stack.size() > stackSize {
+			c.exit(&runtime.StackOverflowError{StackLen: c.stack.size(), Limit: stackSize})
 
 			break
 		}
@@ -293,7 +275,7 @@ func (c *state) inStaticCall() bool {
 	return c.msg.Static
 }
 
-func bigToHash(b *big.Int) types.Hash {
+func uint256ToHash(b *uint256.Int) types.Hash {
 	return types.BytesToHash(b.Bytes())
 }
 
@@ -304,7 +286,7 @@ func (c *state) Len() int {
 // allocateMemory allocates memory to enable accessing in the range of [offset, offset+size]
 // throws error if the given offset and size are negative
 // consumes gas if memory needs to be expanded
-func (c *state) allocateMemory(offset, size *big.Int) bool {
+func (c *state) allocateMemory(offset, size uint256.Int) bool {
 	if !offset.IsUint64() || !size.IsUint64() {
 		c.exit(errReturnDataOutOfBounds)
 
@@ -343,7 +325,7 @@ func (c *state) allocateMemory(offset, size *big.Int) bool {
 	return true
 }
 
-func (c *state) get2(dst []byte, offset, length *big.Int) ([]byte, bool) {
+func (c *state) get2(dst []byte, offset, length uint256.Int) ([]byte, bool) {
 	if length.Sign() == 0 {
 		return nil, true
 	}
@@ -394,7 +376,7 @@ func (c *state) captureState(opCode int) {
 		c.stack,
 		opCode,
 		c.msg.Address,
-		c.sp,
+		c.stack.size(),
 		c.host,
 		c,
 	)
@@ -422,12 +404,4 @@ func (c *state) captureExecution(
 		c.err,
 		c.host,
 	)
-}
-
-func bigInt0FactoryFn() *big.Int {
-	return big.NewInt(0)
-}
-
-func resetBigIntFn(x *big.Int) *big.Int {
-	return x.SetInt64(0)
 }

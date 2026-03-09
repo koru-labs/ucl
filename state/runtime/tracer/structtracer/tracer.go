@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/holiman/uint256"
 )
 
 type Config struct {
@@ -50,7 +51,7 @@ type StructTracer struct {
 
 	storage       []map[types.Address]map[types.Hash]types.Hash
 	currentMemory [][]byte
-	currentStack  [][]*big.Int
+	currentStack  [][]uint256.Int
 }
 
 func NewStructTracer(config Config) *StructTracer {
@@ -61,7 +62,7 @@ func NewStructTracer(config Config) *StructTracer {
 			{},
 		},
 		currentMemory: make([][]byte, 1),
-		currentStack:  make([][]*big.Int, 1),
+		currentStack:  make([][]uint256.Int, 1),
 	}
 }
 
@@ -95,7 +96,7 @@ func (t *StructTracer) Clear() {
 		{},
 	}
 	t.currentMemory = make([][]byte, 1)
-	t.currentStack = make([][]*big.Int, 1)
+	t.currentStack = make([][]uint256.Int, 1)
 }
 
 func (t *StructTracer) TxStart(gasLimit uint64) {
@@ -129,7 +130,7 @@ func (t *StructTracer) CallEnd(
 
 func (t *StructTracer) CaptureState(
 	memory []byte,
-	stack []*big.Int,
+	stack []uint256.Int,
 	opCode int,
 	contractAddress types.Address,
 	sp int,
@@ -172,8 +173,20 @@ func (t *StructTracer) captureMemory(
 	}
 }
 
+func copyUint256Array(original []uint256.Int) []uint256.Int {
+	// Create a new array with the same length as the original
+	copied := make([]uint256.Int, len(original))
+
+	// Copy each element individually
+	for i := range original {
+		copied[i].Set(&original[i])
+	}
+
+	return copied
+}
+
 func (t *StructTracer) captureStack(
-	stack []*big.Int,
+	stack []uint256.Int,
 	sp int,
 	opCode int,
 ) {
@@ -181,13 +194,7 @@ func (t *StructTracer) captureStack(
 		return
 	}
 
-	currentStack := make([]*big.Int, sp)
-
-	for i, v := range stack[:sp] {
-		currentStack[i] = new(big.Int).Set(v)
-	}
-
-	t.currentStack[len(t.currentStack)-1] = currentStack
+	t.currentStack[len(t.currentStack)-1] = copyUint256Array(stack)
 
 	if opCode == evm.CALL || opCode == evm.STATICCALL {
 		t.currentStack = append(t.currentStack, nil)
@@ -195,7 +202,7 @@ func (t *StructTracer) captureStack(
 }
 
 func (t *StructTracer) captureStorage(
-	stack []*big.Int,
+	stack []uint256.Int,
 	opCode int,
 	contractAddress types.Address,
 	sp int,
@@ -280,7 +287,7 @@ func (t *StructTracer) ExecuteState(
 		stack = make([]string, len(currStack))
 
 		for i, v := range currStack {
-			stack[i] = hex.EncodeBig(v)
+			stack[i] = v.Hex()
 		}
 	}
 

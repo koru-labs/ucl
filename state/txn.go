@@ -16,6 +16,14 @@ import (
 
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
+const (
+	DefaultClearingRefund = uint64(15000)
+	LondonClearingRefund  = uint64(4800)
+
+	LegacyRefundQuotient = uint64(2)
+	LondonRefundQuotient = uint64(5)
+)
+
 type readSnapshot interface {
 	GetStorage(addr types.Address, root types.Hash, key types.Hash) types.Hash
 	GetAccount(addr types.Address) (*Account, error)
@@ -247,13 +255,18 @@ func (txn *Txn) SetStorage(
 		return runtime.StorageModified
 	}
 
+	clearingRefund := DefaultClearingRefund
+	if config.London {
+		clearingRefund = LondonClearingRefund
+	}
+
 	if original == current {
 		if original == types.ZeroHash { // create slot (2.1.1)
 			return runtime.StorageAdded
 		}
 
 		if value == types.ZeroHash { // delete slot (2.1.2b)
-			txn.AddRefund(15000)
+			txn.AddRefund(clearingRefund)
 
 			return runtime.StorageDeleted
 		}
@@ -263,9 +276,9 @@ func (txn *Txn) SetStorage(
 
 	if original != types.ZeroHash { // Storage slot was populated before this transaction started
 		if current == types.ZeroHash { // recreate slot (2.2.1.1)
-			txn.SubRefund(15000)
+			txn.SubRefund(clearingRefund)
 		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
-			txn.AddRefund(15000)
+			txn.AddRefund(clearingRefund)
 		}
 	}
 
@@ -487,6 +500,17 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 	}
 
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
+}
+
+// GetStorageRoot retrieves the storage root from the given address or empty
+// if object not found.
+func (txn *Txn) GetStorageRoot(addr types.Address) types.Hash {
+	obj, ok := txn.getStateObject(addr)
+	if !ok {
+		return types.Hash{}
+	}
+
+	return obj.Account.Root
 }
 
 // SetFullStorage is used to replace the full state of the address.

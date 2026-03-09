@@ -238,7 +238,6 @@ func TestPoS_Stake(t *testing.T) {
 }
 
 func TestPoS_Unstake(t *testing.T) {
-	stakingContractAddr := staking.AddrStakingContract
 	defaultBalance := framework.EthToWei(100)
 
 	// The last genesis validator will leave from validator set by unstaking
@@ -298,14 +297,9 @@ func TestPoS_Unstake(t *testing.T) {
 		big.NewInt(int64(numGenesisValidators)),
 	)
 	expectedBalance.Sub(expectedBalance, bigDefaultStakedBalance)
-
 	assert.Equal(t, expectedBalance.String(), scBalance.String())
 
-	stakedAmount, stakedAmountErr := framework.GetStakedAmount(stakingContractAddr, client)
-	if stakedAmountErr != nil {
-		t.Fatalf("Unable to get staked amount, %v", stakedAmountErr)
-	}
-
+	stakedAmount := framework.GetAccountBalance(t, staking.AddrStakingContract, client)
 	assert.Equal(t, expectedBalance.String(), stakedAmount.String())
 
 	// Check the address balance
