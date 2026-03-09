@@ -150,7 +150,7 @@ func (b *Block) unmarshalRLPHeaderFrom(p *fastrlp.Parser, v *fastrlp.Value) erro
 		return err
 	}
 
-	if len(blockElements) < 3 {
+	if len(blockElements) != 3 {
 		return fmt.Errorf("incorrect number of elements to decode block, expected 3 but found %d", len(blockElements))
 	}
 
@@ -352,7 +352,7 @@ func (l *Log) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 		return err
 	}
 
-	if len(elems) < 3 {
+	if len(elems) != 3 {
 		return fmt.Errorf("incorrect number of elements to decode log, expected 3 but found %d", len(elems))
 	}
 
