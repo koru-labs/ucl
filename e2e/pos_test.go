@@ -377,16 +377,7 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 			Input: framework.MethodSig("unstake"),
 		}
 
-		// Just make very second transaction with dynamic gas fee
-		if i%2 == 0 {
-			unsignedTx.Type = types.DynamicFeeTx
-			unsignedTx.GasFeeCap = bigGasPrice
-			unsignedTx.GasTipCap = bigGasPrice
-		} else {
-			unsignedTx.Type = types.LegacyTx
-			unsignedTx.GasPrice = bigGasPrice
-		}
-
+		unsignedTx.GasPrice = bigGasPrice
 		signedTx, err := signer.SignTx(unsignedTx, senderKey)
 		require.NoError(t, err, "Unable to sign transaction")
 
@@ -527,16 +518,7 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 			Input: framework.MethodSig(methodName),
 		}
 
-		// Just make very second transaction with dynamic gas fee
-		if i%2 == 0 {
-			unsignedTx.Type = types.DynamicFeeTx
-			unsignedTx.GasFeeCap = bigGasPrice
-			unsignedTx.GasTipCap = bigGasPrice
-		} else {
-			unsignedTx.Type = types.LegacyTx
-			unsignedTx.GasPrice = bigGasPrice
-		}
-
+		unsignedTx.GasPrice = bigGasPrice
 		signedTx, err := signer.SignTx(unsignedTx, senderKey)
 		require.NoError(t, err, "Unable to sign transaction")
 
@@ -709,7 +691,7 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 	addTxn(false, oneEth, "stake")
 
 	// Unstake transaction
-	addTxn(true, zeroEth, "unstake")
+	addTxn(false, zeroEth, "unstake")
 
 	// Wait for the transactions to go through
 	totalGasUsed := srv.GetGasTotal(txHashes)

@@ -314,15 +314,7 @@ func generateStressTestTx(
 		Input: append(setNameMethod.ID(), encodedInput...),
 	}
 
-	if txNum%2 == 0 {
-		unsignedTx.Type = types.DynamicFeeTx
-		unsignedTx.GasFeeCap = bigGasPrice
-		unsignedTx.GasTipCap = bigGasPrice
-	} else {
-		unsignedTx.Type = types.LegacyTx
-		unsignedTx.GasPrice = bigGasPrice
-	}
-
+	unsignedTx.GasPrice = bigGasPrice
 	signedTx, err := signer.SignTx(unsignedTx, senderKey)
 	require.NoError(t, err, "Unable to sign transaction")
 

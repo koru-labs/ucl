@@ -413,15 +413,13 @@ func TestTxPool_RecoverableError(t *testing.T) {
 			From:     senderAddress,
 		},
 		{
-			Type:      types.DynamicFeeTx,
-			Nonce:     2,
-			GasFeeCap: big.NewInt(framework.DefaultGasPrice),
-			GasTipCap: big.NewInt(1000000000),
-			Gas:       22000,
-			To:        &receiverAddress,
-			Value:     oneEth,
-			V:         big.NewInt(27),
-			From:      senderAddress,
+			Nonce:    2,
+			GasPrice: big.NewInt(framework.DefaultGasPrice),
+			Gas:      22000,
+			To:       &receiverAddress,
+			Value:    oneEth,
+			V:        big.NewInt(27),
+			From:     senderAddress,
 		},
 	}
 
