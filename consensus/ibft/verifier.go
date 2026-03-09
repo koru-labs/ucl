@@ -20,7 +20,7 @@ func (i *backendIBFT) calculateProposalHashFromBlockBytes(
 	round *uint64,
 ) (types.Hash, error) {
 	block := &types.Block{}
-	if err := block.UnmarshalRLP(proposal); err != nil {
+	if err := block.UnmarshalRLPHeader(proposal); err != nil {
 		return types.ZeroHash, err
 	}
 
