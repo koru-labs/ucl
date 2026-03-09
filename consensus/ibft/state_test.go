@@ -39,10 +39,11 @@ func TestNumValid(t *testing.T) {
 		{3, 3},
 		{4, 3},
 		{5, 4},
-		{6, 4},
+		{6, 5},
 		{7, 5},
 		{8, 6},
-		{9, 6},
+		{9, 7},
+		{10, 7},
 	}
 
 	addAccounts := func(

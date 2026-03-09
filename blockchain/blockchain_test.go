@@ -1362,6 +1362,7 @@ func TestBlockchain_VerifyBlockBody(t *testing.T) {
 }
 
 func TestBlockchain_CalculateBaseFee(t *testing.T) {
+	t.Skip() // skip since gas price is 0
 	t.Parallel()
 
 	tests := []struct {

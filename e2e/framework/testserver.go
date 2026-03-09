@@ -605,7 +605,8 @@ func (t *Txn) Deploy(input []byte) *Txn {
 func (t *Txn) Transfer(to ethgo.Address, value *big.Int) *Txn {
 	t.raw.To = &to
 	t.raw.Value = value
-	t.raw.GasPrice = ethgo.Gwei(2).Uint64()
+	// intentionaly set gas price to 0
+	t.raw.GasPrice = ethgo.Gwei(0).Uint64()
 
 	return t
 }
