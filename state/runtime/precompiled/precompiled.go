@@ -78,6 +78,11 @@ func (p *Precompiled) setupContracts() {
 
 	// BLS aggregated signatures verification precompile
 	p.register(contracts.BLSAggSigsVerificationPrecompile.String(), &blsAggSignsVerification{})
+
+	// ElGamal cryptography precompiled SCs
+	p.register(contracts.ElGamalAdd.String(), &elGamalAdd{})
+	p.register(contracts.ElGamalSub.String(), &elGamalSub{})
+	p.register(contracts.ElGamalAddMultiple.String(), &elGamalAddMultiple{})
 }
 
 func (p *Precompiled) register(addrStr string, b contract) {

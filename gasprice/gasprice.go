@@ -20,9 +20,9 @@ var DefaultGasHelperConfig = &Config{
 	NumOfBlocksToCheck: 20,
 	PricePercentile:    60,
 	SampleNumber:       3,
-	MaxPrice:           ethgo.Gwei(500),
-	LastPrice:          ethgo.Gwei(1),
-	IgnorePrice:        big.NewInt(2), // 2 wei
+	MaxPrice:           ethgo.Gwei(0),
+	LastPrice:          ethgo.Gwei(0),
+	IgnorePrice:        ethgo.Ether(1), // 1 ether
 }
 
 // Config is a struct that holds configuration of GasHelper

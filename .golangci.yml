@@ -9,6 +9,8 @@ linters:
       - e2e-polybft
       - command/polybftsecrets
       - command/rootchain
+      - state/runtime/precompiled/elGamal*
+      - helper/elgamal/twistedelgamal.go
     rules:
       - path: _test\.go
         linters:

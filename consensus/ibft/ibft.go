@@ -460,23 +460,12 @@ func (i *backendIBFT) VerifyHeader(header *types.Header) error {
 		hashForCommittedSeal,
 		extra.CommittedSeals,
 		validators,
-		i.quorumSize(header.Number)(validators),
+		quorumSize(validators),
 	); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// quorumSize returns a callback that when executed on a Validators computes
-// number of votes required to reach quorum based on the size of the set.
-// The blockNumber argument indicates which formula was used to calculate the result (see PRs #513, #549)
-func (i *backendIBFT) quorumSize(blockNumber uint64) QuorumImplementation {
-	if blockNumber < i.quorumSizeBlockNum {
-		return LegacyQuorumSize
-	}
-
-	return OptimalQuorumSize
 }
 
 // ProcessHeaders updates the snapshot based on previously verified headers
@@ -639,7 +628,7 @@ func (i *backendIBFT) verifyParentCommittedSeals(
 		parentHash,
 		header,
 		parentValidators,
-		i.quorumSize(parent.Number)(parentValidators),
+		quorumSize(parentValidators),
 		shouldVerifyParentCommittedSeals,
 	)
 }
