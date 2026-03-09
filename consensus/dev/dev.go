@@ -101,8 +101,11 @@ func (d *Dev) run() {
 		// There are new transactions in the pool, try to seal them
 		header := d.blockchain.Header()
 		if err := d.writeNewBlock(header); err != nil {
+			d.txpool.ReinsertProposed()
 			d.logger.Error("failed to mine block", "err", err)
 		}
+
+		d.txpool.ClearProposed()
 	}
 }
 
