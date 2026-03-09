@@ -571,7 +571,7 @@ func (t *TestServer) DeployContract(
 }
 
 const (
-	DefaultGasPrice = 10e9    // 0x2540BE400
+	DefaultGasPrice = 0       // set gas price to 0 intentionally
 	DefaultGasLimit = 5242880 // 0x500000
 )
 
@@ -605,8 +605,7 @@ func (t *Txn) Deploy(input []byte) *Txn {
 func (t *Txn) Transfer(to ethgo.Address, value *big.Int) *Txn {
 	t.raw.To = &to
 	t.raw.Value = value
-	// intentionaly set gas price to 0
-	t.raw.GasPrice = ethgo.Gwei(0).Uint64()
+	t.raw.GasPrice = DefaultGasPrice
 
 	return t
 }
