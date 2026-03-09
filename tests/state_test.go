@@ -50,6 +50,7 @@ func TestState(t *testing.T) {
 		"RevertPrecompiledTouch_storage",
 		"loopMul",
 		"CALLBlake2f_MaxRounds",
+		"ValueOverflow",
 	}
 
 	files, err := listFiles(stateTestsDir, ".json")

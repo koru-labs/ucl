@@ -415,32 +415,32 @@ func opSStore(c *state) {
 		switch {
 		case c.config.Istanbul:
 			// eip-2200
-			cost = 800
+			cost += 800
 		case legacyGasMetering:
-			cost = 5000
+			cost += 5000
 		default:
-			cost = 200
+			cost += 200
 		}
 
 	case runtime.StorageModified:
-		cost = 5000
+		cost += 5000
 
 	case runtime.StorageModifiedAgain:
 		switch {
 		case c.config.Istanbul:
 			// eip-2200
-			cost = 800
+			cost += 800
 		case legacyGasMetering:
-			cost = 5000
+			cost += 5000
 		default:
-			cost = 200
+			cost += 200
 		}
 
 	case runtime.StorageAdded:
-		cost = 20000
+		cost += 20000
 
 	case runtime.StorageDeleted:
-		cost = 5000
+		cost += 5000
 	}
 
 	if !c.consumeGas(cost) {
@@ -1300,7 +1300,6 @@ func (c *state) buildCreateContract(op OpCode) (*runtime.Contract, error) {
 	length := c.pop()
 
 	var salt uint256.Int
-
 	if op == CREATE2 {
 		salt = c.pop()
 	}
@@ -1309,9 +1308,6 @@ func (c *state) buildCreateContract(op OpCode) (*runtime.Contract, error) {
 	hasTransfer := value.Sign() != 0
 
 	// Calculate and consume gas cost
-
-	// var overflow bool
-	var gasCost uint64
 
 	// Both CREATE and CREATE2 use memory
 	var input []byte
@@ -1323,22 +1319,17 @@ func (c *state) buildCreateContract(op OpCode) (*runtime.Contract, error) {
 		return nil, nil
 	}
 
-	// Consume memory resize gas (TODO, change with get2) (to be fixed in EVM-528) //nolint:godox
-	if !c.consumeGas(gasCost) {
-		return nil, nil
-	}
-
-	if hasTransfer {
-		if c.host.GetBalance(c.msg.Address).Cmp(value.ToBig()) < 0 {
-			return nil, types.ErrInsufficientFunds
-		}
-	}
-
 	if op == CREATE2 {
 		// Consume sha3 gas cost
 		size := length.Uint64()
 		if !c.consumeGas(((size + 31) / 32) * sha3WordGas) {
 			return nil, nil
+		}
+	}
+
+	if hasTransfer {
+		if c.host.GetBalance(c.msg.Address).Cmp(value.ToBig()) < 0 {
+			return nil, types.ErrInsufficientFunds
 		}
 	}
 
@@ -1369,7 +1360,8 @@ func (c *state) buildCreateContract(op OpCode) (*runtime.Contract, error) {
 		address,
 		value.ToBig(),
 		gas,
-		input)
+		input,
+	)
 
 	return contract, nil
 }

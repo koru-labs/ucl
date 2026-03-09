@@ -425,8 +425,25 @@ func (t *Transition) Txn() *Txn {
 	return t.state
 }
 
+func (t Transition) checkSenderAccount(msg *types.Transaction) bool {
+	if !t.config.EIP3607 {
+		return true
+	}
+
+	codeHash := t.state.GetCodeHash(msg.From)
+
+	return codeHash == types.ZeroHash || codeHash == types.EmptyCodeHash
+}
+
 // Apply applies a new transaction
 func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, error) {
+	if !t.checkSenderAccount(msg) {
+		sender := msg.From
+
+		return nil, fmt.Errorf("%w: address %s, codehash: %v", ErrSenderNoEOA, sender.String(),
+			t.state.GetCodeHash(sender).String())
+	}
+
 	s := t.state.Snapshot()
 
 	result, err := t.apply(msg)
@@ -464,10 +481,17 @@ func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
 }
 
 func (t *Transition) nonceCheck(msg *types.Transaction) error {
-	nonce := t.state.GetNonce(msg.From)
+	currentNonce := t.state.GetNonce(msg.From)
 
-	if nonce != msg.Nonce {
-		return ErrNonceIncorrect
+	if msgNonce := msg.Nonce; currentNonce < msgNonce {
+		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
+			msg.From, msgNonce, currentNonce)
+	} else if currentNonce > msgNonce {
+		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
+			msg.From, msgNonce, currentNonce)
+	} else if currentNonce+1 < currentNonce {
+		return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
+			msg.From, currentNonce)
 	}
 
 	return nil
@@ -483,6 +507,10 @@ func (t *Transition) checkDynamicFees(msg *types.Transaction) error {
 // surfacing of these errors reject the transaction thus not including it in the block
 
 var (
+	ErrNonceTooLow           = errors.New("nonce too low")
+	ErrNonceTooHigh          = errors.New("nonce too high")
+	ErrNonceMax              = errors.New("nonce has max value")
+	ErrSenderNoEOA           = errors.New("sender not an eoa")
 	ErrNonceIncorrect        = errors.New("incorrect nonce")
 	ErrNotEnoughFundsForGas  = errors.New("not enough funds to cover gas costs")
 	ErrBlockLimitReached     = errors.New("gas limit reached in the pool")
@@ -588,8 +616,13 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
 
+	refundQuotient := LegacyRefundQuotient
+	if t.config.London {
+		refundQuotient = LondonRefundQuotient
+	}
+
 	refund := t.state.GetRefund()
-	result.UpdateGasUsed(msg.Gas, refund)
+	result.UpdateGasUsed(msg.Gas, refund, refundQuotient)
 
 	if t.ctx.Tracer != nil {
 		t.ctx.Tracer.TxEnd(result.GasLeft)
@@ -790,7 +823,10 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Increment the nonce of the caller
 	if err := t.state.IncrNonce(c.Caller); err != nil {
-		return &runtime.ExecutionResult{Err: err}
+		return &runtime.ExecutionResult{
+			GasLeft: gasLimit,
+			Err:     err,
+		}
 	}
 
 	// Check if there is a collision and the address already exists
@@ -885,6 +921,20 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		return &runtime.ExecutionResult{
 			GasLeft: 0,
 			Err:     runtime.ErrMaxCodeSizeExceeded,
+		}
+	}
+
+	// Reject code starting with 0xEF if EIP-3541 is enabled.
+	if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
+		if err := t.RevertToSnapshot(snapshot); err != nil {
+			return &runtime.ExecutionResult{
+				Err: err,
+			}
+		}
+
+		return &runtime.ExecutionResult{
+			GasLeft: 0,
+			Err:     runtime.ErrInvalidCode,
 		}
 	}
 
