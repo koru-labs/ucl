@@ -451,6 +451,7 @@ func (f *FilterManager) NewLogFilter(logQuery *LogQuery, ws wsConn) string {
 	filter := &logFilter{
 		filterBase: newFilterBase(ws),
 		query:      logQuery,
+		logs:       []*Log{},
 	}
 
 	if filter.hasWSConn() {
