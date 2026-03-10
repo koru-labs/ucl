@@ -107,7 +107,7 @@ func TestSign_CommittedSeals(t *testing.T) {
 			sealed.Hash,
 			committedSeal.CommittedSeals,
 			correctValSet,
-			OptimalQuorumSize(correctValSet),
+			quorumSize(correctValSet),
 		)
 	}
 

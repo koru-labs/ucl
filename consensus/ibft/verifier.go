@@ -172,7 +172,7 @@ func (i *backendIBFT) IsProposer(id []byte, height, round uint64) bool {
 		return false
 	}
 
-	nextProposer := CalcProposer(
+	nextProposer := calcProposer(
 		i.currentValidators,
 		round,
 		previousProposer,

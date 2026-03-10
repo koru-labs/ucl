@@ -137,7 +137,7 @@ func (i *backendIBFT) ID() []byte {
 }
 
 func (i *backendIBFT) MaximumFaultyNodes() uint64 {
-	return uint64(CalcMaxFaultyNodes(i.currentValidators))
+	return uint64(calcMaxFaultyNodes(i.currentValidators))
 }
 
 // DISCLAIMER: IBFT will be deprecated so we set 1 as a voting power to all validators

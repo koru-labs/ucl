@@ -560,7 +560,7 @@ func (t *TestServer) DeployContract(
 	receipt, err := t.SendRawTx(ctx, &PreparedTransaction{
 		From:     sender,
 		Gas:      DefaultGasLimit,
-		GasPrice: big.NewInt(DefaultGasPrice),
+		GasPrice: big.NewInt(DefaultGasPriceLegacy),
 		Input:    buf,
 	}, privateKey)
 	if err != nil {
@@ -571,8 +571,9 @@ func (t *TestServer) DeployContract(
 }
 
 const (
-	DefaultGasPrice = 10e9    // 0x2540BE400
-	DefaultGasLimit = 5242880 // 0x500000
+	DefaultGasPriceLegacy  = 0       // 0 for legacy
+	DefaultGasPriceDynamic = 10e9    // 0x2540BE400
+	DefaultGasLimit        = 5242880 // 0x500000
 )
 
 type PreparedTransaction struct {
@@ -605,7 +606,7 @@ func (t *Txn) Deploy(input []byte) *Txn {
 func (t *Txn) Transfer(to ethgo.Address, value *big.Int) *Txn {
 	t.raw.To = &to
 	t.raw.Value = value
-	t.raw.GasPrice = ethgo.Gwei(2).Uint64()
+	t.raw.GasPrice = DefaultGasPriceLegacy
 
 	return t
 }
@@ -897,7 +898,7 @@ func (t *TestServer) InvokeMethod(
 
 	receipt, err := t.SendRawTx(ctx, &PreparedTransaction{
 		Gas:      DefaultGasLimit,
-		GasPrice: big.NewInt(DefaultGasPrice),
+		GasPrice: big.NewInt(DefaultGasPriceLegacy),
 		To:       &contractAddress,
 		From:     fromAddress,
 		Input:    sig,

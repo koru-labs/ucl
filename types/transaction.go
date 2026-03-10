@@ -169,8 +169,6 @@ func (t *Transaction) Cost() *big.Int {
 func (t *Transaction) GetGasPrice(baseFee uint64) *big.Int {
 	if t.GasPrice != nil && t.GasPrice.BitLen() > 0 {
 		return new(big.Int).Set(t.GasPrice)
-	} else if baseFee == 0 {
-		return big.NewInt(0)
 	}
 
 	gasFeeCap := new(big.Int)

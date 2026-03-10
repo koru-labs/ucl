@@ -1,13 +1,24 @@
 package ibft
 
 import (
-	"math"
-
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
 )
 
-func CalcMaxFaultyNodes(s validators.Validators) int {
+// quorumSize returns a callback that when executed on a Validators computes
+// number of votes required to reach quorum based on the size of the set.
+// The blockNumber argument indicates which formula was used to calculate the result (see PRs #513, #549)
+func quorumSize(set validators.Validators) int {
+	// If the set is empty, return 0
+	if set == nil {
+		return 0
+	}
+
+	// ibft forumal 2/3*N+1, where N is the number of validators in the set
+	return (2*set.Len())/3 + 1
+}
+
+func calcMaxFaultyNodes(s validators.Validators) int {
 	// N -> number of nodes in IBFT
 	// F -> number of faulty nodes
 	//
@@ -22,33 +33,7 @@ func CalcMaxFaultyNodes(s validators.Validators) int {
 	return (s.Len() - 1) / 3
 }
 
-type QuorumImplementation func(validators.Validators) int
-
-// LegacyQuorumSize returns the legacy quorum size for the given validator set
-func LegacyQuorumSize(set validators.Validators) int {
-	// According to the IBFT spec, the number of valid messages
-	// needs to be 2F + 1
-	return 2*CalcMaxFaultyNodes(set) + 1
-}
-
-// OptimalQuorumSize returns the optimal quorum size for the given validator set
-func OptimalQuorumSize(set validators.Validators) int {
-	//	if the number of validators is less than 4,
-	//	then the entire set is required
-	if CalcMaxFaultyNodes(set) == 0 {
-		/*
-			N: 1 -> Q: 1
-			N: 2 -> Q: 2
-			N: 3 -> Q: 3
-		*/
-		return set.Len()
-	}
-
-	// (quorum optimal)	Q = ceil(2/3 * N)
-	return int(math.Ceil(2 * float64(set.Len()) / 3))
-}
-
-func CalcProposer(
+func calcProposer(
 	validators validators.Validators,
 	round uint64,
 	lastProposer types.Address,
