@@ -51,6 +51,8 @@ type txPoolInterface interface {
 	Demote(tx *types.Transaction)
 	ResetWithBlock(block *types.Block)
 	SetSealing(bool)
+	ReinsertProposed()
+	ClearProposed()
 }
 
 type forkManagerInterface interface {
@@ -170,13 +172,24 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 	return p, nil
 }
 
-// TBD
+// RoundStarts represents round start callback
 func (i *backendIBFT) RoundStarts(view *protomsg.View) error {
+	i.logger.Info("RoundStarts", "height", view.Height, "round", view.Round)
+
+	if view.Round > 0 {
+		i.txpool.ReinsertProposed()
+	} else {
+		i.txpool.ClearProposed()
+	}
+
 	return nil
 }
 
-// TBD
+// SequenceCancelled represents sequence cancelled callback
 func (i *backendIBFT) SequenceCancelled(view *protomsg.View) error {
+	i.logger.Info("SequenceCancelled", "height", view.Height, "round", view.Round)
+	i.txpool.ReinsertProposed()
+
 	return nil
 }
 

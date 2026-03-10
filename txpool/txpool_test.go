@@ -98,6 +98,7 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 type accountState struct {
 	enqueued,
 	promoted,
+	proposed,
 	nextNonce uint64
 }
 
@@ -3203,6 +3204,213 @@ func TestRecovery(t *testing.T) {
 
 			assert.Equal(t, test.expected.slots, pool.gauge.read())
 			commonAssert(test.expected.accounts, pool)
+		})
+	}
+}
+
+func TestProposed(t *testing.T) {
+	commonAssert := func(accounts map[types.Address]accountState, pool *TxPool) {
+		for addr := range accounts {
+			assert.Equal(t, // proposed
+				accounts[addr].proposed,
+				pool.accounts.get(addr).proposed.length())
+
+			assert.Equal(t, // promoted
+				accounts[addr].promoted,
+				pool.accounts.get(addr).promoted.length())
+		}
+	}
+
+	const (
+		REINSERT = 1
+		CLEAN    = 2
+	)
+
+	testCases := []struct {
+		name       string
+		method     int
+		doPop      bool
+		allTxs     map[types.Address][]*types.Transaction
+		beforeCall result
+		afterCall  result
+	}{
+		{
+			name:   "reinsert with pop",
+			method: REINSERT,
+			doPop:  true,
+			allTxs: map[types.Address][]*types.Transaction{
+				addr1: {
+					newTx(addr1, 0, 1),
+					newTx(addr1, 1, 1),
+				},
+			},
+			beforeCall: result{
+				slots: 1,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 1,
+						promoted: 1,
+					},
+				},
+			},
+			afterCall: result{
+				slots: 2,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 2,
+					},
+				},
+			},
+		},
+		{
+			name:   "reinsert without pop",
+			method: REINSERT,
+			doPop:  false,
+			allTxs: map[types.Address][]*types.Transaction{
+				addr1: {
+					newTx(addr1, 0, 1),
+					newTx(addr1, 1, 1),
+				},
+			},
+			beforeCall: result{
+				slots: 2,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 2,
+					},
+				},
+			},
+			afterCall: result{
+				slots: 2,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 2,
+					},
+				},
+			},
+		},
+		{
+			name:   "clean with pop",
+			method: CLEAN,
+			doPop:  true,
+			allTxs: map[types.Address][]*types.Transaction{
+				addr1: {
+					newTx(addr1, 0, 1),
+					newTx(addr1, 1, 1),
+				},
+			},
+			beforeCall: result{
+				slots: 1,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 1,
+						promoted: 1,
+					},
+				},
+			},
+			afterCall: result{
+				slots: 1,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 1,
+					},
+				},
+			},
+		},
+		{
+			name:   "clean without pop",
+			method: CLEAN,
+			doPop:  false,
+			allTxs: map[types.Address][]*types.Transaction{
+				addr1: {
+					newTx(addr1, 0, 1),
+					newTx(addr1, 1, 1),
+				},
+			},
+			beforeCall: result{
+				slots: 2,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 2,
+					},
+				},
+			},
+			afterCall: result{
+				slots: 2,
+				accounts: map[types.Address]accountState{
+					addr1: {
+						proposed: 0,
+						promoted: 2,
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			// create pool
+			pool, err := newTestPool()
+			assert.NoError(t, err)
+			pool.SetSigner(&mockSigner{})
+
+			pool.Start()
+			defer pool.Close()
+
+			promoteSubscription := pool.eventManager.subscribe(
+				[]proto.EventType{proto.EventType_PROMOTED},
+			)
+
+			// setup prestate
+			totalTx := 0
+			expectedEnqueued := uint64(0)
+
+			for addr, txs := range test.allTxs {
+				// preset nonce so promotions can happen
+				acc := pool.getOrCreateAccount(addr)
+				acc.setNonce(txs[0].Nonce)
+
+				expectedEnqueued += test.afterCall.accounts[addr].enqueued
+
+				// send txs
+				for _, tx := range txs {
+					totalTx++
+
+					assert.NoError(t, pool.addTx(local, tx))
+				}
+			}
+
+			ctx, cancelFn := context.WithTimeout(context.Background(), time.Second*10)
+			defer cancelFn()
+
+			// All txns should get added
+			assert.Len(t, waitForEvents(ctx, promoteSubscription, totalTx), totalTx)
+
+			pool.Prepare()
+			tx := pool.Peek()
+			assert.NotNil(t, tx)
+
+			if test.doPop {
+				pool.Pop(tx)
+			}
+
+			assert.Equal(t, test.beforeCall.slots, pool.gauge.read())
+			commonAssert(test.beforeCall.accounts, pool)
+
+			if test.method == REINSERT {
+				pool.ReinsertProposed()
+			} else {
+				pool.ClearProposed()
+			}
+
+			assert.Equal(t, test.afterCall.slots, pool.gauge.read())
+			commonAssert(test.afterCall.accounts, pool)
 		})
 	}
 }
