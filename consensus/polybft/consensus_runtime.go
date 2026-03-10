@@ -1086,18 +1086,3 @@ func (c *consensusRuntime) getFirstBlockOfEpoch(epochNumber uint64, latestHeader
 
 	return firstBlockInEpoch, nil
 }
-
-// getSealersForBlock checks who sealed a given block and updates the counter
-func getSealersForBlock(sealersCounter map[types.Address]uint64,
-	blockExtra *Extra, validators validator.AccountSet) error {
-	signers, err := validators.GetFilteredValidators(blockExtra.Parent.Bitmap)
-	if err != nil {
-		return err
-	}
-
-	for _, a := range signers.GetAddresses() {
-		sealersCounter[a]++
-	}
-
-	return nil
-}
