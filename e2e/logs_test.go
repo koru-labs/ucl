@@ -62,7 +62,7 @@ func TestNewFilter_Logs(t *testing.T) {
 			ReferenceAddr: addr,
 			ReferenceKey:  key,
 			ToAddress:     castedContractAddr,
-			GasPrice:      big.NewInt(framework.DefaultGasPrice),
+			GasPrice:      big.NewInt(framework.DefaultGasPriceLegacy),
 			Input:         framework.MethodSig("setA1"),
 		})
 		if err != nil {
@@ -244,7 +244,7 @@ func TestFilterValue(t *testing.T) {
 			ReferenceAddr: addr,
 			ReferenceKey:  key,
 			ToAddress:     castedContractAddr,
-			GasPrice:      big.NewInt(framework.DefaultGasPrice),
+			GasPrice:      big.NewInt(framework.DefaultGasPriceLegacy),
 			Input:         framework.MethodSig("TriggerMyEvent"),
 		})
 		if err != nil {

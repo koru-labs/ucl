@@ -317,18 +317,6 @@ func (t *stTransaction) At(i indexes, baseFee *big.Int) (*types.Transaction, err
 		return nil, errors.New("no gas price provided")
 	}
 
-	// valueHex := t.Value[i.Value]
-	// value := new(big.Int)
-
-	// if valueHex != "0x" {
-	// 	v, err := common.ParseUint256orHex(&valueHex)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	value = v
-	// }
-
 	return &types.Transaction{
 		From:      t.From,
 		To:        t.To,
@@ -341,7 +329,6 @@ func (t *stTransaction) At(i indexes, baseFee *big.Int) (*types.Transaction, err
 		Input:     hex.MustDecodeHex(t.Data[i.Data]),
 		Type:      txType,
 	}, nil
-
 }
 
 func (t *stTransaction) UnmarshalJSON(input []byte) error {

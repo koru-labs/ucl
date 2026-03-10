@@ -327,7 +327,8 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 	senderKey, senderAddr := tests.GenerateKeyAndAddr(t)
 	bigDefaultStakedBalance := getBigDefaultStakedBalance(t)
 	defaultBalance := framework.EthToWei(100)
-	bigGasPrice := big.NewInt(framework.DefaultGasPrice)
+	gasPriceDynamic := big.NewInt(framework.DefaultGasPriceDynamic)
+	gasPriceLegacy := big.NewInt(framework.DefaultGasPriceLegacy)
 
 	devInterval := 5 // s
 	numDummyValidators := 5
@@ -377,7 +378,16 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 			Input: framework.MethodSig("unstake"),
 		}
 
-		unsignedTx.GasPrice = bigGasPrice
+		// Just make every second transaction with dynamic gas fee
+		if i%2 == 0 {
+			unsignedTx.Type = types.DynamicFeeTx
+			unsignedTx.GasFeeCap = gasPriceDynamic
+			unsignedTx.GasTipCap = gasPriceDynamic
+		} else {
+			unsignedTx.Type = types.LegacyTx
+			unsignedTx.GasPrice = gasPriceLegacy
+		}
+
 		signedTx, err := signer.SignTx(unsignedTx, senderKey)
 		require.NoError(t, err, "Unable to sign transaction")
 
@@ -386,7 +396,8 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 		return signedTx
 	}
 
-	txHashes := make([]ethgo.Hash, 0)
+	txHashesLegacy := make([]ethgo.Hash, 0)
+	txHashesDynamic := make([]ethgo.Hash, 0)
 
 	for i := 0; i < numTransactions; i++ {
 		var msg *txpoolOp.AddTxnReq
@@ -407,16 +418,22 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 			t.Fatalf("Unable to add txn, %v", addErr)
 		}
 
-		txHashes = append(txHashes, ethgo.HexToHash(addResp.TxHash))
+		if i%2 == 0 {
+			txHashesDynamic = append(txHashesDynamic, ethgo.HexToHash(addResp.TxHash))
+		} else {
+			txHashesLegacy = append(txHashesLegacy, ethgo.HexToHash(addResp.TxHash))
+		}
 
 		addCtxCn()
 	}
 
 	// Wait for the transactions to go through
-	totalGasUsed := srv.GetGasTotal(txHashes)
+	totalGasUsedDynamic := srv.GetGasTotal(txHashesDynamic)
+	totalGasUsedLegacy := srv.GetGasTotal(txHashesLegacy)
 
 	// Find how much the address paid for all the transactions in this block
-	paidFee := big.NewInt(0).Mul(bigGasPrice, big.NewInt(int64(totalGasUsed)))
+	paidFeeDynamic := big.NewInt(0).Mul(gasPriceDynamic, big.NewInt(int64(totalGasUsedDynamic)))
+	paidFeeLegacy := big.NewInt(0).Mul(gasPriceLegacy, big.NewInt(int64(totalGasUsedLegacy)))
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
@@ -429,7 +446,8 @@ func TestPoS_UnstakeExploit(t *testing.T) {
 	// Make sure the balances match up
 
 	// expBalance = previousAccountBalance + stakeRefund - block fees
-	expBalance := big.NewInt(0).Sub(big.NewInt(0).Add(previousAccountBalance, bigDefaultStakedBalance), paidFee)
+	expBalance := big.NewInt(0).Sub(big.NewInt(0).Add(previousAccountBalance, bigDefaultStakedBalance),
+		paidFeeLegacy.Add(paidFeeDynamic, paidFeeLegacy))
 
 	assert.Equalf(t,
 		expBalance.String(),
@@ -467,7 +485,8 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 	stakingContractAddr := staking.AddrStakingContract
 	bigDefaultStakedBalance := getBigDefaultStakedBalance(t)
 	defaultBalance := framework.EthToWei(100)
-	bigGasPrice := big.NewInt(framework.DefaultGasPrice)
+	gasPriceDynamic := big.NewInt(framework.DefaultGasPriceDynamic)
+	gasPriceLegacy := big.NewInt(framework.DefaultGasPriceLegacy)
 
 	senderKey, senderAddr := tests.GenerateKeyAndAddr(t)
 	numDummyStakers := 100
@@ -518,7 +537,16 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 			Input: framework.MethodSig(methodName),
 		}
 
-		unsignedTx.GasPrice = bigGasPrice
+		// Just make every second transaction with dynamic gas fee
+		if i%2 == 0 {
+			unsignedTx.Type = types.DynamicFeeTx
+			unsignedTx.GasFeeCap = gasPriceDynamic
+			unsignedTx.GasTipCap = gasPriceDynamic
+		} else {
+			unsignedTx.Type = types.LegacyTx
+			unsignedTx.GasPrice = gasPriceLegacy
+		}
+
 		signedTx, err := signer.SignTx(unsignedTx, senderKey)
 		require.NoError(t, err, "Unable to sign transaction")
 
@@ -529,7 +557,8 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 
 	oneEth := framework.EthToWei(1)
 	zeroEth := framework.EthToWei(0)
-	txHashes := make([]ethgo.Hash, 0)
+	txHashesLegacy := make([]ethgo.Hash, 0)
+	txHashesDynamic := make([]ethgo.Hash, 0)
 
 	for i := 0; i < numTransactions; i++ {
 		var msg *txpoolOp.AddTxnReq
@@ -557,14 +586,20 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 			t.Fatalf("Unable to add txn, %v", addErr)
 		}
 
-		txHashes = append(txHashes, ethgo.HexToHash(addResp.TxHash))
+		if i%2 == 0 {
+			txHashesDynamic = append(txHashesDynamic, ethgo.HexToHash(addResp.TxHash))
+		} else {
+			txHashesLegacy = append(txHashesLegacy, ethgo.HexToHash(addResp.TxHash))
+		}
 	}
 
 	// Set up the blockchain listener to catch the added block event
-	totalGasUsed := srv.GetGasTotal(txHashes)
+	totalGasUsedDynamic := srv.GetGasTotal(txHashesDynamic)
+	totalGasUsedLegacy := srv.GetGasTotal(txHashesLegacy)
 
 	// Find how much the address paid for all the transactions in this block
-	paidFee := big.NewInt(0).Mul(bigGasPrice, big.NewInt(int64(totalGasUsed)))
+	paidFeeDynamic := big.NewInt(0).Mul(gasPriceDynamic, big.NewInt(int64(totalGasUsedDynamic)))
+	paidFeeLegacy := big.NewInt(0).Mul(gasPriceLegacy, big.NewInt(int64(totalGasUsedLegacy)))
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
@@ -587,7 +622,7 @@ func TestPoS_StakeUnstakeExploit(t *testing.T) {
 
 	// expBalance = previousAccountBalance + stakeRefund - 1 ETH - block fees
 	expBalance := big.NewInt(0).Sub(big.NewInt(0).Add(defaultBalance, bigDefaultStakedBalance), oneEth)
-	expBalance = big.NewInt(0).Sub(expBalance, paidFee)
+	expBalance = big.NewInt(0).Sub(expBalance, paidFeeLegacy.Add(paidFeeDynamic, paidFeeLegacy))
 
 	assert.Equalf(t,
 		expBalance.String(),
@@ -606,7 +641,8 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 
 	stakingContractAddr := staking.AddrStakingContract
 	defaultBalance := framework.EthToWei(100)
-	bigGasPrice := big.NewInt(framework.DefaultGasPrice)
+	gasPriceDynamic := big.NewInt(framework.DefaultGasPriceDynamic)
+	gasPriceLegacy := big.NewInt(framework.DefaultGasPriceLegacy)
 
 	senderKey, senderAddr := tests.GenerateKeyAndAddr(t)
 	numDummyStakers := 10
@@ -650,11 +686,11 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 
 		if dynamicTx {
 			unsignedTx.Type = types.DynamicFeeTx
-			unsignedTx.GasFeeCap = bigGasPrice
-			unsignedTx.GasTipCap = bigGasPrice
+			unsignedTx.GasFeeCap = gasPriceDynamic
+			unsignedTx.GasTipCap = gasPriceDynamic
 		} else {
 			unsignedTx.Type = types.LegacyTx
-			unsignedTx.GasPrice = bigGasPrice
+			unsignedTx.GasPrice = gasPriceLegacy
 		}
 
 		signedTx, err := signer.SignTx(unsignedTx, senderKey)
@@ -666,7 +702,8 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 	}
 
 	zeroEth := framework.EthToWei(0)
-	txHashes := make([]ethgo.Hash, 0)
+	txHashesLegacy := make([]ethgo.Hash, 0)
+	txHashesDynamic := make([]ethgo.Hash, 0)
 
 	// addTxn is a helper method for generating and adding a transaction
 	// through the operator command
@@ -684,20 +721,26 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 			t.Fatalf("Unable to add txn, %v", addErr)
 		}
 
-		txHashes = append(txHashes, ethgo.HexToHash(addResp.TxHash))
+		if dynamicTx {
+			txHashesDynamic = append(txHashesDynamic, ethgo.HexToHash(addResp.TxHash))
+		} else {
+			txHashesLegacy = append(txHashesLegacy, ethgo.HexToHash(addResp.TxHash))
+		}
 	}
 
 	// Stake transaction
 	addTxn(false, oneEth, "stake")
 
 	// Unstake transaction
-	addTxn(false, zeroEth, "unstake")
+	addTxn(true, zeroEth, "unstake")
 
 	// Wait for the transactions to go through
-	totalGasUsed := srv.GetGasTotal(txHashes)
+	totalGasUsedDynamic := srv.GetGasTotal(txHashesDynamic)
+	totalGasUsedLegacy := srv.GetGasTotal(txHashesLegacy)
 
 	// Find how much the address paid for all the transactions in this block
-	paidFee := big.NewInt(0).Mul(bigGasPrice, big.NewInt(int64(totalGasUsed)))
+	paidFeeDynamic := big.NewInt(0).Mul(gasPriceDynamic, big.NewInt(int64(totalGasUsedDynamic)))
+	paidFeeLegacy := big.NewInt(0).Mul(gasPriceLegacy, big.NewInt(int64(totalGasUsedLegacy)))
 
 	// Check the balances
 	actualAccountBalance := framework.GetAccountBalance(t, senderAddr, client)
@@ -716,7 +759,7 @@ func TestPoS_StakeUnstakeWithinSameBlock(t *testing.T) {
 	// Make sure the address balances match up
 
 	// expBalance = previousAccountBalance - block fees
-	expBalance := big.NewInt(0).Sub(defaultBalance, paidFee)
+	expBalance := big.NewInt(0).Sub(defaultBalance, paidFeeLegacy.Add(paidFeeDynamic, paidFeeLegacy))
 
 	assert.Equalf(t,
 		expBalance.String(),
