@@ -12,11 +12,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-const (
-	stTypeBridgeCommitment = "commitment"
-	stTypeEndEpoch         = "end-epoch"
-)
-
 // PendingCommitment holds merkle trie of bridge transactions accompanied by epoch number
 type PendingCommitment struct {
 	*contractsapi.StateSyncCommitment

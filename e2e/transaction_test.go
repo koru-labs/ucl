@@ -419,10 +419,6 @@ func Test_TransactionIBFTLoop(t *testing.T) {
 
 		contractAddr := receipt.ContractAddress
 
-		if err != nil {
-			t.Fatalf("Unable to send transaction, %v", err)
-		}
-
 		count, countErr := getCount(sender, contractAddr, client)
 		if countErr != nil {
 			t.Fatalf("Unable to call count method, %v", countErr)
