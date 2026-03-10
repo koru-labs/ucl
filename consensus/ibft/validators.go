@@ -14,8 +14,8 @@ func quorumSize(set validators.Validators) int {
 		return 0
 	}
 
-	// Return the number of validators in the set
-	return set.Len() - calcMaxFaultyNodes(set)
+	// ibft forumal 2/3*N+1, where N is the number of validators in the set
+	return (2*set.Len())/3 + 1
 }
 
 func calcMaxFaultyNodes(s validators.Validators) int {
