@@ -143,7 +143,7 @@ func (e *Executor) ProcessBlock(
 
 	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
-			continue
+			return nil, runtime.ErrOutOfGas
 		}
 
 		if err = txn.Write(t); err != nil {
