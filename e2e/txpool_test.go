@@ -4,16 +4,23 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"math/big"
+	"os"
+	"path"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
+	"github.com/0xPolygon/polygon-edge/txrelayer"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/Ethernal-Tech/ethgo"
+	jsonRpcEthgo "github.com/Ethernal-Tech/ethgo/jsonrpc"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/e2e/framework"
@@ -553,4 +560,119 @@ func TestTxPool_GetPendingTx(t *testing.T) {
 	assert.Equal(t, uint64(0), tx.TxnIndex)
 	assert.Equal(t, receipt.BlockNumber, tx.BlockNumber)
 	assert.Equal(t, receipt.BlockHash, tx.BlockHash)
+}
+
+func TestE2E_TxPool_TestSync(t *testing.T) {
+	const numOfTxs = 10
+
+	senderKey, senderAddress := tests.GenerateKeyAndAddr(t)
+	_, receiverAddress := tests.GenerateKeyAndAddr(t)
+	to := ethgo.Address(receiverAddress)
+	ethgoSenderKey := framework.NewEthgoKeyWrapper(senderKey, senderAddress)
+
+	ibftManager := framework.NewIBFTServersManager(t,
+		3,
+		"prefix",
+		func(i int, config *framework.TestServerConfig) {
+			config.Premine(senderAddress, framework.EthToWei(10))
+			// create subdirectory inside logs directory for each node to avoid conflicts
+			// when multiple nodes are writing to the same file
+			logsDir := path.Join(config.LogsDir, fmt.Sprintf("node%d", i))
+			require.NoError(t, os.Mkdir(logsDir, 0755))
+
+			config.SetLogsDir(logsDir)
+		},
+	)
+
+	// Start only first server
+	ibftManager.GetServer(0).Start(context.Background())
+
+	txRelayer, err := txrelayer.NewTxRelayer(
+		txrelayer.WithClient(ibftManager.GetServer(0).JSONRPC()),
+		txrelayer.WithNumRetries(-1),
+	)
+	require.NoError(t, err)
+
+	errs := make([]error, numOfTxs)
+
+	wg := sync.WaitGroup{}
+	wg.Add(numOfTxs)
+
+	// send transactions to the first node
+	for i := range numOfTxs {
+		go func(i int) {
+			defer wg.Done()
+
+			_, errs[i] = txRelayer.SendTransaction(&ethgo.Transaction{
+				Nonce:    uint64(i),
+				GasPrice: uint64(100),
+				Value:    big.NewInt(int64(i)),
+				Gas:      21000,
+				From:     ethgoSenderKey.Address(),
+				To:       &to,
+				Type:     ethgo.TransactionLegacy,
+			}, ethgoSenderKey)
+		}(i)
+	}
+
+	wg.Wait()
+
+	require.NoError(t, errors.Join(errs...))
+
+	t.Log("All transactions sent")
+
+	// Restart the second node
+	ibftManager.GetServer(1).Start(context.Background())
+
+	getTxHashMap := func(clt *jsonRpcEthgo.Client) map[types.Hash]bool {
+		var out jsonrpc.ContentResponse
+
+		require.NoError(t, clt.Call("txpool_content", &out))
+
+		hashMap := make(map[types.Hash]bool)
+
+		for _, acc := range out.Pending {
+			for _, tx := range acc {
+				hashMap[tx.Hash] = true
+			}
+		}
+
+		for _, acc := range out.Queued {
+			for _, tx := range acc {
+				hashMap[tx.Hash] = true
+			}
+		}
+
+		return hashMap
+	}
+
+	var (
+		secondHashMap, firstHashMap map[types.Hash]bool
+		timeCh, ticker              = time.After(2 * time.Minute), time.NewTicker(5 * time.Second)
+	)
+
+loop:
+	for {
+		select {
+		case <-timeCh:
+			t.Fatalf("timeout waiting for txpool sync")
+		case <-ticker.C:
+			if len(firstHashMap) != numOfTxs {
+				firstHashMap = getTxHashMap(ibftManager.GetServer(0).JSONRPC())
+			} else {
+				secondHashMap = getTxHashMap(ibftManager.GetServer(1).JSONRPC())
+				if len(secondHashMap) == len(firstHashMap) {
+					break loop
+				}
+			}
+		}
+	}
+
+	for key := range firstHashMap {
+		if _, ok := secondHashMap[key]; !ok {
+			t.Fatalf("transaction %s not found in the second node", key)
+		}
+	}
+
+	t.Logf("transaction pool sync successful")
 }

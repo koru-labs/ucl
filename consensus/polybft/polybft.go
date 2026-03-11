@@ -440,6 +440,7 @@ func (p *Polybft) Initialize() error {
 		p.config.Logger.Named("syncer"),
 		p.config.Network,
 		p.config.Blockchain,
+		p.config.TxPool,
 		time.Duration(p.config.BlockTime)*3*time.Second,
 	)
 
@@ -464,7 +465,7 @@ func (p *Polybft) Initialize() error {
 		return fmt.Errorf("failed to create data directory. Error: %w", err)
 	}
 
-	stt, err := newState(filepath.Join(p.dataDir, stateFileName), p.logger, p.closeCh)
+	stt, err := newState(filepath.Join(p.dataDir, stateFileName), p.closeCh)
 	if err != nil {
 		return fmt.Errorf("failed to create state instance. Error: %w", err)
 	}
@@ -797,6 +798,11 @@ func (p *Polybft) FilterExtra(extra []byte) ([]byte, error) {
 	return GetIbftExtraClean(extra)
 }
 
+// GetSyncer returns the syncer instance used by PolyBFT consensus
+func (p *Polybft) GetSyncer() syncer.Syncer {
+	return p.syncer
+}
+
 // initProxies initializes proxy contracts, that allow upgradeability of contracts implementation
 func initProxies(transition *state.Transition, admin types.Address,
 	proxyToImplMap map[types.Address]types.Address) error {
@@ -834,8 +840,7 @@ func initProxies(transition *state.Transition, admin types.Address,
 }
 
 func getBurnContractAddress(config *chain.Chain, polyBFTConfig PolyBFTConfig) (types.Address, bool) {
-	if config.Params.BurnContract != nil &&
-		len(config.Params.BurnContract) == 1 &&
+	if len(config.Params.BurnContract) == 1 &&
 		!polyBFTConfig.NativeTokenConfig.IsMintable {
 		for _, address := range config.Params.BurnContract {
 			if _, ok := config.Genesis.Alloc[address]; ok {

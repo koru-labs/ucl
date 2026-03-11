@@ -69,6 +69,8 @@ type Transaction struct {
 	size atomic.Pointer[uint64]
 }
 
+type Transactions []*Transaction
+
 // IsContractCreation checks if tx is contract creation
 func (t *Transaction) IsContractCreation() bool {
 	return t.To == nil

@@ -148,40 +148,86 @@ func TestRLPUnmarshal_Header_ComputeHash(t *testing.T) {
 func TestRLPMarshall_And_Unmarshall_TypedTransaction(t *testing.T) {
 	addrTo := StringToAddress("11")
 	addrFrom := StringToAddress("22")
-	originalTx := &Transaction{
-		Nonce:     0,
-		GasPrice:  big.NewInt(11),
-		GasFeeCap: big.NewInt(12),
-		GasTipCap: big.NewInt(13),
-		Gas:       11,
-		To:        &addrTo,
-		From:      addrFrom,
-		Value:     big.NewInt(1),
-		Input:     []byte{1, 2},
-		V:         big.NewInt(25),
-		S:         big.NewInt(26),
-		R:         big.NewInt(27),
+
+	originalTxs := []*Transaction{
+		&Transaction{
+			Type:     StateTx,
+			GasPrice: big.NewInt(11),
+			Nonce:    0,
+			Gas:      11,
+			To:       &addrTo,
+			From:     addrFrom,
+			Value:    big.NewInt(1),
+			Input:    []byte{1, 2},
+			V:        big.NewInt(25),
+			S:        big.NewInt(26),
+			R:        big.NewInt(27),
+		},
+		&Transaction{
+			Type:     LegacyTx,
+			GasPrice: big.NewInt(11),
+			Nonce:    0,
+			Gas:      11,
+			To:       &addrTo,
+			From:     addrFrom,
+			Value:    big.NewInt(1),
+			Input:    []byte{1, 2},
+			V:        big.NewInt(25),
+			S:        big.NewInt(26),
+			R:        big.NewInt(27),
+		},
+		&Transaction{
+			Type:      DynamicFeeTx,
+			GasFeeCap: big.NewInt(12),
+			GasTipCap: big.NewInt(13),
+			Nonce:     0,
+			Gas:       11,
+			To:        &addrTo,
+			From:      addrFrom,
+			Value:     big.NewInt(1),
+			Input:     []byte{1, 2},
+			V:         big.NewInt(25),
+			S:         big.NewInt(26),
+			R:         big.NewInt(27),
+		},
 	}
 
-	txTypes := []TxType{
-		StateTx,
-		LegacyTx,
-		DynamicFeeTx,
-	}
-
-	for _, v := range txTypes {
-		t.Run(v.String(), func(t *testing.T) {
-			originalTx.Type = v
+	// Transaction
+	for _, originalTx := range originalTxs {
+		t.Run(originalTx.Type.String(), func(t *testing.T) {
 			originalTx.ComputeHash(1)
+
+			unmarshalledTx := &Transaction{
+				Type: originalTx.Type,
+			}
 
 			txRLP := originalTx.MarshalRLP()
 
-			unmarshalledTx := new(Transaction)
 			assert.NoError(t, unmarshalledTx.UnmarshalRLP(txRLP))
 
 			unmarshalledTx.ComputeHash(1)
 			assert.Equal(t, originalTx.Type, unmarshalledTx.Type)
 			assert.Equal(t, originalTx.Hash, unmarshalledTx.Hash)
+		})
+	}
+
+	// Transactions
+	for _, originalTx := range originalTxs {
+		t.Run(originalTx.Type.String()+"s", func(t *testing.T) {
+			originalTx.ComputeHash(1)
+
+			txs := Transactions([]*Transaction{originalTx})
+			txsRLP := txs.MarshalRLPTo(nil)
+
+			unmarshalledTxs := &Transactions{}
+			assert.NoError(t, unmarshalledTxs.UnmarshalRLP(txsRLP))
+
+			for _, unmarshalledTx := range *unmarshalledTxs {
+				unmarshalledTx.ComputeHash(1)
+
+				assert.Equal(t, originalTx.Type, unmarshalledTx.Type)
+				assert.Equal(t, originalTx.Hash, unmarshalledTx.Hash)
+			}
 		})
 	}
 }

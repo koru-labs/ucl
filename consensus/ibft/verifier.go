@@ -39,7 +39,7 @@ func (i *backendIBFT) calculateProposalHashFromBlockBytes(
 // calculateProposalHash is new hash calculation for proposal in go-ibft,
 // which includes round number block is finalized at
 func (i *backendIBFT) calculateProposalHash(
-	signer signer.Signer,
+	_ signer.Signer,
 	header *types.Header,
 	round *uint64,
 ) (types.Hash, error) {

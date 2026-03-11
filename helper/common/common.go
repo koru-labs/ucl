@@ -252,7 +252,7 @@ func (d *JSONNumber) MarshalJSON() ([]byte, error) {
 }
 
 func (d *JSONNumber) UnmarshalJSON(data []byte) error {
-	var rawValue interface{}
+	var rawValue any
 	if err := json.Unmarshal(data, &rawValue); err != nil {
 		return err
 	}
@@ -260,10 +260,6 @@ func (d *JSONNumber) UnmarshalJSON(data []byte) error {
 	val, err := ConvertUnmarshalledUint(rawValue)
 	if err != nil {
 		return err
-	}
-
-	if val < 0 {
-		return errors.New("must be positive value")
 	}
 
 	d.Value = val

@@ -5,6 +5,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/syncer"
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
@@ -38,6 +39,10 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 func (d *Dummy) Initialize() error {
 	d.txpool.SetSealing(true)
 
+	return nil
+}
+
+func (d *Dummy) GetSyncer() syncer.Syncer {
 	return nil
 }
 

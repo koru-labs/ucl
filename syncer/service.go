@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/0xPolygon/polygon-edge/network/grpc"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
@@ -20,16 +21,19 @@ type syncPeerService struct {
 
 	blockchain Blockchain       // reference to the blockchain module
 	network    Network          // reference to the network module
+	txPool     TxPool           // reference to the txpool module
 	stream     *grpc.GrpcStream // reference to the grpc stream
 }
 
 func NewSyncPeerService(
 	network Network,
 	blockchain Blockchain,
+	txPool TxPool,
 ) SyncPeerService {
 	return &syncPeerService{
 		blockchain: blockchain,
 		network:    network,
+		txPool:     txPool,
 	}
 }
 
@@ -89,6 +93,46 @@ func (s *syncPeerService) GetStatus(
 	return &proto.SyncPeerStatus{
 		Number: number,
 	}, nil
+}
+
+func (s *syncPeerService) GetTxPool(req *empty.Empty, stream proto.SyncPeer_GetTxPoolServer) error {
+	if s.txPool == nil {
+		return nil
+	}
+
+	allTxs := s.txPool.GetAllTxs()
+
+	// maxBatchSize batch size is 10k
+	const maxBatchSize = 10000
+
+	arrSize := len(allTxs)
+
+	for i := range int(math.Ceil(float64(arrSize) / maxBatchSize)) {
+		start := i * maxBatchSize
+
+		batchSize := arrSize - start
+		if batchSize > maxBatchSize {
+			batchSize = maxBatchSize
+		}
+
+		end := start + batchSize
+
+		if err := sendTxPoolBatch(allTxs[start:end], stream); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServer) error {
+	txPool := &proto.Transactions{
+		Txs: txs.MarshalRLPTo(nil),
+	}
+
+	metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(txPool.Txs)))
+
+	return stream.Send(txPool)
 }
 
 // toProtoBlock converts type.Block -> proto.Block

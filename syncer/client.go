@@ -30,6 +30,7 @@ type syncPeerClient struct {
 	logger     hclog.Logger // logger used for console logging
 	network    Network      // reference to the network module
 	blockchain Blockchain   // reference to the blockchain module
+	txPool     TxPool       // reference to the txpool module
 
 	subscription           blockchain.Subscription // reference to the blockchain subscription
 	topic                  *network.Topic          // reference to the network topic
@@ -49,6 +50,7 @@ func NewSyncPeerClient(
 	logger hclog.Logger,
 	network Network,
 	blockchain Blockchain,
+	txPool TxPool,
 ) SyncPeerClient {
 	return &syncPeerClient{
 		logger:                 logger.Named(SyncPeerClientLoggerName),
@@ -62,6 +64,7 @@ func NewSyncPeerClient(
 
 		peerStatusUpdateChLock:   sync.Mutex{},
 		peerStatusUpdateChClosed: false,
+		txPool:                   txPool,
 	}
 }
 
@@ -347,6 +350,43 @@ func (m *syncPeerClient) GetBlocks(
 	return blockCh, nil
 }
 
+func (m *syncPeerClient) SyncTxPool(
+	peerID peer.ID,
+) error {
+	clt, err := m.newSyncPeerClient(peerID)
+	if err != nil {
+		return fmt.Errorf("failed to create sync peer client: %w", err)
+	}
+
+	stream, err := clt.GetTxPool(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		return fmt.Errorf("failed to open GetTxPool stream: %w", err)
+	}
+
+	txsCh, errorCh := fromTransactionStreamToChannel(stream)
+
+	for {
+		select {
+		case txs, ok := <-txsCh:
+			if !ok {
+				return nil
+			}
+
+			m.addTxsToPool(*txs)
+		case err := <-errorCh:
+			return fmt.Errorf("failed to get txs from gRPC stream: %w", err)
+		}
+	}
+}
+
+func (m *syncPeerClient) addTxsToPool(txs []*types.Transaction) {
+	for _, tx := range txs {
+		if err := m.txPool.AddTxSync(tx); err != nil {
+			m.logger.Error("failed to add tx to pool: %w", err)
+		}
+	}
+}
+
 // newSyncPeerClient creates gRPC client
 func (m *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.SyncPeerClient, error) {
 	conn, err := m.network.NewProtoConnection(syncerProto, peerID)
@@ -406,4 +446,43 @@ func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *types.
 	}()
 
 	return blockCh, errorCh
+}
+
+func fromTransactionStreamToChannel(stream proto.SyncPeer_GetTxPoolClient) (<-chan *types.Transactions, <-chan error) {
+	txsCh := make(chan *types.Transactions)
+	errorCh := make(chan error, 1)
+
+	go func() {
+		defer close(txsCh)
+
+		for {
+			protoTxs, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			if err != nil {
+				metrics.IncrCounter([]string{syncerMetrics, "bad_message"}, 1)
+
+				errorCh <- err
+
+				break
+			}
+
+			txs := &types.Transactions{}
+			if err := txs.UnmarshalRLP(protoTxs.Txs); err != nil {
+				metrics.IncrCounter([]string{syncerMetrics, "bad_tx"}, 1)
+
+				errorCh <- err
+
+				break
+			}
+
+			metrics.SetGauge([]string{syncerMetrics, "ingress_bytes"}, float32(len(protoTxs.Txs)))
+
+			txsCh <- txs
+		}
+	}()
+
+	return txsCh, errorCh
 }

@@ -568,3 +568,23 @@ func WaitForServersToSeal(servers []*TestServer, desiredHeight uint64) []error {
 
 	return waitErrors
 }
+
+type EthgoKeyWrapper struct {
+	privateKey *ecdsa.PrivateKey
+	address    types.Address
+}
+
+func NewEthgoKeyWrapper(privateKey *ecdsa.PrivateKey, address types.Address) ethgo.Key {
+	return &EthgoKeyWrapper{
+		privateKey: privateKey,
+		address:    address,
+	}
+}
+
+func (k *EthgoKeyWrapper) Address() ethgo.Address {
+	return ethgo.Address(k.address)
+}
+
+func (k *EthgoKeyWrapper) Sign(hash []byte) ([]byte, error) {
+	return crypto.Sign(k.privateKey, hash)
+}

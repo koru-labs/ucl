@@ -27,7 +27,6 @@ const (
 )
 
 var (
-	errFailedToExecuteStateSync     = errors.New("failed to execute state sync")
 	errUnknownStateSyncRelayerEvent = errors.New("unknown event")
 
 	commitmentEventSignature      = new(contractsapi.NewCommitmentEvent).Sig()

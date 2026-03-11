@@ -37,6 +37,8 @@ const (
 	devFlag                      = "dev"
 	corsOriginFlag               = "access-control-allow-origins"
 	logFileLocationFlag          = "log-to"
+	gossipMessageSizeFlag        = "gossip-msg-size"
+	txGossipBatchSizeFlag        = "tx-gossip-batch-size"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -166,21 +168,23 @@ func (p *serverParams) generateConfig() *server.Config {
 			PrometheusAddr: p.prometheusAddress,
 		},
 		Network: &network.Config{
-			NoDiscover:       p.rawConfig.Network.NoDiscover,
-			Addr:             p.libp2pAddress,
-			NatAddr:          p.natAddress,
-			DNS:              p.dnsAddress,
-			DataDir:          p.rawConfig.DataDir,
-			MaxPeers:         p.rawConfig.Network.MaxPeers,
-			MaxInboundPeers:  p.rawConfig.Network.MaxInboundPeers,
-			MaxOutboundPeers: p.rawConfig.Network.MaxOutboundPeers,
-			Chain:            p.genesisConfig,
+			NoDiscover:        p.rawConfig.Network.NoDiscover,
+			Addr:              p.libp2pAddress,
+			NatAddr:           p.natAddress,
+			DNS:               p.dnsAddress,
+			DataDir:           p.rawConfig.DataDir,
+			MaxPeers:          p.rawConfig.Network.MaxPeers,
+			MaxInboundPeers:   p.rawConfig.Network.MaxInboundPeers,
+			MaxOutboundPeers:  p.rawConfig.Network.MaxOutboundPeers,
+			Chain:             p.genesisConfig,
+			GossipMessageSize: p.rawConfig.Network.GossipMessageSize,
 		},
 		DataDir:            p.rawConfig.DataDir,
 		Seal:               p.rawConfig.ShouldSeal,
 		PriceLimit:         p.rawConfig.TxPool.PriceLimit,
 		MaxSlots:           p.rawConfig.TxPool.MaxSlots,
 		MaxAccountEnqueued: p.rawConfig.TxPool.MaxAccountEnqueued,
+		TxGossipBatchSize:  p.rawConfig.TxPool.TxGossipBatchSize,
 		SecretsManager:     p.secretsConfig,
 		RestoreFile:        p.getRestoreFilePath(),
 		LogLevel:           hclog.LevelFromString(p.rawConfig.LogLevel),
