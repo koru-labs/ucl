@@ -568,18 +568,21 @@ func TestE2E_TxPool_TestSync(t *testing.T) {
 	to := ethgo.Address(receiverAddress)
 	ethgoSenderKey := framework.NewEthgoKeyWrapper(senderKey, senderAddress)
 
-	servers := framework.NewTestServers(t, 4, func(config *framework.TestServerConfig) {
+	servers := framework.NewTestServers(t, 3, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusIBFT)
 		config.SetIBFTDirPrefix("cubaka")
 		config.SetBlockLimit(20000000)
+		config.SetSaveLogs(true)
 		config.Premine(senderAddress, startingBalance)
 	})
 
-	// Stop the second node
+	// Stop the second node and 3rd node
 	servers[1].Stop()
+	servers[2].Stop()
 
 	txRelayer, err := txrelayer.NewTxRelayer(
 		txrelayer.WithClient(servers[0].JSONRPC()),
+		txrelayer.WithNumRetries(-1),
 	)
 	require.NoError(t, err)
 
@@ -636,10 +639,11 @@ func TestE2E_TxPool_TestSync(t *testing.T) {
 		return hashMap
 	}
 
-	firstHashMap := getTxHashMap(servers[0].JSONRPC())
-
-	timeCh, ticker := time.After(2*time.Minute), time.NewTicker(5*time.Second)
-	secondHashMap := make(map[types.Hash]bool)
+	var (
+		secondHashMap  map[types.Hash]bool
+		firstHashMap   = getTxHashMap(servers[0].JSONRPC())
+		timeCh, ticker = time.After(2 * time.Minute), time.NewTicker(5 * time.Second)
+	)
 
 loop:
 	for {

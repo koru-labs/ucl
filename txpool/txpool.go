@@ -109,17 +109,6 @@ type Config struct {
 	ChainID            *big.Int
 }
 
-/* All requests are passed to the main loop
-through their designated channels. */
-
-// An enqueueRequest is created for any transaction
-// meant to be enqueued onto some account.
-// This request is created for (new) transactions
-// that passed validation in addTx.
-type enqueueRequest struct {
-	tx *types.Transaction
-}
-
 // A promoteRequest is created each time some account
 // is eligible for promotion. This request is signaled
 // on 2 occasions:
