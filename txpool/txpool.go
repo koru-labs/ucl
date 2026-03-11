@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
+	"github.com/0xPolygon/polygon-edge/syncer"
 	"github.com/0xPolygon/polygon-edge/txpool/proto"
 	"github.com/0xPolygon/polygon-edge/types"
 )
@@ -337,12 +339,23 @@ func (p *TxPool) publish(batch *[]*types.Transaction) {
 // Start runs the pool's main loop in the background.
 // On each request received, the appropriate handler
 // is invoked in a separate goroutine.
-func (p *TxPool) Start() {
+func (p *TxPool) Start(syncer syncer.Syncer) {
 	// set default value of txpool pending transactions gauge
 	p.updatePending(0)
 
 	// start gossip batchers
 	p.startGossipBatchers()
+
+	// run sync of tx pool
+	if syncer != nil && !reflect.ValueOf(syncer).IsNil() {
+		go func() {
+			if err := syncer.SyncTxPool(); err != nil {
+				p.logger.Error("failed to sync txpool", "err", err)
+			} else {
+				p.logger.Debug("TxPool Synced")
+			}
+		}()
+	}
 
 	//	run the handler for high gauge level pruning
 	go func() {
@@ -404,6 +417,17 @@ func (p *TxPool) AddTx(tx *types.Transaction) error {
 	// subscription is present
 	if p.topic != nil {
 		p.gossipCh <- tx
+	}
+
+	return nil
+}
+
+// AddTxSync adds a new transaction to the pool from syncer
+func (p *TxPool) AddTxSync(tx *types.Transaction) error {
+	if err := p.addTx(gossip, tx); err != nil {
+		p.logger.Error("failed to add tx", "err", err)
+
+		return err
 	}
 
 	return nil
@@ -1165,6 +1189,11 @@ func (p *TxPool) getOrCreateAccount(newAddr types.Address) *account {
 // Length returns the total number of all promoted transactions.
 func (p *TxPool) Length() uint64 {
 	return p.accounts.promoted()
+}
+
+// GetAllTxs returns pool transactions from lookup map
+func (p *TxPool) GetAllTxs() []*types.Transaction {
+	return p.index.allTxs()
 }
 
 // toHash returns the hash(es) of given transaction(s)

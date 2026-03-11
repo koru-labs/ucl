@@ -11,6 +11,8 @@ service SyncPeer {
   rpc GetBlocks(GetBlocksRequest) returns (stream Block);
   // Returns server's status
   rpc GetStatus(google.protobuf.Empty) returns (SyncPeerStatus);
+  // Returns stream of transactions from the tx pool
+  rpc GetTxPool(google.protobuf.Empty) returns (stream Transactions);
 }
 
 // GetBlocksRequest is a request for GetBlocks
@@ -29,4 +31,10 @@ message Block {
 message SyncPeerStatus {
   // Latest block height
   uint64 number = 1;
+}
+
+// Transactions contains RLP-encoded transactions
+message Transactions {
+  // RLP Encoded Transactions
+  bytes txs = 1;
 }

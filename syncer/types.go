@@ -59,6 +59,11 @@ type Network interface {
 	CloseProtocolStream(protocol string, peerID peer.ID) error
 }
 
+type TxPool interface {
+	GetAllTxs() []*types.Transaction
+	AddTxSync(tx *types.Transaction) error
+}
+
 type Syncer interface {
 	// Start starts syncer processes
 	Start() error
@@ -70,6 +75,9 @@ type Syncer interface {
 	HasSyncPeer() bool
 	// Sync starts routine to sync blocks
 	Sync(func(*types.FullBlock) bool) error
+
+	// SyncTxPool syncs tx pool with the peer
+	SyncTxPool() error
 }
 
 type Progression interface {
@@ -101,6 +109,8 @@ type SyncPeerClient interface {
 	GetConnectedPeerStatuses() []*NoForkPeer
 	// GetBlocks returns a stream of blocks from given height to peer's latest
 	GetBlocks(peer.ID, uint64, time.Duration) (<-chan *types.Block, error)
+	// SyncTxPool syncs tx pool with the peer
+	SyncTxPool(peer.ID) error
 	// GetPeerStatusUpdateCh returns a channel of peer's status update
 	GetPeerStatusUpdateCh() <-chan *NoForkPeer
 	// GetPeerConnectionUpdateEventCh returns peer's connection change event

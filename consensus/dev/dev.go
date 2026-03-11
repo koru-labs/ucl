@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/syncer"
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
@@ -63,6 +64,11 @@ func Factory(
 func (d *Dev) Initialize() error {
 	d.txpool.SetSealing(true)
 
+	return nil
+}
+
+// GetSyncer returns the syncer of the consensus, which is nil for dev consensus as it doesn't support syncing
+func (d *Dev) GetSyncer() syncer.Syncer {
 	return nil
 }
 

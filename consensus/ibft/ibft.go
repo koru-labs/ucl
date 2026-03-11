@@ -150,6 +150,7 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 			params.Logger,
 			params.Network,
 			params.Blockchain,
+			params.TxPool,
 			time.Duration(params.BlockTime)*3*time.Second,
 		),
 		secretsManager: params.SecretsManager,
@@ -569,6 +570,10 @@ func (i *backendIBFT) GetBridgeProvider() consensus.BridgeDataProvider {
 // FilterExtra is the implementation of Consensus interface
 func (i *backendIBFT) FilterExtra(extra []byte) ([]byte, error) {
 	return extra, nil
+}
+
+func (p *backendIBFT) GetSyncer() syncer.Syncer {
+	return p.syncer
 }
 
 // updateCurrentModules updates Signer, Hooks, and Validators
