@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"math/big"
+	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -562,26 +565,30 @@ func TestTxPool_GetPendingTx(t *testing.T) {
 func TestE2E_TxPool_TestSync(t *testing.T) {
 	const numOfTxs = 10
 
-	startingBalance := big.NewInt(1_000_000_000_000)
 	senderKey, senderAddress := tests.GenerateKeyAndAddr(t)
 	_, receiverAddress := tests.GenerateKeyAndAddr(t)
 	to := ethgo.Address(receiverAddress)
 	ethgoSenderKey := framework.NewEthgoKeyWrapper(senderKey, senderAddress)
 
-	servers := framework.NewTestServers(t, 3, func(config *framework.TestServerConfig) {
-		config.SetConsensus(framework.ConsensusIBFT)
-		config.SetIBFTDirPrefix("cubaka")
-		config.SetBlockLimit(20000000)
-		config.SetSaveLogs(true)
-		config.Premine(senderAddress, startingBalance)
-	})
+	ibftManager := framework.NewIBFTServersManager(t,
+		3,
+		"prefix",
+		func(i int, config *framework.TestServerConfig) {
+			config.Premine(senderAddress, framework.EthToWei(10))
+			// create subdirectory inside logs directory for each node to avoid conflicts
+			// when multiple nodes are writing to the same file
+			logsDir := path.Join(config.LogsDir, fmt.Sprintf("node%d", i))
+			require.NoError(t, os.Mkdir(logsDir, 0755))
 
-	// Stop the second node and 3rd node
-	servers[1].Stop()
-	servers[2].Stop()
+			config.SetLogsDir(logsDir)
+		},
+	)
+
+	// Start only first server
+	ibftManager.GetServer(0).Start(context.Background())
 
 	txRelayer, err := txrelayer.NewTxRelayer(
-		txrelayer.WithClient(servers[0].JSONRPC()),
+		txrelayer.WithClient(ibftManager.GetServer(0).JSONRPC()),
 		txrelayer.WithNumRetries(-1),
 	)
 	require.NoError(t, err)
@@ -615,7 +622,7 @@ func TestE2E_TxPool_TestSync(t *testing.T) {
 	t.Log("All transactions sent")
 
 	// Restart the second node
-	servers[1].Start(context.Background())
+	ibftManager.GetServer(1).Start(context.Background())
 
 	getTxHashMap := func(clt *jsonRpcEthgo.Client) map[types.Hash]bool {
 		var out jsonrpc.ContentResponse
@@ -640,9 +647,8 @@ func TestE2E_TxPool_TestSync(t *testing.T) {
 	}
 
 	var (
-		secondHashMap  map[types.Hash]bool
-		firstHashMap   = getTxHashMap(servers[0].JSONRPC())
-		timeCh, ticker = time.After(2 * time.Minute), time.NewTicker(5 * time.Second)
+		secondHashMap, firstHashMap map[types.Hash]bool
+		timeCh, ticker              = time.After(2 * time.Minute), time.NewTicker(5 * time.Second)
 	)
 
 loop:
@@ -651,9 +657,13 @@ loop:
 		case <-timeCh:
 			t.Fatalf("timeout waiting for txpool sync")
 		case <-ticker.C:
-			secondHashMap = getTxHashMap(servers[1].JSONRPC())
-			if len(secondHashMap) == len(firstHashMap) {
-				break loop
+			if len(firstHashMap) == 0 {
+				firstHashMap = getTxHashMap(ibftManager.GetServer(0).JSONRPC())
+			} else {
+				secondHashMap = getTxHashMap(ibftManager.GetServer(1).JSONRPC())
+				if len(secondHashMap) == len(firstHashMap) {
+					break loop
+				}
 			}
 		}
 	}
