@@ -657,7 +657,7 @@ loop:
 		case <-timeCh:
 			t.Fatalf("timeout waiting for txpool sync")
 		case <-ticker.C:
-			if len(firstHashMap) == 0 {
+			if len(firstHashMap) != numOfTxs {
 				firstHashMap = getTxHashMap(ibftManager.GetServer(0).JSONRPC())
 			} else {
 				secondHashMap = getTxHashMap(ibftManager.GetServer(1).JSONRPC())
