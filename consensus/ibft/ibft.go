@@ -572,6 +572,7 @@ func (i *backendIBFT) FilterExtra(extra []byte) ([]byte, error) {
 	return extra, nil
 }
 
+// GetSyncer returns the syncer instance used by IBFT
 func (p *backendIBFT) GetSyncer() syncer.Syncer {
 	return p.syncer
 }

@@ -798,6 +798,7 @@ func (p *Polybft) FilterExtra(extra []byte) ([]byte, error) {
 	return GetIbftExtraClean(extra)
 }
 
+// GetSyncer returns the syncer instance used by PolyBFT consensus
 func (p *Polybft) GetSyncer() syncer.Syncer {
 	return p.syncer
 }
