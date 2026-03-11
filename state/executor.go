@@ -39,8 +39,9 @@ type Executor struct {
 	state   State
 	GetHash GetHashByNumberHelper
 
-	PostHook        func(txn *Transition)
-	GenesisPostHook func(*Transition) error
+	PostHook         func(txn *Transition)
+	GenesisPostHook  func(*Transition) error
+	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
 }
 
 // NewExecutor creates a new executor
@@ -144,6 +145,12 @@ func (e *Executor) ProcessBlock(
 	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
+		}
+
+		if t.From == emptyFrom && t.Type != types.StateTx {
+			if poolTx, ok := e.GetPendingTxHook(t.Hash); ok {
+				t.From = poolTx.From
+			}
 		}
 
 		if err = txn.Write(t); err != nil {

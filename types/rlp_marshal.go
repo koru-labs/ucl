@@ -244,3 +244,21 @@ func (t *Transaction) MarshalRLPWith(arena *fastrlp.Arena) *fastrlp.Value {
 
 	return vv
 }
+
+func (t Transactions) MarshalRLPTo(dst []byte) []byte {
+	return MarshalRLPTo(t.MarshalRLPWith, dst)
+}
+
+func (t *Transactions) MarshalRLPWith(a *fastrlp.Arena) *fastrlp.Value {
+	vv := a.NewArray()
+
+	for _, tt := range *t {
+		if tt.Type != LegacyTx {
+			vv.Set(a.NewCopyBytes([]byte{byte(tt.Type)}))
+		}
+
+		vv.Set(tt.MarshalRLPWith(a))
+	}
+
+	return vv
+}

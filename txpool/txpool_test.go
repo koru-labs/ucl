@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/crypto"
@@ -657,6 +657,17 @@ func TestAddTxHighPressure(t *testing.T) {
 func TestAddGossipTx(t *testing.T) {
 	t.Parallel()
 
+	getProtoTx := func(signedTx *types.Transaction) *proto.Txn {
+		batch := []*types.Transaction{signedTx}
+		txs := types.Transactions(batch)
+
+		return &proto.Txn{
+			Raw: &anypb.Any{
+				Value: txs.MarshalRLPTo(nil),
+			},
+		}
+	}
+
 	key, sender := tests.GenerateKeyAndAddr(t)
 	signer := crypto.NewEIP155Signer(100, true)
 	tx := newTx(types.ZeroAddress, 1, 1)
@@ -676,12 +687,7 @@ func TestAddGossipTx(t *testing.T) {
 		}
 
 		// send tx
-		protoTx := &proto.Txn{
-			Raw: &any.Any{
-				Value: signedTx.MarshalRLP(),
-			},
-		}
-		pool.addGossipTx(protoTx, "")
+		pool.addGossipTx(getProtoTx(signedTx), "")
 
 		assert.Equal(t, uint64(1), pool.accounts.get(sender).enqueued.length())
 	})
@@ -703,12 +709,7 @@ func TestAddGossipTx(t *testing.T) {
 		}
 
 		// send tx
-		protoTx := &proto.Txn{
-			Raw: &any.Any{
-				Value: signedTx.MarshalRLP(),
-			},
-		}
-		pool.addGossipTx(protoTx, "")
+		pool.addGossipTx(getProtoTx(signedTx), "")
 
 		assert.Equal(t, uint64(0), pool.accounts.get(sender).enqueued.length())
 	})
