@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/syncer"
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
@@ -49,6 +50,9 @@ type Consensus interface {
 
 	// Close closes the connection
 	Close() error
+
+	// GetSyncer returns the syncer used by the consensus
+	GetSyncer() syncer.Syncer
 }
 
 // Config is the configuration for the consensus

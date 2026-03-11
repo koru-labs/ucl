@@ -2519,7 +2519,7 @@ func TestResetAccounts_Promoted(t *testing.T) {
 	assert.NoError(t, err)
 	pool.SetSigner(signerEIP155)
 
-	pool.Start()
+	pool.Start(nil)
 	defer pool.Close()
 
 	promotedSubscription := pool.eventManager.subscribe(
@@ -2654,7 +2654,7 @@ func TestResetAccounts_Enqueued(t *testing.T) {
 		assert.NoError(t, err)
 		pool.SetSigner(signerEIP155)
 
-		pool.Start()
+		pool.Start(nil)
 		defer pool.Close()
 
 		enqueuedSubscription := pool.eventManager.subscribe(
@@ -2758,7 +2758,7 @@ func TestResetAccounts_Enqueued(t *testing.T) {
 		assert.NoError(t, err)
 		pool.SetSigner(&mockSigner{})
 
-		pool.Start()
+		pool.Start(nil)
 		defer pool.Close()
 
 		enqueuedSubscription := pool.eventManager.subscribe(
@@ -2954,7 +2954,7 @@ func TestExecutablesOrder(t *testing.T) {
 			pool.baseFee = defaultBaseFee
 			pool.SetSigner(&mockSigner{})
 
-			pool.Start()
+			pool.Start(nil)
 			defer pool.Close()
 
 			subscription := pool.eventManager.subscribe(
@@ -3151,7 +3151,7 @@ func TestRecovery(t *testing.T) {
 			assert.NoError(t, err)
 			pool.SetSigner(&mockSigner{})
 
-			pool.Start()
+			pool.Start(nil)
 			defer pool.Close()
 
 			promoteSubscription := pool.eventManager.subscribe(
@@ -3361,7 +3361,7 @@ func TestProposed(t *testing.T) {
 			assert.NoError(t, err)
 			pool.SetSigner(&mockSigner{})
 
-			pool.Start()
+			pool.Start(nil)
 			defer pool.Close()
 
 			promoteSubscription := pool.eventManager.subscribe(
@@ -3574,7 +3574,7 @@ func TestGetTxs(t *testing.T) {
 			assert.NoError(t, err)
 			pool.SetSigner(signerEIP155)
 
-			pool.Start()
+			pool.Start(nil)
 			defer pool.Close()
 
 			promoteSubscription := pool.eventManager.subscribe(
@@ -3799,7 +3799,7 @@ func TestBatchTx_SingleAccount(t *testing.T) {
 	pool.SetSigner(&mockSigner{})
 
 	// start event handler goroutines
-	pool.Start()
+	pool.Start(nil)
 	defer pool.Close()
 
 	// subscribe to enqueue and promote events
@@ -3909,7 +3909,7 @@ func TestAddTxsInOrder(t *testing.T) {
 	signer := crypto.NewEIP155Signer(100, true)
 
 	pool.SetSigner(signer)
-	pool.Start()
+	pool.Start(nil)
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(addrsTxs) * int(defaultMaxAccountEnqueued))

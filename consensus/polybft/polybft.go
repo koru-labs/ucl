@@ -440,6 +440,7 @@ func (p *Polybft) Initialize() error {
 		p.config.Logger.Named("syncer"),
 		p.config.Network,
 		p.config.Blockchain,
+		p.config.TxPool,
 		time.Duration(p.config.BlockTime)*3*time.Second,
 	)
 
@@ -795,6 +796,11 @@ func (p *Polybft) GetBridgeProvider() consensus.BridgeDataProvider {
 // FilterExtra is an implementation of Consensus interface
 func (p *Polybft) FilterExtra(extra []byte) ([]byte, error) {
 	return GetIbftExtraClean(extra)
+}
+
+// GetSyncer returns the syncer instance used by PolyBFT consensus
+func (p *Polybft) GetSyncer() syncer.Syncer {
+	return p.syncer
 }
 
 // initProxies initializes proxy contracts, that allow upgradeability of contracts implementation

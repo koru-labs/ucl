@@ -395,6 +395,12 @@ func (tp *syncerMock) Sync(func(*types.FullBlock) bool) error {
 	return args.Error(0)
 }
 
+func (tp *syncerMock) SyncTxPool() error {
+	args := tp.Called()
+
+	return args.Error(0)
+}
+
 func init() {
 	// setup custom hash header func
 	setupHeaderHashFunc()

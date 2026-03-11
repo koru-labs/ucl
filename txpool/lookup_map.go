@@ -49,3 +49,18 @@ func (m *lookupMap) get(hash types.Hash) (*types.Transaction, bool) {
 
 	return tx, true
 }
+
+func (m *lookupMap) allTxs() []*types.Transaction {
+	m.RLock()
+	defer m.RUnlock()
+
+	txs := make([]*types.Transaction, len(m.all))
+	i := 0
+
+	for _, tx := range m.all {
+		txs[i] = tx
+		i++
+	}
+
+	return txs
+}
