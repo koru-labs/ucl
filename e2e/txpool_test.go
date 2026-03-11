@@ -5,15 +5,19 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
+	"github.com/0xPolygon/polygon-edge/txrelayer"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/Ethernal-Tech/ethgo"
+	jsonRpcEthgo "github.com/Ethernal-Tech/ethgo/jsonrpc"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/e2e/framework"
@@ -553,4 +557,108 @@ func TestTxPool_GetPendingTx(t *testing.T) {
 	assert.Equal(t, uint64(0), tx.TxnIndex)
 	assert.Equal(t, receipt.BlockNumber, tx.BlockNumber)
 	assert.Equal(t, receipt.BlockHash, tx.BlockHash)
+}
+
+func TestE2E_TxPool_TestSync(t *testing.T) {
+	const numOfTxs = 10
+
+	startingBalance := big.NewInt(1_000_000_000_000)
+	senderKey, senderAddress := tests.GenerateKeyAndAddr(t)
+	_, receiverAddress := tests.GenerateKeyAndAddr(t)
+	to := ethgo.Address(receiverAddress)
+	ethgoSenderKey := framework.NewEthgoKeyWrapper(senderKey, senderAddress)
+
+	servers := framework.NewTestServers(t, 4, func(config *framework.TestServerConfig) {
+		config.SetConsensus(framework.ConsensusIBFT)
+		config.SetIBFTDirPrefix("cubaka")
+		config.SetBlockLimit(20000000)
+		config.Premine(senderAddress, startingBalance)
+	})
+
+	// Stop the second node
+	servers[1].Stop()
+
+	txRelayer, err := txrelayer.NewTxRelayer(
+		txrelayer.WithClient(servers[0].JSONRPC()),
+	)
+	require.NoError(t, err)
+
+	errs := make([]error, numOfTxs)
+
+	wg := sync.WaitGroup{}
+	wg.Add(numOfTxs)
+
+	// send transactions to the first node
+	for i := range numOfTxs {
+		go func(i int) {
+			defer wg.Done()
+
+			_, errs[i] = txRelayer.SendTransaction(&ethgo.Transaction{
+				Nonce:    uint64(i),
+				GasPrice: uint64(100),
+				Value:    big.NewInt(int64(i)),
+				Gas:      21000,
+				From:     ethgoSenderKey.Address(),
+				To:       &to,
+				Type:     ethgo.TransactionLegacy,
+			}, ethgoSenderKey)
+		}(i)
+	}
+
+	wg.Wait()
+
+	require.NoError(t, errors.Join(errs...))
+
+	t.Log("All transactions sent")
+
+	// Restart the second node
+	servers[1].Start(context.Background())
+
+	getTxHashMap := func(clt *jsonRpcEthgo.Client) map[types.Hash]bool {
+		var out jsonrpc.ContentResponse
+
+		require.NoError(t, clt.Call("txpool_content", &out))
+
+		hashMap := make(map[types.Hash]bool)
+
+		for _, acc := range out.Pending {
+			for _, tx := range acc {
+				hashMap[tx.Hash] = true
+			}
+		}
+
+		for _, acc := range out.Queued {
+			for _, tx := range acc {
+				hashMap[tx.Hash] = true
+			}
+		}
+
+		return hashMap
+	}
+
+	firstHashMap := getTxHashMap(servers[0].JSONRPC())
+
+	timeCh, ticker := time.After(2*time.Minute), time.NewTicker(5*time.Second)
+	secondHashMap := make(map[types.Hash]bool)
+
+loop:
+	for {
+		select {
+		case <-timeCh:
+			t.Fatalf("timeout waiting for txpool sync")
+		case <-ticker.C:
+			secondHashMap = getTxHashMap(servers[1].JSONRPC())
+			if len(secondHashMap) == len(firstHashMap) {
+				break loop
+			}
+		}
+	}
+
+	for key := range firstHashMap {
+		if _, ok := secondHashMap[key]; !ok {
+			t.Fatalf("transaction %s not found in the second node", key)
+		}
+	}
+
+	t.Logf("transaction pool sync successful")
 }
