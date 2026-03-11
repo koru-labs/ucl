@@ -12,9 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/0xPolygon/polygon-edge/blockchain/storage"
-	"github.com/0xPolygon/polygon-edge/blockchain/storage/leveldb"
-	"github.com/0xPolygon/polygon-edge/blockchain/storage/memory"
+	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
@@ -197,7 +195,7 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	// start blockchain object
-	stateStorage, err := itrie.NewLevelDBStorage(filepath.Join(m.config.DataDir, "trie"), logger)
+	stateStorage, err := itrie.NewPebbleDBStorage(filepath.Join(config.DataDir, "trie"), logger)
 	if err != nil {
 		return nil, err
 	}
@@ -298,22 +296,9 @@ func NewServer(config *Config) (*Server, error) {
 	)
 
 	// create storage instance for blockchain
-	var db storage.Storage
-	{
-		if m.config.DataDir == "" {
-			db, err = memory.NewMemoryStorage(nil)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			db, err = leveldb.NewLevelDBStorage(
-				filepath.Join(m.config.DataDir, "blockchain"),
-				m.logger,
-			)
-			if err != nil {
-				return nil, err
-			}
-		}
+	db, err := pebble.NewPebbleDBStorage(filepath.Join(config.DataDir, "blockchain"), logger)
+	if err != nil {
+		return nil, err
 	}
 
 	// blockchain object

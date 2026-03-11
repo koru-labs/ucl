@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"context"
+	"crypto/rand"
 	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -11,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type PlaceholderStorage func(t *testing.T) (Storage, func())
+type PlaceholderStorage func(t *testing.T) (*Storage, func(), string)
 
 var (
 	addr1 = types.StringToAddress("1")
@@ -54,7 +57,7 @@ func TestStorage(t *testing.T, m PlaceholderStorage) {
 func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	var cases = []struct {
@@ -77,7 +80,7 @@ func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 	}
 
 	for _, cc := range cases {
-		batch := NewBatchWriter(s)
+		batch := s.NewWriter()
 
 		h := &types.Header{
 			Number:     cc.Number,
@@ -93,9 +96,7 @@ func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 		require.NoError(t, batch.WriteBatch())
 
 		data, ok := s.ReadCanonicalHash(cc.Number)
-		if !ok {
-			t.Fatal("not found")
-		}
+		assert.True(t, ok)
 
 		if !reflect.DeepEqual(data, hash) {
 			t.Fatal("not match")
@@ -106,7 +107,7 @@ func testCanonicalChain(t *testing.T, m PlaceholderStorage) {
 func testDifficulty(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	var cases = []struct {
@@ -124,24 +125,22 @@ func testDifficulty(t *testing.T, m PlaceholderStorage) {
 	}
 
 	for indx, cc := range cases {
-		batch := NewBatchWriter(s)
+		batch := s.NewWriter()
 
 		h := &types.Header{
 			Number:    uint64(indx),
 			ExtraData: []byte{},
 		}
-
-		hash := h.Hash
+		h.ComputeHash()
 
 		batch.PutHeader(h)
-		batch.PutTotalDifficulty(hash, cc.Diff)
+		batch.PutBlockLookup(h.Hash, h.Number)
+		batch.PutTotalDifficulty(h.Number, h.Hash, cc.Diff)
 
 		require.NoError(t, batch.WriteBatch())
 
-		diff, ok := s.ReadTotalDifficulty(hash)
-		if !ok {
-			t.Fatal("not found")
-		}
+		diff, ok := s.ReadTotalDifficulty(h.Number, h.Hash)
+		assert.True(t, ok)
 
 		if !reflect.DeepEqual(cc.Diff, diff) {
 			t.Fatal("bad")
@@ -152,11 +151,11 @@ func testDifficulty(t *testing.T, m PlaceholderStorage) {
 func testHead(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	for i := uint64(0); i < 5; i++ {
-		batch := NewBatchWriter(s)
+		batch := s.NewWriter()
 
 		h := &types.Header{
 			Number:    i,
@@ -171,18 +170,14 @@ func testHead(t *testing.T, m PlaceholderStorage) {
 		require.NoError(t, batch.WriteBatch())
 
 		n2, ok := s.ReadHeadNumber()
-		if !ok {
-			t.Fatal("num not found")
-		}
+		assert.True(t, ok)
 
 		if n2 != i {
 			t.Fatal("bad")
 		}
 
 		hash1, ok := s.ReadHeadHash()
-		if !ok {
-			t.Fatal("hash not found")
-		}
+		assert.True(t, ok)
 
 		if !reflect.DeepEqual(hash1, hash) {
 			t.Fatal("bad")
@@ -193,7 +188,7 @@ func testHead(t *testing.T, m PlaceholderStorage) {
 func testForks(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	var cases = []struct {
@@ -204,7 +199,7 @@ func testForks(t *testing.T, m PlaceholderStorage) {
 	}
 
 	for _, cc := range cases {
-		batch := NewBatchWriter(s)
+		batch := s.NewWriter()
 
 		batch.PutForks(cc.Forks)
 
@@ -222,7 +217,7 @@ func testForks(t *testing.T, m PlaceholderStorage) {
 func testHeader(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	header := &types.Header{
@@ -235,13 +230,13 @@ func testHeader(t *testing.T, m PlaceholderStorage) {
 	}
 	header.ComputeHash()
 
-	batch := NewBatchWriter(s)
+	batch := s.NewWriter()
 
 	batch.PutHeader(header)
 
 	require.NoError(t, batch.WriteBatch())
 
-	header1, err := s.ReadHeader(header.Hash)
+	header1, err := s.ReadHeader(header.Number, header.Hash)
 	assert.NoError(t, err)
 
 	if !reflect.DeepEqual(header, header1) {
@@ -252,7 +247,7 @@ func testHeader(t *testing.T, m PlaceholderStorage) {
 func testBody(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	header := &types.Header{
@@ -263,7 +258,9 @@ func testBody(t *testing.T, m PlaceholderStorage) {
 		ExtraData:  []byte{}, // if not set it will fail
 	}
 
-	batch := NewBatchWriter(s)
+	header.ComputeHash()
+
+	batch := s.NewWriter()
 
 	batch.PutHeader(header)
 
@@ -278,10 +275,13 @@ func testBody(t *testing.T, m PlaceholderStorage) {
 		GasPrice: big.NewInt(11),
 		Input:    []byte{1, 2},
 		V:        big.NewInt(1),
+		Type:     types.LegacyTx,
 	}
-	t0.ComputeHash(1)
+
+	t0.ComputeHash(5)
 
 	addr2 := types.StringToAddress("22")
+
 	t1 := &types.Transaction{
 		Nonce:    0,
 		To:       &addr2,
@@ -290,22 +290,23 @@ func testBody(t *testing.T, m PlaceholderStorage) {
 		GasPrice: big.NewInt(11),
 		Input:    []byte{4, 5},
 		V:        big.NewInt(2),
+		Type:     types.LegacyTx,
 	}
-	t1.ComputeHash(1)
+	t1.ComputeHash(5)
 
 	block := types.Block{
 		Header:       header,
 		Transactions: []*types.Transaction{t0, t1},
 	}
 
-	batch2 := NewBatchWriter(s)
+	batch2 := s.NewWriter()
 	body0 := block.Body()
 
-	batch2.PutBody(header.Hash, body0)
+	batch2.PutBody(header.Number, header.Hash, body0)
 
 	require.NoError(t, batch2.WriteBatch())
 
-	body1, err := s.ReadBody(header.Hash)
+	body1, err := s.ReadBody(header.Number, header.Hash)
 	assert.NoError(t, err)
 
 	// NOTE: reflect.DeepEqual does not seem to work, check the hash of the transactions
@@ -324,10 +325,10 @@ func testBody(t *testing.T, m PlaceholderStorage) {
 func testReceipts(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
-	batch := NewBatchWriter(s)
+	batch := s.NewWriter()
 
 	h := &types.Header{
 		Difficulty: 133,
@@ -338,10 +339,11 @@ func testReceipts(t *testing.T, m PlaceholderStorage) {
 
 	body := &types.Body{
 		Transactions: []*types.Transaction{
-			{
+
+			&types.Transaction{
 				Nonce:    1000,
 				Gas:      50,
-				GasPrice: new(big.Int).SetUint64(100),
+				GasPrice: big.NewInt(100),
 				V:        big.NewInt(11),
 			},
 		},
@@ -381,23 +383,20 @@ func testReceipts(t *testing.T, m PlaceholderStorage) {
 	}
 
 	batch.PutHeader(h)
-	batch.PutBody(h.Hash, body)
-	batch.PutReceipts(h.Hash, receipts)
+	batch.PutBody(h.Number, h.Hash, body)
+	batch.PutReceipts(h.Number, h.Hash, receipts)
 
 	require.NoError(t, batch.WriteBatch())
 
-	found, err := s.ReadReceipts(h.Hash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	found, err := s.ReadReceipts(h.Number, h.Hash)
+	assert.NoError(t, err)
 	assert.True(t, reflect.DeepEqual(receipts, found))
 }
 
 func testWriteCanonicalHeader(t *testing.T, m PlaceholderStorage) {
 	t.Helper()
 
-	s, closeFn := m(t)
+	s, closeFn, _ := m(t)
 	defer closeFn()
 
 	h := &types.Header{
@@ -407,13 +406,13 @@ func testWriteCanonicalHeader(t *testing.T, m PlaceholderStorage) {
 	h.ComputeHash()
 
 	diff := new(big.Int).SetUint64(100)
-	batch := NewBatchWriter(s)
+	batch := s.NewWriter()
 
 	batch.PutCanonicalHeader(h, diff)
 
 	require.NoError(t, batch.WriteBatch())
 
-	hh, err := s.ReadHeader(h.Hash)
+	hh, err := s.ReadHeader(h.Number, h.Hash)
 	assert.NoError(t, err)
 
 	if !reflect.DeepEqual(h, hh) {
@@ -421,194 +420,127 @@ func testWriteCanonicalHeader(t *testing.T, m PlaceholderStorage) {
 	}
 
 	headHash, ok := s.ReadHeadHash()
-	if !ok {
-		t.Fatal("not found head hash")
-	}
+	assert.True(t, ok)
 
 	if headHash != h.Hash {
 		t.Fatal("head hash not correct")
 	}
 
 	headNum, ok := s.ReadHeadNumber()
-	if !ok {
-		t.Fatal("not found head num")
-	}
+	assert.True(t, ok)
 
 	if headNum != h.Number {
 		t.Fatal("head num not correct")
 	}
 
 	canHash, ok := s.ReadCanonicalHash(h.Number)
-	if !ok {
-		t.Fatal("not found can hash")
-	}
+	assert.True(t, ok)
 
 	if canHash != h.Hash {
 		t.Fatal("canonical hash not correct")
 	}
 }
 
-// Storage delegators
+func generateTxs(t *testing.T,
+	startNonce, count int,
+	from types.Address,
+	to *types.Address,
+	blockNum uint64) []*types.Transaction {
+	t.Helper()
 
-type readCanonicalHashDelegate func(uint64) (types.Hash, bool)
-type readHeadHashDelegate func() (types.Hash, bool)
-type readHeadNumberDelegate func() (uint64, bool)
-type readForksDelegate func() ([]types.Hash, error)
-type readTotalDifficultyDelegate func(types.Hash) (*big.Int, bool)
-type readHeaderDelegate func(types.Hash) (*types.Header, error)
-type readBodyDelegate func(types.Hash) (*types.Body, error)
-type readSnapshotDelegate func(types.Hash) ([]byte, bool)
-type readReceiptsDelegate func(types.Hash) ([]*types.Receipt, error)
-type readTxLookupDelegate func(types.Hash) (types.Hash, bool)
-type closeDelegate func() error
-type newBatchDelegate func() Batch
+	txs := make([]*types.Transaction, count)
 
-type MockStorage struct {
-	readCanonicalHashFn   readCanonicalHashDelegate
-	readHeadHashFn        readHeadHashDelegate
-	readHeadNumberFn      readHeadNumberDelegate
-	readForksFn           readForksDelegate
-	readTotalDifficultyFn readTotalDifficultyDelegate
-	readHeaderFn          readHeaderDelegate
-	readBodyFn            readBodyDelegate
-	readReceiptsFn        readReceiptsDelegate
-	readTxLookupFn        readTxLookupDelegate
-	closeFn               closeDelegate
-	newBatchFn            newBatchDelegate
-}
+	for i := range txs {
+		tx := &types.Transaction{
+			Gas:       types.StateTransactionGasLimit,
+			Nonce:     uint64(startNonce + i),
+			From:      from,
+			To:        to,
+			Value:     big.NewInt(2000),
+			GasFeeCap: big.NewInt(100),
+			GasTipCap: big.NewInt(10),
+		}
 
-func NewMockStorage() *MockStorage {
-	return &MockStorage{}
-}
+		input := make([]byte, 1000)
+		_, err := rand.Read(input)
 
-func (m *MockStorage) ReadCanonicalHash(n uint64) (types.Hash, bool) {
-	if m.readCanonicalHashFn != nil {
-		return m.readCanonicalHashFn(n)
+		require.NoError(t, err)
+
+		tx.ComputeHash(blockNum)
+
+		txs[i] = tx
 	}
 
-	return types.Hash{}, true
+	return txs
 }
 
-func (m *MockStorage) HookReadCanonicalHash(fn readCanonicalHashDelegate) {
-	m.readCanonicalHashFn = fn
-}
+func generateBlock(t *testing.T, num uint64) *types.FullBlock {
+	t.Helper()
 
-func (m *MockStorage) ReadHeadHash() (types.Hash, bool) {
-	if m.readHeadHashFn != nil {
-		return m.readHeadHashFn()
+	transactionsCount := 2500
+	status := types.ReceiptSuccess
+	addr1 := types.StringToAddress("17878aa")
+	addr2 := types.StringToAddress("2bf5653")
+	b := &types.FullBlock{
+		Block: &types.Block{
+			Header: &types.Header{
+				Number:    num,
+				ExtraData: make([]byte, 32),
+				Hash:      types.ZeroHash,
+			},
+			Transactions: generateTxs(t, 0, transactionsCount, addr1, &addr2, num),
+			// Uncles:       blockchain.NewTestHeaders(10),
+		},
+		Receipts: make([]*types.Receipt, transactionsCount),
 	}
 
-	return types.Hash{}, true
-}
+	logs := make([]*types.Log, 10)
 
-func (m *MockStorage) HookReadHeadHash(fn readHeadHashDelegate) {
-	m.readHeadHashFn = fn
-}
-
-func (m *MockStorage) ReadHeadNumber() (uint64, bool) {
-	if m.readHeadNumberFn != nil {
-		return m.readHeadNumberFn()
+	for i := 0; i < 10; i++ {
+		logs[i] = &types.Log{
+			Address: addr1,
+			Topics:  []types.Hash{types.StringToHash("t1"), types.StringToHash("t2"), types.StringToHash("t3")},
+			Data:    []byte{0xaa, 0xbb, 0xcc, 0xdd, 0xbb, 0xaa, 0x01, 0x012},
+		}
 	}
 
-	return 0, true
-}
-
-func (m *MockStorage) HookReadHeadNumber(fn readHeadNumberDelegate) {
-	m.readHeadNumberFn = fn
-}
-
-func (m *MockStorage) ReadForks() ([]types.Hash, error) {
-	if m.readForksFn != nil {
-		return m.readForksFn()
+	for i := 0; i < len(b.Block.Transactions); i++ {
+		b.Receipts[i] = &types.Receipt{
+			TxHash:            b.Block.Transactions[i].Hash,
+			Root:              types.StringToHash("mockhashstring"),
+			TransactionType:   types.LegacyTx,
+			GasUsed:           uint64(100000),
+			Status:            &status,
+			Logs:              logs,
+			CumulativeGasUsed: uint64(100000),
+			ContractAddress:   &types.Address{0xaa, 0xbb, 0xcc, 0xdd, 0xab, 0xac},
+		}
 	}
 
-	return []types.Hash{}, nil
-}
-
-func (m *MockStorage) HookReadForks(fn readForksDelegate) {
-	m.readForksFn = fn
-}
-
-func (m *MockStorage) ReadTotalDifficulty(hash types.Hash) (*big.Int, bool) {
-	if m.readTotalDifficultyFn != nil {
-		return m.readTotalDifficultyFn(hash)
+	for i := 0; i < 5; i++ {
+		b.Receipts[i].LogsBloom = types.CreateBloom(b.Receipts)
 	}
 
-	return big.NewInt(0), true
+	b.Block.Header.ComputeHash()
+
+	return b
 }
 
-func (m *MockStorage) HookReadTotalDifficulty(fn readTotalDifficultyDelegate) {
-	m.readTotalDifficultyFn = fn
-}
+func GenerateBlocks(t *testing.T, count int, ch chan *types.FullBlock, ctx context.Context) {
+	t.Helper()
 
-func (m *MockStorage) ReadHeader(hash types.Hash) (*types.Header, error) {
-	if m.readHeaderFn != nil {
-		return m.readHeaderFn(hash)
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	for i := 1; i <= count; i++ {
+		b := generateBlock(t, uint64(i))
+		select {
+		case <-ctx.Done():
+			close(ch)
+			ticker.Stop()
+
+			return
+		case <-ticker.C:
+			ch <- b
+		}
 	}
-
-	return &types.Header{}, nil
-}
-
-func (m *MockStorage) HookReadHeader(fn readHeaderDelegate) {
-	m.readHeaderFn = fn
-}
-
-func (m *MockStorage) ReadBody(hash types.Hash) (*types.Body, error) {
-	if m.readBodyFn != nil {
-		return m.readBodyFn(hash)
-	}
-
-	return &types.Body{}, nil
-}
-
-func (m *MockStorage) HookReadBody(fn readBodyDelegate) {
-	m.readBodyFn = fn
-}
-
-func (m *MockStorage) ReadReceipts(hash types.Hash) ([]*types.Receipt, error) {
-	if m.readReceiptsFn != nil {
-		return m.readReceiptsFn(hash)
-	}
-
-	return []*types.Receipt{}, nil
-}
-
-func (m *MockStorage) HookReadReceipts(fn readReceiptsDelegate) {
-	m.readReceiptsFn = fn
-}
-
-func (m *MockStorage) ReadTxLookup(hash types.Hash) (types.Hash, bool) {
-	if m.readTxLookupFn != nil {
-		return m.readTxLookupFn(hash)
-	}
-
-	return types.Hash{}, true
-}
-
-func (m *MockStorage) HookReadTxLookup(fn readTxLookupDelegate) {
-	m.readTxLookupFn = fn
-}
-
-func (m *MockStorage) Close() error {
-	if m.closeFn != nil {
-		return m.closeFn()
-	}
-
-	return nil
-}
-
-func (m *MockStorage) HookClose(fn closeDelegate) {
-	m.closeFn = fn
-}
-
-func (m *MockStorage) HookNewBatch(fn newBatchDelegate) {
-	m.newBatchFn = fn
-}
-
-func (m *MockStorage) NewBatch() Batch {
-	if m.newBatchFn != nil {
-		return m.newBatchFn()
-	}
-
-	return nil
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	leveldb2 "github.com/0xPolygon/polygon-edge/blockchain/storage/leveldb"
+	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
 	"github.com/0xPolygon/polygon-edge/command"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -48,7 +48,7 @@ func HistoryTestCmd() *cobra.Command {
 			return
 		}
 
-		st, err := leveldb2.NewLevelDBStorage(chainPath, hclog.NewNullLogger())
+		st, err := pebble.NewPebbleDBStorage(chainPath, hclog.NewNullLogger())
 		if err != nil {
 			outputter.SetError(err)
 
@@ -83,7 +83,14 @@ func HistoryTestCmd() *cobra.Command {
 				return
 			}
 
-			header, err := st.ReadHeader(canonicalHash)
+			bn, err := st.ReadBlockLookup(canonicalHash)
+			if err != nil {
+				outputter.SetError(fmt.Errorf("can't read block lookup %w", err))
+
+				return
+			}
+
+			header, err := st.ReadHeader(bn, canonicalHash)
 			if !ok {
 				outputter.SetError(fmt.Errorf("can't read header %w", err))
 
