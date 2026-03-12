@@ -558,7 +558,6 @@ func TestBlockchainWriteBody(t *testing.T) {
 	newChain := func(
 		t *testing.T,
 		txFromByTxHash map[types.Hash]types.Address,
-		path string,
 	) *Blockchain {
 		t.Helper()
 
@@ -582,6 +581,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 			Value: big.NewInt(10),
 			V:     big.NewInt(1),
 			From:  addr,
+			Type:  types.LegacyTx,
 		}
 
 		block := &types.Block{
@@ -596,9 +596,8 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		txFromByTxHash := map[types.Hash]types.Address{}
 
-		chain := newChain(t, txFromByTxHash, "t1")
+		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
-
 		batchWriter := chain.db.NewWriter()
 
 		assert.NoError(
@@ -614,6 +613,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 		tx := &types.Transaction{
 			Value: big.NewInt(10),
 			V:     big.NewInt(1),
+			Type:  types.LegacyTx,
 		}
 
 		block := &types.Block{
@@ -628,9 +628,8 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		txFromByTxHash := map[types.Hash]types.Address{}
 
-		chain := newChain(t, txFromByTxHash, "t2")
+		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
-
 		batchWriter := chain.db.NewWriter()
 
 		assert.ErrorIs(
@@ -647,6 +646,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 		tx := &types.Transaction{
 			Value: big.NewInt(10),
 			V:     big.NewInt(1),
+			Type:  types.LegacyTx,
 		}
 
 		block := &types.Block{
@@ -663,13 +663,15 @@ func TestBlockchainWriteBody(t *testing.T) {
 			tx.Hash: addr,
 		}
 
-		chain := newChain(t, txFromByTxHash, "t3")
+		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
-
 		batchWriter := chain.db.NewWriter()
+
+		batchWriter.PutBlockLookup(block.Hash(), block.Number())
 		batchWriter.PutHeader(block.Header)
 
 		assert.NoError(t, chain.writeBody(batchWriter, block))
+
 		assert.NoError(t, batchWriter.WriteBatch())
 
 		readBody, ok := chain.readBody(block.Hash())

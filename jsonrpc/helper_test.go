@@ -341,7 +341,7 @@ func TestGetTxAndBlockByTxHash(t *testing.T) {
 					return blockWithTx.Number(), true
 				},
 				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
-					assert.Equal(t, blockWithTx.Hash(), number)
+					assert.Equal(t, blockWithTx.Number(), number)
 					assert.True(t, full)
 
 					return blockWithTx, true
@@ -364,7 +364,7 @@ func TestGetTxAndBlockByTxHash(t *testing.T) {
 			block: nil,
 		},
 		{
-			name:   "should return nil if GetBlockByHash returns nothing",
+			name:   "should return nil if GetBlockByNumber returns nothing",
 			txHash: testTx1.Hash,
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
@@ -391,8 +391,8 @@ func TestGetTxAndBlockByTxHash(t *testing.T) {
 
 					return blockWithTx.Number(), true
 				},
-				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
-					assert.Equal(t, blockWithTx.Hash(), hash)
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					assert.Equal(t, blockWithTx.Number(), number)
 					assert.True(t, full)
 
 					return testBlock10, true
