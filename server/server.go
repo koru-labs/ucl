@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/blockchain/storage"
+	"github.com/0xPolygon/polygon-edge/blockchain/storage/memory"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
@@ -296,9 +298,19 @@ func NewServer(config *Config) (*Server, error) {
 	)
 
 	// create storage instance for blockchain
-	db, err := pebble.NewPebbleDBStorage(filepath.Join(config.DataDir, "blockchain"), logger)
-	if err != nil {
-		return nil, err
+	var db *storage.Storage
+	{
+		if m.config.DataDir == "" {
+			db, err = memory.NewMemoryStorage()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			db, err = pebble.NewPebbleDBStorage(filepath.Join(config.DataDir, "blockchain"), logger)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// blockchain object
