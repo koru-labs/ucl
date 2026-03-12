@@ -90,6 +90,7 @@ func (s *Storage) Close() error {
 
 func (s *Storage) NewWriter() *Writer {
 	var batch [2]Batch
+
 	batch[0] = s.db[0].NewBatch()
 
 	if s.db[1] != nil {

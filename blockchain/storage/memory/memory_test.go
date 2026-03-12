@@ -13,7 +13,6 @@ func TestStorage(t *testing.T) {
 		t.Helper()
 
 		s, err := NewMemoryStorage()
-
 		if err != nil {
 			t.Logf("\t Error opening MemoryDB -> %s", err.Error())
 

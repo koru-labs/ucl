@@ -138,7 +138,6 @@ func (s *Storage) readLookup(t uint8, hash types.Hash) (uint64, error) {
 
 func (s *Storage) readRLP(t uint8, k []byte, raw types.RLPUnmarshaler) error {
 	data, ok, err := s.getDB(t).Get(t, k)
-
 	if err != nil {
 		return err
 	}
@@ -164,7 +163,6 @@ func (s *Storage) readRLP(t uint8, k []byte, raw types.RLPUnmarshaler) error {
 
 func (s *Storage) get(t uint8, k []byte) ([]byte, bool) {
 	data, ok, err := s.getDB(t).Get(t, k)
-
 	if err != nil {
 		return nil, false
 	}

@@ -61,7 +61,7 @@ func RegenesisCMD() *cobra.Command {
 		}
 
 		trieStorage := itrie.NewPebble(trieDB)
-		defer trieStorage.Close()
+		defer trieStorage.Close() //nolint:errcheck
 
 		snapshotDB, err := pebble.Open(
 			params.SnapshotTrieDBPath,
@@ -73,7 +73,7 @@ func RegenesisCMD() *cobra.Command {
 		}
 
 		snapshotStorage := itrie.NewPebble(snapshotDB)
-		defer snapshotStorage.Close()
+		defer snapshotStorage.Close() //nolint:errcheck
 
 		err = itrie.CopyTrie(types.StringToHash(params.TrieRoot).Bytes(), trieStorage, snapshotStorage, nil, false)
 		if err != nil {

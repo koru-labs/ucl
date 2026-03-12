@@ -598,6 +598,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
+
 		batchWriter := chain.db.NewWriter()
 
 		assert.NoError(
@@ -630,6 +631,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
+
 		batchWriter := chain.db.NewWriter()
 
 		assert.ErrorIs(

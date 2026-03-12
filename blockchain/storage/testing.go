@@ -533,6 +533,7 @@ func GenerateBlocks(t *testing.T, count int, ch chan *types.FullBlock, ctx conte
 
 	for i := 1; i <= count; i++ {
 		b := generateBlock(t, uint64(i))
+
 		select {
 		case <-ctx.Done():
 			close(ch)
