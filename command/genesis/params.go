@@ -576,10 +576,9 @@ func (p *genesisParams) validateGenesisBaseFeeConfig() error {
 
 	p.parsedBaseFeeConfig = baseFeeInfo
 
-	// gas price 0
-	// if baseFeeInfo.baseFee == 0 {
-	// 	return errBaseFeeZero
-	// }
+	if baseFeeInfo.baseFee == 0 {
+		return errBaseFeeZero
+	}
 
 	if baseFeeInfo.baseFeeEM == 0 {
 		return errBaseFeeEMZero
