@@ -667,6 +667,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 
 		chain := newChain(t, txFromByTxHash)
 		defer chain.db.Close()
+
 		batchWriter := chain.db.NewWriter()
 
 		batchWriter.PutBlockLookup(block.Hash(), block.Number())
