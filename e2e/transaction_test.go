@@ -287,7 +287,7 @@ func generateStressTestTx(
 ) *types.Transaction {
 	t.Helper()
 
-	bigGasPrice := big.NewInt(framework.DefaultGasPriceDynamic)
+	bigGasPrice := big.NewInt(framework.DefaultGasPrice)
 	signer := crypto.NewSigner(chain.AllForksEnabled.At(0), 100)
 
 	setNameMethod, ok := abis.StressTestABI.Methods["setName"]
@@ -320,7 +320,7 @@ func generateStressTestTx(
 		unsignedTx.GasTipCap = bigGasPrice
 	} else {
 		unsignedTx.Type = types.LegacyTx
-		unsignedTx.GasPrice = big.NewInt(framework.DefaultGasPriceLegacy)
+		unsignedTx.GasPrice = big.NewInt(framework.DefaultGasPrice)
 	}
 
 	signedTx, err := signer.SignTx(unsignedTx, senderKey)

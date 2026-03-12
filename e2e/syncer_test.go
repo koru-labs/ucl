@@ -117,7 +117,7 @@ func TestClusterTxPoolSync(t *testing.T) {
 
 			_, errs[i] = txRelayer.SendTransaction(&ethgo.Transaction{
 				Nonce:    uint64(i),
-				GasPrice: framework.DefaultGasPriceLegacy,
+				GasPrice: framework.DefaultGasPrice,
 				Value:    big.NewInt(int64(i)),
 				Gas:      21000,
 				From:     ethgoSenderKey.Address(),
