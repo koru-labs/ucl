@@ -588,3 +588,20 @@ func (k *EthgoKeyWrapper) Address() ethgo.Address {
 func (k *EthgoKeyWrapper) Sign(hash []byte) ([]byte, error) {
 	return crypto.Sign(k.privateKey, hash)
 }
+
+func WaitUntil(timeout, pollFrequency time.Duration, handler func() bool) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			return fmt.Errorf("timeout")
+		case <-time.After(pollFrequency):
+		}
+
+		if handler() {
+			return nil
+		}
+	}
+}
