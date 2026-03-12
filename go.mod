@@ -9,6 +9,7 @@ require (
 	github.com/Ethernal-Tech/kryptology v0.0.0-20260305071036-ea3a474a28e2
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6
+	github.com/cockroachdb/pebble v1.1.5
 	github.com/consensys/gnark-crypto v0.19.2
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.6.0
@@ -98,7 +99,6 @@ require (
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
-	github.com/cockroachdb/pebble v1.1.5 // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/containerd/continuity v0.4.3 // indirect
