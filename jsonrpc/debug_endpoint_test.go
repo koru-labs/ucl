@@ -453,19 +453,19 @@ func TestTraceTransaction(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
-					assert.Equal(t, testTxHash1, hash)
+					require.Equal(t, testTxHash1, hash)
 
 					return testBlock10.Number(), true
 				},
 				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
-					assert.Equal(t, testBlock10.Hash(), number)
-					assert.True(t, full)
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
 
 					return blockWithTx, true
 				},
 				traceTxnFn: func(block *types.Block, txHash types.Hash, tracer tracer.Tracer) (interface{}, error) {
-					assert.Equal(t, blockWithTx, block)
-					assert.Equal(t, testTxHash1, txHash)
+					require.Equal(t, blockWithTx, block)
+					require.Equal(t, testTxHash1, txHash)
 
 					return testTraceResult, nil
 				},
@@ -479,7 +479,7 @@ func TestTraceTransaction(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
-					assert.Equal(t, testTxHash1, hash)
+					require.Equal(t, testTxHash1, hash)
 
 					return 0, false
 				},
@@ -493,13 +493,13 @@ func TestTraceTransaction(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
-					assert.Equal(t, testTxHash1, hash)
+					require.Equal(t, testTxHash1, hash)
 
 					return testBlock10.Number(), true
 				},
-				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
-					assert.Equal(t, testBlock10.Hash(), hash)
-					assert.True(t, full)
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
 
 					return nil, false
 				},
@@ -513,13 +513,13 @@ func TestTraceTransaction(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
-					assert.Equal(t, testTxHash1, hash)
+					require.Equal(t, testTxHash1, hash)
 
 					return testBlock10.Number(), true
 				},
 				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
-					assert.Equal(t, testBlock10.Number(), number)
-					assert.True(t, full)
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
 
 					return testBlock10, true
 				},
@@ -533,13 +533,13 @@ func TestTraceTransaction(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
-					assert.Equal(t, testTxHash1, hash)
+					require.Equal(t, testTxHash1, hash)
 
 					return testBlock10.Number(), true
 				},
 				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
-					assert.Equal(t, testBlock10.Number(), number)
-					assert.True(t, full)
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
 
 					return &types.Block{
 						Header: testGenesisHeader,
@@ -561,15 +561,14 @@ func TestTraceTransaction(t *testing.T) {
 			t.Parallel()
 
 			endpoint := NewDebug(test.store, 100000)
-
 			res, err := endpoint.TraceTransaction(test.txHash, test.config)
 
-			assert.Equal(t, test.result, res)
+			require.Equal(t, test.result, res)
 
 			if test.err {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
