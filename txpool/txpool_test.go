@@ -3957,21 +3957,34 @@ func TestAddTxsInOrder(t *testing.T) {
 func TestResetWithBlock(t *testing.T) {
 	t.Parallel()
 
-	t.Run("removes mined transactions from pool and resets account nonces", func(t *testing.T) {
-		t.Parallel()
+	const baseFee = uint64(100)
 
-		store := defaultMockStore{
-			DefaultHeader: &types.Header{GasLimit: 4712388},
-			nonce:         0,
-			calculateBaseFeeFn: func(h *types.Header) uint64 {
-				return h.BaseFee
-			},
-		}
+	store := defaultMockStore{
+		DefaultHeader: &types.Header{GasLimit: 4712388},
+		calculateBaseFeeFn: func(h *types.Header) uint64 {
+			return h.BaseFee
+		},
+	}
 
+	header := &types.Header{BaseFee: baseFee, Hash: types.Hash{1}}
+
+	initPool := (func() *TxPool {
 		pool, err := newTestPool(store)
 		require.NoError(t, err)
 
+		pool.store = store
 		pool.SetSigner(&mockSigner{})
+
+		return pool
+	})
+
+	t.Run("removes mined transactions from pool and resets account nonces", func(t *testing.T) {
+		t.Parallel()
+		t.Cleanup(func() {
+			store.nonce = 0
+		})
+
+		pool := initPool()
 
 		tx0 := newTx(addr1, 0, 1)
 		tx1 := newTx(addr1, 1, 1)
@@ -3997,16 +4010,14 @@ func TestResetWithBlock(t *testing.T) {
 		_, exists = pool.index.get(tx2.Hash)
 		assert.True(t, exists)
 
-		// simulate post-block state: store now returns nonce 3
-		store.nonce = 3
-		pool.store = store
-
 		block := &types.Block{
-			Header:       &types.Header{BaseFee: 100, Hash: types.Hash{0xAA}},
+			Header:       header,
 			Transactions: []*types.Transaction{tx0, tx1, tx2},
 		}
 
 		pool.ResetWithBlock(block)
+		assert.Equal(t, baseFee, pool.GetBaseFee(),
+			"base fee should be updated from the block header")
 
 		_, exists = pool.index.get(tx0.Hash)
 		assert.False(t, exists, "mined tx0 should be removed from index")
@@ -4017,25 +4028,15 @@ func TestResetWithBlock(t *testing.T) {
 
 		assert.Equal(t, uint64(3), account.getNonce(),
 			"account nonce should be updated to post-block state nonce")
-		assert.Equal(t, uint64(100), pool.GetBaseFee(),
-			"base fee should be updated from the block header")
 	})
 
 	t.Run("handles multiple accounts in one block", func(t *testing.T) {
 		t.Parallel()
+		t.Cleanup(func() {
+			store.nonce = 0
+		})
 
-		store := defaultMockStore{
-			DefaultHeader: &types.Header{GasLimit: 4712388},
-			nonce:         0,
-			calculateBaseFeeFn: func(h *types.Header) uint64 {
-				return h.BaseFee
-			},
-		}
-
-		pool, err := newTestPool(store)
-		require.NoError(t, err)
-
-		pool.SetSigner(&mockSigner{})
+		pool := initPool()
 
 		txA := newTx(addr1, 0, 1)
 		txB := newTx(addr2, 0, 1)
@@ -4051,16 +4052,14 @@ func TestResetWithBlock(t *testing.T) {
 		_, exists = pool.index.get(txB.Hash)
 		assert.True(t, exists)
 
-		// simulate post-block state: store now returns nonce 1
-		store.nonce = 1
-		pool.store = store
-
 		block := &types.Block{
-			Header:       &types.Header{BaseFee: 300, Hash: types.Hash{0xBB}},
+			Header:       header,
 			Transactions: []*types.Transaction{txA, txB},
 		}
 
 		pool.ResetWithBlock(block)
+		assert.Equal(t, baseFee, pool.GetBaseFee(),
+			"base fee should be updated from the block header")
 
 		_, exists = pool.index.get(txA.Hash)
 		assert.False(t, exists, "addr1 mined tx should be removed")
@@ -4076,12 +4075,11 @@ func TestResetWithBlock(t *testing.T) {
 
 	t.Run("empty block only updates base fee", func(t *testing.T) {
 		t.Parallel()
+		t.Cleanup(func() {
+			store.nonce = 0
+		})
 
-		store := NewDefaultMockStore(&types.Header{GasLimit: 4712388})
-		pool, err := newTestPool(store)
-		require.NoError(t, err)
-
-		pool.SetSigner(&mockSigner{})
+		pool := initPool()
 
 		tx := newTx(addr1, 0, 1)
 		require.NoError(t, pool.addTx(local, tx))
@@ -4091,12 +4089,13 @@ func TestResetWithBlock(t *testing.T) {
 		assert.True(t, exists)
 
 		pool.ResetWithBlock(&types.Block{
-			Header: &types.Header{BaseFee: 750, Hash: types.Hash{0xCC}},
+			Header: header,
 		})
+		assert.Equal(t, baseFee, pool.GetBaseFee(),
+			"base fee should be updated from the block header")
 
 		_, exists = pool.index.get(tx.Hash)
 		assert.True(t, exists, "tx should remain when block has no transactions")
-		assert.Equal(t, uint64(750), pool.GetBaseFee())
 	})
 }
 

@@ -320,7 +320,7 @@ func generateStressTestTx(
 		unsignedTx.GasTipCap = bigGasPrice
 	} else {
 		unsignedTx.Type = types.LegacyTx
-		unsignedTx.GasPrice = big.NewInt(framework.DefaultGasPriceLegacy) // 0 gas price for legacy
+		unsignedTx.GasPrice = big.NewInt(framework.DefaultGasPriceLegacy)
 	}
 
 	signedTx, err := signer.SignTx(unsignedTx, senderKey)

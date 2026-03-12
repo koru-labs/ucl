@@ -571,9 +571,9 @@ func (t *TestServer) DeployContract(
 }
 
 const (
-	DefaultGasPriceLegacy  = 0       // 0 for legacy
-	DefaultGasPriceDynamic = 10e9    // 0x2540BE400
-	DefaultGasLimit        = 5242880 // 0x500000
+	DefaultGasPriceDynamic = 10e9     // 0x2540BE400
+	DefaultGasPriceLegacy  = 2 * 10e9 // different price than dynamic tx for testing
+	DefaultGasLimit        = 5242880  // 0x500000
 )
 
 type PreparedTransaction struct {
