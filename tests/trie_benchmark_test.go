@@ -385,7 +385,7 @@ func getHeader(b *testing.B) *types.Header {
 }
 
 func getConstants() (*chain.Forks, *big.Int, chain.ForksInTime, types.Address, []byte) {
-	forks, _ := Forks["London"]
+	forks, _ := Forks["Istanbul"]
 	baseFee := big.NewInt(0x01)
 
 	currentForks := chain.ForksInTime{
