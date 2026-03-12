@@ -23,13 +23,16 @@ type txData struct {
 }
 
 func TestE2E_Storage(t *testing.T) {
+	priceLimit := uint64(1)
 	senderKey, senderAddress := tests.GenerateKeyAndAddr(t)
 
 	server := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
 		config.SetConsensus(framework.ConsensusDev)
 		config.SetBlockLimit(2.5 * 21000)
 		config.SetDevInterval(2)
+		config.SetPriceLimit(&priceLimit)
 		config.Premine(senderAddress, framework.EthToWei(100))
+		config.SetBaseFee(1)
 	})[0]
 
 	client := server.JSONRPC()
@@ -120,7 +123,7 @@ func checkStorage(t *testing.T, txs []*txData, client *jsonrpc.Client) {
 		bt, err := client.Eth().GetTransactionByHash(td.hash)
 		require.NoError(t, err)
 		assert.NotNil(t, bt)
-		assert.Equal(t, td.tx.Value, bt.Value)
+		assert.Equal(t, td.tx.Value.Uint64(), bt.Value.Uint64())
 		assert.Equal(t, td.tx.Gas, bt.Gas)
 		assert.Equal(t, td.tx.Nonce, bt.Nonce)
 
@@ -132,8 +135,8 @@ func checkStorage(t *testing.T, txs []*txData, client *jsonrpc.Client) {
 		assert.Equal(t, td.tx.To.Bytes(), bt.To.Bytes())
 
 		if td.index%2 == 0 {
-			assert.Equal(t, types.DynamicFeeTx, bt.Type)
-			assert.Nil(t, bt.GasPrice) // dynamic txs don't have gasPrice set
+			assert.EqualValues(t, types.DynamicFeeTx, bt.Type)
+			assert.EqualValues(t, 0, bt.GasPrice) // dynamic txs don't have gasPrice set
 			assert.NotNil(t, bt.MaxPriorityFeePerGas)
 			assert.NotNil(t, bt.MaxFeePerGas)
 			assert.NotNil(t, bt.ChainID)
@@ -142,10 +145,10 @@ func checkStorage(t *testing.T, txs []*txData, client *jsonrpc.Client) {
 		}
 
 		assert.Equal(t, bt.TxnIndex, receipt.TransactionIndex)
-		assert.Equal(t, bt.Hash, types.Hash(receipt.TransactionHash))
-		assert.Equal(t, bt.BlockHash, types.Hash(receipt.BlockHash))
+		assert.Equal(t, bt.Hash, receipt.TransactionHash)
+		assert.Equal(t, bt.BlockHash, receipt.BlockHash)
 		assert.Equal(t, bt.BlockNumber, receipt.BlockNumber)
 		assert.NotEmpty(t, receipt.LogsBloom)
-		assert.Equal(t, bt.To, (*types.Address)(receipt.To))
+		assert.Equal(t, bt.To, receipt.To)
 	}
 }
