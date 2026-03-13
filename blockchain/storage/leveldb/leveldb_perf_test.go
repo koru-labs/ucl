@@ -32,7 +32,8 @@ func openStorage(b *testing.B, p string) (*storage.Storage, func(), string) {
 func Benchmark(b *testing.B) {
 	b.StopTimer()
 
-	s, cleanUpFn, path := openStorage(b, "/tmp/leveldbV2-test-perf")
+	s, cleanUpFn, path := openStorage(b, "/tmp/leveldb-test-perf")
+
 	defer func() {
 		s.Close()
 		cleanUpFn()

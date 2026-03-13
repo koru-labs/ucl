@@ -22,7 +22,7 @@ import (
 func newStorage(t *testing.T) (*storage.Storage, func(), string) {
 	t.Helper()
 
-	path, err := os.MkdirTemp("", "leveldbV2")
+	path, err := os.MkdirTemp("", "leveldb")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +144,7 @@ func TestStorage(t *testing.T) {
 
 func TestWriteReadFullBlockInParallel(t *testing.T) {
 	s, cleanUpFn, path := newStorage(t)
+
 	defer func() {
 		s.Close()
 		cleanUpFn()
