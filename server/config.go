@@ -43,6 +43,12 @@ type Config struct {
 
 	LogFilePath string
 
+	UseTLS bool
+
+	TLSCertFile string
+
+	TLSKeyFile string
+
 	Relayer bool
 
 	NumBlockConfirmations uint64

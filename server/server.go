@@ -870,6 +870,9 @@ func (s *Server) setupJSONRPC() error {
 		BlockRangeLimit:          s.config.JSONRPC.BlockRangeLimit,
 		ConcurrentRequestsDebug:  s.config.JSONRPC.ConcurrentRequestsDebug,
 		WebSocketReadLimit:       s.config.JSONRPC.WebSocketReadLimit,
+		UseTLS:                   s.config.UseTLS,
+		TLSCertFile:              s.config.TLSCertFile,
+		TLSKeyFile:               s.config.TLSKeyFile,
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)
