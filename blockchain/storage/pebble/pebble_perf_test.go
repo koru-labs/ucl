@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
-	storagev2 "github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +39,7 @@ func Benchmark(b *testing.B) {
 	}()
 
 	blockCount := 1000
-	storagev2.BenchmarkStorage(b, blockCount, s, 42, 25) // CI times
+	storage.BenchmarkStorage(b, blockCount, s, 42, 25) // CI times
 
 	size, err := dbSize(path)
 	require.NoError(b, err)
