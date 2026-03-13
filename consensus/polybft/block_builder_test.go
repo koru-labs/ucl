@@ -29,10 +29,13 @@ func TestBlockBuilder_BuildBlockTxOneFailedTxAndOneTakesTooMuchGas(t *testing.T)
 		chainID       = 100
 	)
 
-	accounts := [6]*wallet.Account{}
+	accounts := make([]*wallet.Account, 0, 6)
 
-	for i := range accounts {
-		accounts[i] = generateTestAccount(t)
+	for i := 0; i < cap(accounts); i++ {
+		acc, err := wallet.GenerateAccount()
+		require.NoError(t, err)
+
+		accounts = append(accounts, acc)
 	}
 
 	forks := &chain.Forks{}
@@ -60,9 +63,7 @@ func TestBlockBuilder_BuildBlockTxOneFailedTxAndOneTakesTooMuchGas(t *testing.T)
 	for i, acc := range accounts {
 		// the third tx will fail because of insufficient balance
 		if i != 2 {
-			balanceMap[types.Address(acc.Ecdsa.Address())] = &chain.GenesisAccount{
-				Balance: ethgo.Ether(1),
-			}
+			balanceMap[acc.Address()] = &chain.GenesisAccount{Balance: ethgo.Ether(1)}
 		}
 	}
 
@@ -72,29 +73,30 @@ func TestBlockBuilder_BuildBlockTxOneFailedTxAndOneTakesTooMuchGas(t *testing.T)
 	require.NotEqual(t, types.ZeroHash, hash)
 
 	// Gas Limit is important to be high for tx pool
-	parentHeader := &types.Header{StateRoot: hash, GasLimit: 1_000_000_000_000_000}
+	parentHeader := &types.Header{StateRoot: hash, GasLimit: 1e15}
 
 	txPool := &txPoolMock{}
 	txPool.On("Prepare").Once()
 
 	for i, acc := range accounts {
-		receiver := types.Address(acc.Ecdsa.Address())
-		privateKey, err := acc.GetEcdsaPrivateKey()
+		gas := uint64(gasLimit)
+		// fifth tx will cause filling to stop
+		if i == 4 {
+			gas = blockGasLimit - 1
+		}
 
-		require.NoError(t, err)
+		recipient := acc.Address()
 
 		tx := &types.Transaction{
 			Value:    big.NewInt(amount),
 			GasPrice: big.NewInt(gasPrice),
-			Gas:      gasLimit,
+			Gas:      gas,
 			Nonce:    0,
-			To:       &receiver,
+			To:       &recipient,
 		}
 
-		// fifth tx will cause filling to stop
-		if i == 4 {
-			tx.Gas = blockGasLimit - 1
-		}
+		privateKey, err := acc.GetEcdsaPrivateKey()
+		require.NoError(t, err)
 
 		tx, err = signer.SignTx(tx, privateKey)
 		require.NoError(t, err)
@@ -113,7 +115,7 @@ func TestBlockBuilder_BuildBlockTxOneFailedTxAndOneTakesTooMuchGas(t *testing.T)
 	}
 
 	bb := NewBlockBuilder(&BlockBuilderParams{
-		BlockTime: time.Millisecond * 100,
+		BlockTime: time.Millisecond * 200,
 		Parent:    parentHeader,
 		Coinbase:  types.ZeroAddress,
 		Executor:  executor,
@@ -146,15 +148,17 @@ func TestBlockBuilder_BuildBlockTxOneFailedTxAndOneTakesTooMuchGas(t *testing.T)
 	require.Len(t, bb.txns, 3, "Should have 3 transactions but has %d", len(bb.txns))
 	require.Len(t, bb.Receipts(), 3)
 
+	logsBloom := fb.Block.Header.LogsBloom
+
 	// assert logs bloom
 	for _, r := range bb.Receipts() {
 		for _, l := range r.Logs {
-			assert.True(t, fb.Block.Header.LogsBloom.IsLogInBloom(l))
+			assert.True(t, logsBloom.IsLogInBloom(l))
 		}
 	}
 
-	assert.False(t, fb.Block.Header.LogsBloom.IsLogInBloom(
+	assert.False(t, logsBloom.IsLogInBloom(
 		&types.Log{Address: types.StringToAddress("999911117777")}))
-	assert.False(t, fb.Block.Header.LogsBloom.IsLogInBloom(
+	assert.False(t, logsBloom.IsLogInBloom(
 		&types.Log{Address: types.StringToAddress("111177779999")}))
 }

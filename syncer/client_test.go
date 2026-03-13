@@ -211,6 +211,7 @@ func TestStatusPubSub(t *testing.T) {
 
 	assert.NoError(t, err)
 
+	time.Sleep(3 * time.Second)
 	// close channel and wait for events
 	close(client.closeCh)
 
@@ -238,7 +239,6 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 		clientSrv = newTestNetwork(t)
 		peerSrv1  = newTestNetwork(t)
 		peerSrv2  = newTestNetwork(t)
-		peerSrv3  = newTestNetwork(t) // to wait for gossipped message
 
 		// latest block height
 		peerLatest1 = uint64(10)
@@ -266,9 +266,8 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 		clientSrv.Close()
 		peerSrv1.Close()
 		peerSrv2.Close()
-		peerSrv3.Close()
 
-		// no need to call Close of Client because test closes it manually
+		client.Close()
 		peerClient1.Close()
 		peerClient2.Close()
 	})
@@ -281,8 +280,6 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 		peerSrv1,
 		peerSrv1,
 		peerSrv2,
-		peerSrv2,
-		peerSrv3,
 	)
 
 	assert.NoError(t, err)
@@ -292,23 +289,8 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 	assert.NoError(t, peerClient1.startGossip())
 	assert.NoError(t, peerClient2.startGossip())
 
-	// create topic
-	topic, err := peerSrv3.NewTopic(statusTopicName, &proto.SyncPeerStatus{})
-	assert.NoError(t, err)
-
-	var wgForGossip sync.WaitGroup
-
-	// 2 messages should be gossipped
-	wgForGossip.Add(2)
-
-	handler := func(_ interface{}, _ peer.ID) {
-		wgForGossip.Done()
-	}
-
-	assert.NoError(t, topic.Subscribe(handler))
-
-	// need to wait for a few seconds to propagate subscribing
-	time.Sleep(2 * time.Second)
+	// need to wait a little bit for init
+	time.Sleep(time.Second)
 
 	// enable peers to send own status via gossip
 	peerClient1.EnablePublishingPeerStatus()
@@ -320,18 +302,15 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 
 	// collect peer status changes
 	var (
-		wgForConnectingStatus sync.WaitGroup
-		newStatuses           []*NoForkPeer
+		newStatuses []*NoForkPeer
+		doneCh      = make(chan struct{})
 	)
 
-	wgForConnectingStatus.Add(1)
-
 	go func() {
-		defer wgForConnectingStatus.Done()
+		status := <-client.GetPeerStatusUpdateCh()
+		newStatuses = append(newStatuses, status)
 
-		for status := range client.GetPeerStatusUpdateCh() {
-			newStatuses = append(newStatuses, status)
-		}
+		doneCh <- struct{}{}
 	}()
 
 	// push latest block number to blockchain subscription
@@ -345,19 +324,22 @@ func TestPeerConnectionUpdateEventCh(t *testing.T) {
 		})
 	}
 
-	// peer1 and peer2 emit Blockchain event
+	// peer2 and peer1 emit Blockchain event
 	// they should publish their status via gossip
-	pushSubscription(subscription1, peerLatest1)
+	// 1st publish peer2 and wait a little bit for peer1
 	pushSubscription(subscription2, peerLatest2)
-
-	// wait until 2 messages are propagated
-	wgForGossip.Wait()
-
-	// close to terminate goroutine
-	client.Close()
+	time.Sleep(time.Second)
+	pushSubscription(subscription1, peerLatest1)
 
 	// wait until collecting routine is done
-	wgForConnectingStatus.Wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("Peer status update not received before timeout.")
+	case <-doneCh:
+	}
 
 	// client connects to only peer1, then expects to have a status from peer1
 	expected := []*NoForkPeer{
