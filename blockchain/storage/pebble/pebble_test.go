@@ -1,4 +1,4 @@
-package leveldb
+package pebble
 
 import (
 	"context"
@@ -16,18 +16,17 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 func newStorage(t *testing.T) (*storage.Storage, func(), string) {
 	t.Helper()
 
-	path, err := os.MkdirTemp("", "leveldb")
+	path, err := os.MkdirTemp("", "pebbledbV2")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	s, err := NewLevelDBStorage(path, hclog.NewNullLogger())
+	s, err := NewPebbleDBStorage(path, hclog.NewNullLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,8 +44,8 @@ func newStorage(t *testing.T) (*storage.Storage, func(), string) {
 	return s, closeFn, path
 }
 
-func countLdbFilesInPath(path string) int {
-	pattern := filepath.Join(path, "*.ldb")
+func countSstFilesInPath(path string) int {
+	pattern := filepath.Join(path, "*.sst")
 
 	files, err := filepath.Glob(pattern)
 	if err != nil {
@@ -64,7 +63,7 @@ func dbSize(path string) (int64, error) {
 			return err
 		}
 
-		if info != nil && !info.IsDir() && strings.Contains(info.Name(), ".ldb") {
+		if info != nil && !info.IsDir() && strings.Contains(info.Name(), ".sst") {
 			size += info.Size()
 		}
 
@@ -186,7 +185,7 @@ insertloop:
 
 	size, err := dbSize(path)
 	require.NoError(t, err)
-	t.Logf("\tldb file count: %d", countLdbFilesInPath(path))
-	t.Logf("\tdb size %d MBs", size/(1*opt.MiB))
+	t.Logf("\tsst file count: %d", countSstFilesInPath(path))
+	t.Logf("\tdb size %d MBs", size/(1024*1024))
 	wg.Wait()
 }

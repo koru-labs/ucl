@@ -3,29 +3,35 @@ package memory
 import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
-	"github.com/hashicorp/go-hclog"
 )
 
-// NewMemoryStorage creates the new storage reference with inmemory
-func NewMemoryStorage(logger hclog.Logger) (storage.Storage, error) {
-	db := &memoryKV{map[string][]byte{}}
-
-	return storage.NewKeyValueStorage(logger, db), nil
-}
-
-// memoryKV is an in memory implementation of the kv storage
 type memoryKV struct {
-	db map[string][]byte
+	kv map[string][]byte
+}
+type memoryDB struct {
+	db []memoryKV
 }
 
-func (m *memoryKV) Set(p []byte, v []byte) error {
-	m.db[hex.EncodeToHex(p)] = v
+// NewMemoryStorage creates the new storage reference with inmemory
+func NewMemoryStorage() (*storage.Storage, error) {
+	var ldbs [2]storage.Database
 
-	return nil
+	kvs := []memoryKV{}
+
+	for i := 0; uint8(i) < storage.MAX_TABLES; i++ {
+		kvs = append(kvs, memoryKV{kv: map[string][]byte{}})
+	}
+
+	db := &memoryDB{db: kvs}
+
+	ldbs[0] = db
+	ldbs[1] = nil
+
+	return storage.Open(nil, ldbs)
 }
 
-func (m *memoryKV) Get(p []byte) ([]byte, bool, error) {
-	v, ok := m.db[hex.EncodeToHex(p)]
+func (m *memoryDB) Get(t uint8, k []byte) ([]byte, bool, error) {
+	v, ok := m.db[t].kv[hex.EncodeToHex(k)]
 	if !ok {
 		return nil, false, nil
 	}
@@ -33,10 +39,10 @@ func (m *memoryKV) Get(p []byte) ([]byte, bool, error) {
 	return v, true, nil
 }
 
-func (m *memoryKV) Close() error {
+func (m *memoryDB) Close() error {
 	return nil
 }
 
-func (m *memoryKV) NewBatch() storage.Batch {
-	return NewBatchMemory(m.db)
+func (m *memoryDB) NewBatch() storage.Batch {
+	return newBatchMemory(m.db)
 }

@@ -7,9 +7,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/command"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/cockroachdb/pebble"
 	"github.com/spf13/cobra"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 /*
@@ -54,25 +53,29 @@ func RegenesisCMD() *cobra.Command {
 	}
 
 	genesisCmd.Run = func(cmd *cobra.Command, args []string) {
-		trieDB, err := leveldb.OpenFile(params.TrieDBPath, &opt.Options{ReadOnly: true})
+		trieDB, err := pebble.Open(params.TrieDBPath, &pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: true})
 		if err != nil {
 			outputter.SetError(fmt.Errorf("open trie trieDB error:%w", err))
 
 			return
 		}
-		defer trieDB.Close() //nolint:errcheck
 
-		snapshotDB, err := leveldb.OpenFile(params.SnapshotTrieDBPath, nil)
+		trieStorage := itrie.NewPebble(trieDB)
+		defer trieStorage.Close() //nolint:errcheck
+
+		snapshotDB, err := pebble.Open(
+			params.SnapshotTrieDBPath,
+			&pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: false})
 		if err != nil {
-			outputter.SetError(fmt.Errorf("open snapshotDB error:%w", err))
+			outputter.SetError(fmt.Errorf("open trie trieDB error:%w", err))
 
 			return
 		}
-		defer snapshotDB.Close() //nolint:errcheck
 
-		snapshotStorage := itrie.NewKV(snapshotDB)
+		snapshotStorage := itrie.NewPebble(snapshotDB)
+		defer snapshotStorage.Close() //nolint:errcheck
 
-		err = itrie.CopyTrie(types.StringToHash(params.TrieRoot).Bytes(), itrie.NewKV(trieDB), snapshotStorage, nil, false)
+		err = itrie.CopyTrie(types.StringToHash(params.TrieRoot).Bytes(), trieStorage, snapshotStorage, nil, false)
 		if err != nil {
 			outputter.SetError(fmt.Errorf("copy trie error:%w", err))
 

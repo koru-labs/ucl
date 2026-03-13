@@ -217,3 +217,7 @@ func (t *TestServerConfig) SetLogsDir(dir string) {
 func (t *TestServerConfig) SetName(name string) {
 	t.Name = name
 }
+
+func (t *TestServerConfig) SetBaseFee(baseFee uint64) {
+	t.BaseFee = baseFee
+}

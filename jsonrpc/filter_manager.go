@@ -300,7 +300,7 @@ type filterManagerStore interface {
 	SubscribeEvents() blockchain.Subscription
 
 	// GetReceiptsByHash returns the receipts for a block hash
-	GetReceiptsByHash(hash types.Hash) ([]*types.Receipt, error)
+	GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error)
 
 	// GetBlockByHash returns the block using the block hash
 	GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool)
@@ -486,7 +486,7 @@ func (f *FilterManager) Exists(id string) bool {
 }
 
 func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([]*Log, error) {
-	receipts, err := f.store.GetReceiptsByHash(block.Header.Hash)
+	receipts, err := f.store.GetReceiptsByHash(block.Number(), block.Header.Hash)
 	if err != nil {
 		return nil, err
 	}
@@ -774,7 +774,7 @@ func (f *FilterManager) processBlockEvent(evnt *blockchain.Event) {
 
 // appendLogsToFilters makes each LogFilters append logs in the header
 func (f *FilterManager) appendLogsToFilters(header *block) error {
-	receipts, err := f.store.GetReceiptsByHash(header.Hash)
+	receipts, err := f.store.GetReceiptsByHash(uint64(header.Number), header.Hash)
 	if err != nil {
 		return err
 	}

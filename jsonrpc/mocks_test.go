@@ -136,7 +136,7 @@ func (m *mockStore) Header() *types.Header {
 	return m.header
 }
 
-func (m *mockStore) GetReceiptsByHash(hash types.Hash) ([]*types.Receipt, error) {
+func (m *mockStore) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
 	m.receiptsLock.Lock()
 	defer m.receiptsLock.Unlock()
 

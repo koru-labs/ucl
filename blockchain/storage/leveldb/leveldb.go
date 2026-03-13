@@ -1,71 +1,67 @@
 package leveldb
 
 import (
-	"fmt"
-
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-const (
-	DefaultCache   = int(256)
-	DefaultHandles = int(256)
-)
+// levelDB is the leveldb implementation of the kv storage
+type levelDB struct {
+	db *leveldb.DB
+}
 
-// Factory creates a leveldb storage
-func Factory(config map[string]interface{}, logger hclog.Logger) (storage.Storage, error) {
-	path, ok := config["path"]
-	if !ok {
-		return nil, fmt.Errorf("path not found")
-	}
-
-	pathStr, ok := path.(string)
-	if !ok {
-		return nil, fmt.Errorf("path is not a string")
-	}
-
-	return NewLevelDBStorage(pathStr, logger)
+var tableMapper = map[uint8][]byte{
+	storage.BODY:         []byte("b"), // DB key = block number + block hash + mapper, value = block body
+	storage.DIFFICULTY:   []byte("d"), // DB key = block number + block hash + mapper, value = block total diffculty
+	storage.HEADER:       []byte("h"), // DB key = block number + block hash + mapper, value = block header
+	storage.RECEIPTS:     []byte("r"), // DB key = block number + block hash + mapper, value = block receipts
+	storage.CANONICAL:    {},          // DB key = block number + mapper, value = block hash
+	storage.FORK:         {},          // DB key = FORK_KEY + mapper, value = fork hashes
+	storage.HEAD_HASH:    {},          // DB key = HEAD_HASH_KEY + mapper, value = head hash
+	storage.HEAD_NUMBER:  {},          // DB key = HEAD_NUMBER_KEY + mapper, value = head number
+	storage.BLOCK_LOOKUP: {},          // DB key = block hash + mapper, value = block number
+	storage.TX_LOOKUP:    {},          // DB key = tx hash + mapper, value = block number
 }
 
 // NewLevelDBStorage creates the new storage reference with leveldb default options
-func NewLevelDBStorage(path string, logger hclog.Logger) (storage.Storage, error) {
+func NewLevelDBStorage(path string, logger hclog.Logger) (*storage.Storage, error) {
+	var ldbs [2]storage.Database
+
+	// Open LevelDB storage
 	// Set default options
 	options := &opt.Options{
-		OpenFilesCacheCapacity: DefaultHandles,
-		BlockCacheCapacity:     DefaultCache / 2 * opt.MiB,
-		WriteBuffer:            DefaultCache / 4 * opt.MiB, // Two of these are used internally
+		BlockCacheCapacity: 64 * opt.MiB,
+		WriteBuffer:        128 * opt.MiB, // Two of these are used internally
 	}
 
-	return NewLevelDBStorageWithOpt(path, logger, options)
-}
-
-// NewLevelDBStorageWithOpt creates the new storage reference with leveldb with custom options
-func NewLevelDBStorageWithOpt(path string, logger hclog.Logger, opts *opt.Options) (storage.Storage, error) {
-	db, err := leveldb.OpenFile(path, opts)
+	maindb, err := openLevelDBStorage(path, options)
 	if err != nil {
 		return nil, err
 	}
 
-	kv := &levelDBKV{db}
+	ldbs[0] = &levelDB{maindb}
+	ldbs[1] = nil
 
-	return storage.NewKeyValueStorage(logger.Named("leveldb"), kv), nil
+	return storage.Open(logger.Named("leveldb"), ldbs)
 }
 
-// levelDBKV is the leveldb implementation of the kv storage
-type levelDBKV struct {
-	db *leveldb.DB
-}
+func openLevelDBStorage(path string, options *opt.Options) (*leveldb.DB, error) {
+	db, err := leveldb.OpenFile(path, options)
+	if err != nil {
+		return nil, err
+	}
 
-// Set sets the key-value pair in leveldb storage
-func (l *levelDBKV) Set(p []byte, v []byte) error {
-	return l.db.Put(p, v, nil)
+	return db, nil
 }
 
 // Get retrieves the key-value pair in leveldb storage
-func (l *levelDBKV) Get(p []byte) ([]byte, bool, error) {
-	data, err := l.db.Get(p, nil)
+func (l *levelDB) Get(t uint8, k []byte) ([]byte, bool, error) {
+	mc := tableMapper[t]
+	k = append(k, mc...)
+
+	data, err := l.db.Get(k, nil)
 	if err != nil {
 		if err.Error() == "leveldb: not found" {
 			return nil, false, nil
@@ -78,10 +74,11 @@ func (l *levelDBKV) Get(p []byte) ([]byte, bool, error) {
 }
 
 // Close closes the leveldb storage instance
-func (l *levelDBKV) Close() error {
+func (l *levelDB) Close() error {
 	return l.db.Close()
 }
 
-func (l *levelDBKV) NewBatch() storage.Batch {
-	return NewBatchLevelDB(l.db)
+// NewBatch creates batch for database write operations
+func (l *levelDB) NewBatch() storage.Batch {
+	return newBatchLevelDB(l.db)
 }
