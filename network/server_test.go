@@ -699,8 +699,6 @@ func TestRunDial(t *testing.T) {
 }
 
 func TestSubscribe(t *testing.T) {
-	t.Parallel()
-
 	setupServer := func(t *testing.T, shouldCloseAfterTest bool) *Server {
 		t.Helper()
 
@@ -765,8 +763,6 @@ func TestSubscribe(t *testing.T) {
 	}
 
 	t.Run("should call callback", func(t *testing.T) {
-		t.Parallel()
-
 		server := setupServer(t, true)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -786,8 +782,6 @@ func TestSubscribe(t *testing.T) {
 	})
 
 	t.Run("should not call callback after context is closed", func(t *testing.T) {
-		t.Parallel()
-
 		server := setupServer(t, true)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -797,6 +791,12 @@ func TestSubscribe(t *testing.T) {
 		// cancel before emitting
 		cancel()
 
+		// wait for ctx to close
+		<-ctx.Done()
+
+		// since Subscribe routine also needs to process ctx Done we have to wait a little bit
+		time.Sleep(100 * time.Millisecond)
+
 		server.EmitEvent(event)
 
 		_, received := waitForEvent(t, eventCh, time.Second*5)
@@ -805,8 +805,6 @@ func TestSubscribe(t *testing.T) {
 	})
 
 	t.Run("should not call callback after server closed", func(t *testing.T) {
-		t.Parallel()
-
 		server := setupServer(t, false)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -819,6 +817,12 @@ func TestSubscribe(t *testing.T) {
 
 		// close server before emitting event
 		server.Close()
+
+		// wait for server to close
+		<-server.closeCh
+
+		// since Subscribe routine needs to process closeCh we have to wait a little bit
+		time.Sleep(100 * time.Millisecond)
 
 		server.EmitEvent(event)
 
