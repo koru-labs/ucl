@@ -314,12 +314,12 @@ func TestE2E_JsonRPCSelfSignedTLS(t *testing.T) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	insecureClient := &http.Client{Transport: tr}
-	_, err = insecureClient.Get(srv.JSONRPCAddr())
+	_, err = insecureClient.Get(srv.HTTPJSONRPCURL())
 	require.NoError(t, err)
 
 	// secure client should fail with unknown authority
 	secureClient := &http.Client{}
-	_, err = secureClient.Get(srv.JSONRPCAddr())
+	_, err = secureClient.Get(srv.HTTPJSONRPCURL())
 	require.Error(t, err)
 	require.ErrorContains(t, err, "x509: certificate signed by unknown authority")
 }

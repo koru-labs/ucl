@@ -107,6 +107,9 @@ func (t *TestServer) LibP2PAddr() string {
 }
 
 func (t *TestServer) JSONRPCAddr() string {
+	if t.Config.UseTLS {
+		return fmt.Sprintf("localhost:%d", t.Config.JSONRPCPort)
+	}
 	return fmt.Sprintf("%s:%d", serverIP, t.Config.JSONRPCPort)
 }
 
