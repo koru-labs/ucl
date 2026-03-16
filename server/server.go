@@ -93,7 +93,7 @@ type Server struct {
 // newFileLogger returns logger instance that writes all logs to a specified file.
 // If log file can't be created, it returns an error
 func newFileLogger(config *Config) (hclog.Logger, error) {
-	logFileWriter, err := os.Create(config.LogFilePath)
+	logFileWriter, err := os.OpenFile(config.LogFilePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0660) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("could not create log file, %w", err)
 	}
