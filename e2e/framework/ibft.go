@@ -56,15 +56,6 @@ func NewIBFTServersManager(
 	bootnodes := make([]string, 0, numNodes)
 	genesisValidators := make([]string, 0, numNodes)
 
-	serverManager := &IBFTServersManager{
-		t:       t,
-		servers: []*TestServer{},
-	}
-
-	if err := serverManager.InitSecrets("node-"); err != nil {
-		t.Fatal(err)
-	}
-
 	logsDir, err := initLogsDir(t)
 	if err != nil {
 		t.Fatal(err)

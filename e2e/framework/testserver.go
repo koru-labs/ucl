@@ -112,9 +112,9 @@ func (t *TestServer) JSONRPCAddr() string {
 
 func (t *TestServer) HTTPJSONRPCURL() string {
 	if t.Config.UseTLS {
-		return fmt.Sprintf("https://localhost:%d", t.Config.JSONRPCPort)
+		return fmt.Sprintf("https://%s", t.JSONRPCAddr())
 	} else {
-		return fmt.Sprintf("http://%s:%d", serverIP, t.Config.JSONRPCPort)
+		return fmt.Sprintf("http://%s", t.JSONRPCAddr())
 	}
 }
 
