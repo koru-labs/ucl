@@ -91,6 +91,13 @@ func setFlags(cmd *cobra.Command) {
 		false,
 		"the flag indicating should the secrets stored on the local storage be encrypted",
 	)
+
+	cmd.Flags().BoolVar(
+		&basicParams.generatesJSONTLSCert,
+		jsonTLSCertFlag,
+		true,
+		"the flag indicating whether a new self signed TLS certificate is created for JSON RPC",
+	)
 }
 
 func runPreRun(_ *cobra.Command, _ []string) error {
@@ -115,7 +122,14 @@ func runCommand(cmd *cobra.Command, _ []string) {
 			return
 		}
 
-		res, err := params.getResult()
+		gen, err := params.initKeys(params.secretsManager)
+		if err != nil {
+			outputter.SetError(err)
+
+			return
+		}
+
+		res, err := params.getResult(gen)
 		if err != nil {
 			outputter.SetError(err)
 

@@ -39,6 +39,9 @@ const (
 	logFileLocationFlag          = "log-to"
 	gossipMessageSizeFlag        = "gossip-msg-size"
 	txGossipBatchSizeFlag        = "tx-gossip-batch-size"
+	useTLSFlag                   = "use-tls"
+	tlsCertFileLocationFlag      = "tls-cert-file"
+	tlsKeyFileLocationFlag       = "tls-key-file"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -194,5 +197,8 @@ func (p *serverParams) generateConfig() *server.Config {
 		Relayer:               p.relayer,
 		NumBlockConfirmations: p.rawConfig.NumBlockConfirmations,
 		MetricsInterval:       p.rawConfig.MetricsInterval,
+		UseTLS:                p.rawConfig.UseTLS,
+		TLSCertFile:           p.rawConfig.TLSCertFile,
+		TLSKeyFile:            p.rawConfig.TLSKeyFile,
 	}
 }

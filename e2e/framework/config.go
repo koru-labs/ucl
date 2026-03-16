@@ -63,6 +63,9 @@ type TestServerConfig struct {
 	IBFTBaseTimeout         uint64                   // Base Timeout in seconds for IBFT
 	PredeployParams         *PredeployParams
 	BurnContracts           map[uint64]types.Address
+	UseTLS                  bool
+	TLSCertFile             string
+	TLSKeyFile              string
 }
 
 func (t *TestServerConfig) SetPredeployParams(params *PredeployParams) {
@@ -220,4 +223,16 @@ func (t *TestServerConfig) SetName(name string) {
 
 func (t *TestServerConfig) SetBaseFee(baseFee uint64) {
 	t.BaseFee = baseFee
+}
+
+func (t *TestServerConfig) SetUseTLS(value bool) {
+	t.UseTLS = value
+}
+
+func (t *TestServerConfig) SetTLSCertFile(certFile string) {
+	t.TLSCertFile = certFile
+}
+
+func (t *TestServerConfig) SetTLSKeyFile(keyFile string) {
+	t.TLSKeyFile = keyFile
 }

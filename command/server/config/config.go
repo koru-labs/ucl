@@ -33,6 +33,9 @@ type Config struct {
 	JSONRPCBlockRangeLimit   uint64     `json:"json_rpc_block_range_limit" yaml:"json_rpc_block_range_limit"`
 	JSONLogFormat            bool       `json:"json_log_format" yaml:"json_log_format"`
 	CorsAllowedOrigins       []string   `json:"cors_allowed_origins" yaml:"cors_allowed_origins"`
+	UseTLS                   bool       `json:"use_tls" yaml:"use_tls"`
+	TLSCertFile              string     `json:"tls_cert_file" yaml:"tls_cert_file"`
+	TLSKeyFile               string     `json:"tls_key_file" yaml:"tls_key_file"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -142,6 +145,9 @@ func DefaultConfig() *Config {
 		ConcurrentRequestsDebug:  DefaultConcurrentRequestsDebug,
 		WebSocketReadLimit:       DefaultWebSocketReadLimit,
 		MetricsInterval:          DefaultMetricsInterval,
+		UseTLS:                   false,
+		TLSCertFile:              "",
+		TLSKeyFile:               "",
 	}
 }
 

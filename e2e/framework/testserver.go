@@ -107,7 +107,11 @@ func (t *TestServer) LibP2PAddr() string {
 }
 
 func (t *TestServer) JSONRPCAddr() string {
-	return fmt.Sprintf("%s:%d", serverIP, t.Config.JSONRPCPort)
+	if t.Config.UseTLS {
+		return fmt.Sprintf("https://localhost:%d", t.Config.JSONRPCPort)
+	} else {
+		return fmt.Sprintf("http://%s:%d", serverIP, t.Config.JSONRPCPort)
+	}
 }
 
 func (t *TestServer) HTTPJSONRPCURL() string {
@@ -423,6 +427,10 @@ func (t *TestServer) Start(ctx context.Context) error {
 		"--libp2p", t.LibP2PAddr(),
 		// enable jsonrpc
 		"--jsonrpc", t.JSONRPCAddr(),
+		// TLS certificate file
+		"--tls-cert-file", t.Config.TLSCertFile,
+		// TLS key file
+		"--tls-key-file", t.Config.TLSKeyFile,
 	}
 
 	switch t.Config.Consensus {
@@ -454,6 +462,10 @@ func (t *TestServer) Start(ctx context.Context) error {
 
 	if t.Config.IBFTBaseTimeout != 0 {
 		args = append(args, "--ibft-base-timeout", strconv.FormatUint(t.Config.IBFTBaseTimeout, 10))
+	}
+
+	if t.Config.UseTLS {
+		args = append(args, "--use-tls")
 	}
 
 	t.ReleaseReservedPorts()
@@ -982,6 +994,10 @@ func (t *TestServer) GetStdout() io.Writer {
 	}
 
 	return io.MultiWriter(writers...)
+}
+
+func (t *TestServer) isRunning() bool {
+	return t.cmd != nil
 }
 
 func resolveBinary() string {

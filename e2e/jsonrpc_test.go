@@ -2,7 +2,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
+
+	"net/http"
+	"time"
 
 	"math/big"
 	"testing"
@@ -21,7 +25,6 @@ var (
 func TestJsonRPC(t *testing.T) {
 	fund, err := wallet.GenerateKey()
 	require.NoError(t, err)
-
 	bytecode, err := hex.DecodeString(sampleByteCode)
 	require.NoError(t, err)
 
@@ -32,6 +35,9 @@ func TestJsonRPC(t *testing.T) {
 		func(i int, config *framework.TestServerConfig) {
 			config.Premine(types.Address(fund.Address()), ethgo.Ether(10))
 			config.SetBlockTime(1)
+			config.SetUseTLS(true)
+			config.SetTLSCertFile("/etc/ssl/certs/localhost.pem")
+			config.SetTLSKeyFile("/etc/ssl/private/localhost.key")
 		},
 	)
 
@@ -281,4 +287,39 @@ func TestJsonRPC(t *testing.T) {
 		// Test. The dynamic 'from' field is populated
 		require.NotEqual(t, ethTxn.From, ethgo.ZeroAddress)
 	})
+}
+
+func TestE2E_JsonRPCSelfSignedTLS(t *testing.T) {
+	var err error
+
+	ibftManager := framework.NewIBFTServersManager(
+		t,
+		1,
+		IBFTDirPrefix,
+		func(i int, config *framework.TestServerConfig) {
+			config.SetBlockTime(1)
+			config.SetUseTLS(true)
+		},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	ibftManager.StartServers(ctx)
+
+	srv := ibftManager.GetServer(0)
+
+	// insecure client should succeed
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	insecureClient := &http.Client{Transport: tr}
+	_, err = insecureClient.Get(srv.JSONRPCAddr())
+	require.NoError(t, err)
+
+	// secure client should fail with unknown authority
+	secureClient := &http.Client{}
+	_, err = secureClient.Get(srv.JSONRPCAddr())
+	require.Error(t, err)
+	require.ErrorContains(t, err, "x509: certificate signed by unknown authority")
 }
