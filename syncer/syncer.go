@@ -194,7 +194,13 @@ func (s *syncer) Sync(callback func(*types.FullBlock) bool) error {
 
 	for {
 		// Wait for a new event to arrive
-		<-s.newStatusCh
+		select {
+		case <-s.newStatusCh:
+			s.logger.Debug("new peer status arrived, start syncing")
+		case <-time.After(s.blockTimeout):
+			s.logger.Debug("timeout while waiting for new peer status, start manual syncing")
+			s.initializePeerMap() // fetch peer statuses just in case
+		}
 
 		// fetch local latest block
 		if header := s.blockchain.Header(); header != nil {
