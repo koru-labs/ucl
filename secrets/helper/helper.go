@@ -249,7 +249,7 @@ func InitCloudSecretsManager(secretsConfig *secrets.SecretsManagerConfig) (secre
 }
 
 func genX509KeyPair() ([]byte, []byte, error) {
-	rawValues := []asn1.RawValue{}
+	rawValues := []asn1.RawValue{} //nolint:prealloc
 	rawValues = append(rawValues, asn1.RawValue{
 		Bytes: []byte("localhost"),
 		Class: asn1.ClassContextSpecific,

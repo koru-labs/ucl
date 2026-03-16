@@ -166,7 +166,7 @@ func initLogsDir(t *testing.T) (string, error) {
 func runCommand(binary string, args []string, stdout io.Writer) error {
 	var stdErr bytes.Buffer
 
-	cmd := exec.Command(binary, args...)
+	cmd := exec.Command(binary, args...) //nolint:gosec
 	cmd.Stderr = &stdErr
 	cmd.Stdout = stdout
 
