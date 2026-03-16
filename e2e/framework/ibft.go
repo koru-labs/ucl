@@ -147,8 +147,6 @@ func (m *IBFTServersManager) GetServer(i int) *TestServer {
 }
 
 func (m *IBFTServersManager) InitSecrets(prefix string) error {
-	fmt.Println("THIS IS EXECUTED")
-
 	args := []string{
 		"secrets", "init",
 		"--data-dir", path.Join(m.t.TempDir(), prefix),
