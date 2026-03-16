@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -268,8 +267,6 @@ func genX509KeyPair() ([]byte, []byte, error) {
 		Subject: pkix.Name{
 			CommonName: "localhost",
 		},
-		DNSNames:    []string{"localhost"},
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 		ExtraExtensions: []pkix.Extension{
 			{
 				Id:    asn1.ObjectIdentifier{2, 5, 29, 17},
