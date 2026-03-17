@@ -61,6 +61,9 @@ type dispatcherParams struct {
 	blockRangeLimit         uint64
 
 	concurrentRequestsDebug uint64
+
+	blockCacheTTL      time.Duration
+	blockCacheCapacity uint64
 }
 
 func (dp dispatcherParams) isExceedingBatchLengthLimit(value uint64) bool {
@@ -96,6 +99,7 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 		d.params.chainID,
 		d.filterManager,
 		d.params.priceLimit,
+		initRPCCache(store, d.logger, d.params.blockCacheTTL, d.params.blockCacheCapacity),
 	}
 	d.endpoints.Net = &Net{
 		store,

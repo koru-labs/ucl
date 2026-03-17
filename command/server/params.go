@@ -42,6 +42,8 @@ const (
 	useTLSFlag                   = "use-tls"
 	tlsCertFileLocationFlag      = "tls-cert-file"
 	tlsKeyFileLocationFlag       = "tls-key-file"
+	blockCacheTTLFlag            = "block-cache-ttl"
+	blockCacheCapacityFlag       = "block-cache-capacity"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -200,5 +202,6 @@ func (p *serverParams) generateConfig() *server.Config {
 		UseTLS:                p.rawConfig.UseTLS,
 		TLSCertFile:           p.rawConfig.TLSCertFile,
 		TLSKeyFile:            p.rawConfig.TLSKeyFile,
-	}
+		BlockCacheTTL:         p.rawConfig.BlockCacheTTL,
+		BlockCacheCapacity:    p.rawConfig.BlockCacheCapacity}
 }

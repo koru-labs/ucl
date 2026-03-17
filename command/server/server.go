@@ -285,6 +285,19 @@ func setFlags(cmd *cobra.Command) {
 		"path to TLS key file, if no file is provided then key file is loaded from secrets manager",
 	)
 
+	cmd.Flags().DurationVar(
+		&params.rawConfig.BlockCacheTTL,
+		blockCacheTTLFlag,
+		defaultConfig.BlockCacheTTL,
+		"time for block cache item to be kept in the cache since last touch",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.BlockCacheCapacity,
+		blockCacheCapacityFlag,
+		defaultConfig.BlockCacheCapacity,
+		"maximum number of block cache items to be kept in the cache",
+	)
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)
