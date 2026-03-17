@@ -49,6 +49,10 @@ type Config struct {
 
 	TLSKeyFile string
 
+	BlockCacheTTL time.Duration
+
+	BlockCacheCapacity uint64
+
 	Relayer bool
 
 	NumBlockConfirmations uint64

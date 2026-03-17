@@ -873,6 +873,8 @@ func (s *Server) setupJSONRPC() error {
 		UseTLS:                   s.config.UseTLS,
 		TLSCertFile:              s.config.TLSCertFile,
 		TLSKeyFile:               s.config.TLSKeyFile,
+		BlockCacheTTL:            s.config.BlockCacheTTL,
+		BlockCacheCapacity:       s.config.BlockCacheCapacity,
 		SecretsManager:           s.secretsManager,
 	}
 

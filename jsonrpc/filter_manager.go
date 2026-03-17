@@ -299,7 +299,7 @@ type filterManagerStore interface {
 	// SubscribeEvents subscribes for chain head events
 	SubscribeEvents() blockchain.Subscription
 
-	// GetReceiptsByHash returns the receipts for a block hash
+	// GetReceiptsByHash returns the receipts for a block number and hash
 	GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error)
 
 	// GetBlockByHash returns the block using the block hash

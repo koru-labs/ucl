@@ -15,27 +15,29 @@ import (
 
 // Config defines the server configuration params
 type Config struct {
-	GenesisPath              string     `json:"chain_config" yaml:"chain_config"`
-	SecretsConfigPath        string     `json:"secrets_config" yaml:"secrets_config"`
-	DataDir                  string     `json:"data_dir" yaml:"data_dir"`
-	BlockGasTarget           string     `json:"block_gas_target" yaml:"block_gas_target"`
-	GRPCAddr                 string     `json:"grpc_addr" yaml:"grpc_addr"`
-	JSONRPCAddr              string     `json:"jsonrpc_addr" yaml:"jsonrpc_addr"`
-	Telemetry                *Telemetry `json:"telemetry" yaml:"telemetry"`
-	Network                  *Network   `json:"network" yaml:"network"`
-	ShouldSeal               bool       `json:"seal" yaml:"seal"`
-	TxPool                   *TxPool    `json:"tx_pool" yaml:"tx_pool"`
-	LogLevel                 string     `json:"log_level" yaml:"log_level"`
-	RestoreFile              string     `json:"restore_file" yaml:"restore_file"`
-	Headers                  *Headers   `json:"headers" yaml:"headers"`
-	LogFilePath              string     `json:"log_to" yaml:"log_to"`
-	JSONRPCBatchRequestLimit uint64     `json:"json_rpc_batch_request_limit" yaml:"json_rpc_batch_request_limit"`
-	JSONRPCBlockRangeLimit   uint64     `json:"json_rpc_block_range_limit" yaml:"json_rpc_block_range_limit"`
-	JSONLogFormat            bool       `json:"json_log_format" yaml:"json_log_format"`
-	CorsAllowedOrigins       []string   `json:"cors_allowed_origins" yaml:"cors_allowed_origins"`
-	UseTLS                   bool       `json:"use_tls" yaml:"use_tls"`
-	TLSCertFile              string     `json:"tls_cert_file" yaml:"tls_cert_file"`
-	TLSKeyFile               string     `json:"tls_key_file" yaml:"tls_key_file"`
+	GenesisPath              string        `json:"chain_config" yaml:"chain_config"`
+	SecretsConfigPath        string        `json:"secrets_config" yaml:"secrets_config"`
+	DataDir                  string        `json:"data_dir" yaml:"data_dir"`
+	BlockGasTarget           string        `json:"block_gas_target" yaml:"block_gas_target"`
+	GRPCAddr                 string        `json:"grpc_addr" yaml:"grpc_addr"`
+	JSONRPCAddr              string        `json:"jsonrpc_addr" yaml:"jsonrpc_addr"`
+	Telemetry                *Telemetry    `json:"telemetry" yaml:"telemetry"`
+	Network                  *Network      `json:"network" yaml:"network"`
+	ShouldSeal               bool          `json:"seal" yaml:"seal"`
+	TxPool                   *TxPool       `json:"tx_pool" yaml:"tx_pool"`
+	LogLevel                 string        `json:"log_level" yaml:"log_level"`
+	RestoreFile              string        `json:"restore_file" yaml:"restore_file"`
+	Headers                  *Headers      `json:"headers" yaml:"headers"`
+	LogFilePath              string        `json:"log_to" yaml:"log_to"`
+	JSONRPCBatchRequestLimit uint64        `json:"json_rpc_batch_request_limit" yaml:"json_rpc_batch_request_limit"`
+	JSONRPCBlockRangeLimit   uint64        `json:"json_rpc_block_range_limit" yaml:"json_rpc_block_range_limit"`
+	JSONLogFormat            bool          `json:"json_log_format" yaml:"json_log_format"`
+	CorsAllowedOrigins       []string      `json:"cors_allowed_origins" yaml:"cors_allowed_origins"`
+	UseTLS                   bool          `json:"use_tls" yaml:"use_tls"`
+	TLSCertFile              string        `json:"tls_cert_file" yaml:"tls_cert_file"`
+	TLSKeyFile               string        `json:"tls_key_file" yaml:"tls_key_file"`
+	BlockCacheTTL            time.Duration `json:"block_cache_ttl" yaml:"block_cache_ttl"`
+	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -148,6 +150,8 @@ func DefaultConfig() *Config {
 		UseTLS:                   false,
 		TLSCertFile:              "",
 		TLSKeyFile:               "",
+		BlockCacheTTL:            3 * time.Minute,
+		BlockCacheCapacity:       50,
 	}
 }
 

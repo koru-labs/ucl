@@ -59,7 +59,7 @@ type ethBlockchainStore interface {
 	// ReadTxLookup returns a block hash in which a given txn was mined
 	ReadTxLookup(txnHash types.Hash) (uint64, bool)
 
-	// GetReceiptsByHash returns the receipts for a block hash
+	// GetReceiptsByHash returns the receipts for a block number and hash
 	GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error)
 
 	// GetAvgGasPrice returns the average gas price
@@ -98,6 +98,7 @@ type Eth struct {
 	chainID       uint64
 	filterManager *FilterManager
 	priceLimit    uint64
+	cache         *rpcCache
 }
 
 var (
@@ -295,9 +296,9 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		return nil, nil
 	}
 
-	block, ok := e.store.GetBlockByNumber(blockNum, true)
-	if !ok {
-		// block not found
+	blockCache := e.cache.getBlockCache(blockNum)
+	if blockCache == nil {
+		// block or receipts not found
 		e.logger.Warn(
 			fmt.Sprintf("Block with number [%d] not found", blockNum),
 		)
@@ -305,16 +306,9 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		return nil, nil
 	}
 
-	receipts, err := e.store.GetReceiptsByHash(block.Number(), block.Hash())
-	if err != nil {
-		// block receipts not found
-		e.logger.Warn(
-			fmt.Sprintf("Receipts for block with hash [%s] not found", block.Hash().String()),
-		)
+	block := blockCache.getBlock()
 
-		return nil, nil
-	}
-
+	receipts := blockCache.getReceipts()
 	if len(receipts) == 0 {
 		// Receipts not written yet on the db
 		e.logger.Warn(
@@ -324,18 +318,16 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		return nil, nil
 	}
 	// find the transaction in the body
-	logIndex := 0
-	txn, txIndex := types.FindTxByHash(block.Transactions, hash)
-
+	txn, txIndex := blockCache.getTransaction(hash)
 	if txIndex == -1 {
 		// txn not found
 		return nil, nil
 	}
 
-	for i := 0; i < txIndex; i++ {
-		// accumulate receipt logs indexes from block transactions
-		// that are before the desired transaction
-		logIndex += len(receipts[i].Logs)
+	logIndex := blockCache.getLogIndex(txIndex)
+	if logIndex == -1 {
+		// this can't happen
+		return nil, nil
 	}
 
 	raw := receipts[txIndex]

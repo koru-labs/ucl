@@ -64,7 +64,7 @@ type blockchainBackend interface {
 	// GetChainID returns chain id of the current blockchain
 	GetChainID() uint64
 
-	// GetReceiptsByHash retrieves receipts by hash
+	// GetReceiptsByHash retrieves receipts by block number and hash
 	GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error)
 }
 
