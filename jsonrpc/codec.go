@@ -9,6 +9,23 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
+func init() {
+	safeBN := SafeBlockNumber
+	SafeBlockNumberOrHash = BlockNumberOrHash{BlockNumber: &safeBN}
+
+	finalizedBN := FinalizedBlockNumber
+	FinalizedBlockNumberOrHash = BlockNumberOrHash{BlockNumber: &finalizedBN}
+
+	latestBN := LatestBlockNumber
+	LatestBlockNumberOrHash = BlockNumberOrHash{BlockNumber: &latestBN}
+
+	pendingBN := PendingBlockNumber
+	PendingBlockNumberOrHash = BlockNumberOrHash{BlockNumber: &pendingBN}
+
+	earliestBN := EarliestBlockNumber
+	EarliestBlockNumberOrHash = BlockNumberOrHash{BlockNumber: &earliestBN}
+}
+
 // Request is a jsonrpc request
 type Request struct {
 	ID     interface{}     `json:"id"`
@@ -116,22 +133,61 @@ func (e *ObjectError) MarshalJSON() ([]byte, error) {
 }
 
 const (
-	pending  = "pending"
-	latest   = "latest"
-	earliest = "earliest"
+	safe      = "safe"
+	finalized = "finalized"
+	latest    = "latest"
+	pending   = "pending"
+	earliest  = "earliest"
 )
 
 const (
-	PendingBlockNumber  = BlockNumber(-3)
-	LatestBlockNumber   = BlockNumber(-2)
-	EarliestBlockNumber = BlockNumber(-1)
+	SafeBlockNumber      = BlockNumber(-4)
+	FinalizedBlockNumber = BlockNumber(-3)
+	LatestBlockNumber    = BlockNumber(-2)
+	PendingBlockNumber   = BlockNumber(-1)
+	EarliestBlockNumber  = BlockNumber(0)
+)
+
+var (
+	SafeBlockNumberOrHash      BlockNumberOrHash
+	FinalizedBlockNumberOrHash BlockNumberOrHash
+	LatestBlockNumberOrHash    BlockNumberOrHash
+	PendingBlockNumberOrHash   BlockNumberOrHash
+	EarliestBlockNumberOrHash  BlockNumberOrHash
 )
 
 type BlockNumber int64
 
+// String returns the string representation of the block number
+func (b BlockNumber) String() string {
+	switch b {
+	case SafeBlockNumber:
+		return safe
+	case FinalizedBlockNumber:
+		return finalized
+	case LatestBlockNumber:
+		return latest
+	case PendingBlockNumber:
+		return pending
+	case EarliestBlockNumber:
+		return earliest
+	}
+
+	return fmt.Sprintf("0x%x", uint64(b))
+}
+
 type BlockNumberOrHash struct {
 	BlockNumber *BlockNumber `json:"blockNumber,omitempty"`
 	BlockHash   *types.Hash  `json:"blockHash,omitempty"`
+}
+
+// String returns the string representation of the block number or hash
+func (bnh BlockNumberOrHash) String() string {
+	if bnh.BlockNumber != nil {
+		return bnh.BlockNumber.String()
+	}
+
+	return bnh.BlockHash.String()
 }
 
 // UnmarshalJSON will try to extract the filter's data.
@@ -191,10 +247,14 @@ func stringToBlockNumber(str string) (BlockNumber, error) {
 
 	str = strings.Trim(str, "\"")
 	switch str {
-	case pending:
-		return PendingBlockNumber, nil
+	case safe:
+		return SafeBlockNumber, nil
+	case finalized:
+		return FinalizedBlockNumber, nil
 	case latest:
 		return LatestBlockNumber, nil
+	case pending:
+		return PendingBlockNumber, nil
 	case earliest:
 		return EarliestBlockNumber, nil
 	}
