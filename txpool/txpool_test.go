@@ -4004,7 +4004,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("removes mined transactions from pool and resets account nonces", func(t *testing.T) {
-		t.Parallel()
 		t.Cleanup(func() {
 			store.nonce = 0
 		})
@@ -4056,7 +4055,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("handles multiple accounts in one block", func(t *testing.T) {
-		t.Parallel()
 		t.Cleanup(func() {
 			store.nonce = 0
 		})
@@ -4099,7 +4097,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("empty block only updates base fee", func(t *testing.T) {
-		t.Parallel()
 		t.Cleanup(func() {
 			store.nonce = 0
 		})

@@ -12,6 +12,7 @@ type SecretsInitResult struct {
 	Address   types.Address `json:"address"`
 	BLSPubkey string        `json:"bls_pubkey"`
 	NodeID    string        `json:"node_id"`
+	Generated string        `json:"generated"`
 	Insecure  bool          `json:"insecure"`
 }
 

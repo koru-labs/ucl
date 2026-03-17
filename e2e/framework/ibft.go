@@ -1,9 +1,12 @@
 package framework
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path"
 	"testing"
 	"time"
@@ -134,6 +137,20 @@ func (m *IBFTServersManager) GetServer(i int) *TestServer {
 	return m.servers[i]
 }
 
+func (m *IBFTServersManager) InitSecrets(prefix string) error {
+	args := []string{
+		"secrets", "init",
+		"--data-dir", path.Join(m.t.TempDir(), prefix),
+		"--insecure",
+	}
+
+	if err := runCommand(resolveBinary(), args, os.Stdout); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func initLogsDir(t *testing.T) (string, error) {
 	t.Helper()
 	logsDir := path.Join("..", fmt.Sprintf("e2e-logs-%d", startTime), t.Name())
@@ -143,4 +160,27 @@ func initLogsDir(t *testing.T) (string, error) {
 	}
 
 	return logsDir, nil
+}
+
+// runCommand executes command with given arguments
+func runCommand(binary string, args []string, stdout io.Writer) error {
+	var stdErr bytes.Buffer
+
+	cmd := exec.Command(binary, args...) //nolint:gosec
+	cmd.Stderr = &stdErr
+	cmd.Stdout = stdout
+
+	if err := cmd.Run(); err != nil {
+		if stdErr.Len() > 0 {
+			return fmt.Errorf("failed to execute command: %s", stdErr.String())
+		}
+
+		return fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	if stdErr.Len() > 0 {
+		return fmt.Errorf("error during command execution: %s", stdErr.String())
+	}
+
+	return nil
 }

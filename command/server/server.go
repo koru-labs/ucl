@@ -264,6 +264,27 @@ func setFlags(cmd *cobra.Command) {
 		"the interval (in seconds) at which special metrics are generated. a value of zero means the metrics are disabled",
 	)
 
+	cmd.Flags().BoolVar(
+		&params.rawConfig.UseTLS,
+		useTLSFlag,
+		defaultConfig.UseTLS,
+		"start json rpc endpoint with tls enabled",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.TLSCertFile,
+		tlsCertFileLocationFlag,
+		defaultConfig.TLSCertFile,
+		"path to TLS cert file, if no file is provided then cert file is loaded from secrets manager",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.TLSKeyFile,
+		tlsKeyFileLocationFlag,
+		defaultConfig.TLSKeyFile,
+		"path to TLS key file, if no file is provided then key file is loaded from secrets manager",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

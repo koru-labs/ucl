@@ -2,6 +2,8 @@ package init
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/command"
 	"github.com/0xPolygon/polygon-edge/secrets"
@@ -16,6 +18,7 @@ const (
 	networkFlag            = "network"
 	numFlag                = "num"
 	insecureLocalStoreFlag = "insecure"
+	jsonTLSCertFlag        = "json-tls-cert"
 )
 
 var (
@@ -38,6 +41,8 @@ type initParams struct {
 
 	secretsManager secrets.SecretsManager
 	secretsConfig  *secrets.SecretsManagerConfig
+
+	generatesJSONTLSCert bool
 }
 
 func (ip *initParams) validateFlags() error {
@@ -142,7 +147,7 @@ func (ip *initParams) initNetworkingKey() error {
 }
 
 // getResult gets keys from secret manager and return result to display
-func (ip *initParams) getResult() (command.CommandResult, error) {
+func (ip *initParams) getResult(generated []string) (command.CommandResult, error) {
 	var (
 		res = &SecretsInitResult{}
 		err error
@@ -160,7 +165,35 @@ func (ip *initParams) getResult() (command.CommandResult, error) {
 		return nil, err
 	}
 
+	res.Generated = strings.Join(generated, ", ")
+
 	res.Insecure = ip.insecureLocalStore
 
 	return res, nil
+}
+
+func (ip *initParams) generateJSONTLSCert(secretsManager secrets.SecretsManager, generated *[]string) error {
+	if secretsManager.HasSecret(secrets.JSONTLSCert) && secretsManager.HasSecret(secrets.JSONTLSKey) {
+		return nil
+	}
+
+	if err := helper.InitJSONTLSCert(secretsManager); err != nil {
+		return fmt.Errorf("error initializing json tls certificate: %w", err)
+	}
+
+	*generated = append(*generated, secrets.JSONTLSCert, secrets.JSONTLSKey)
+
+	return nil
+}
+
+func (ip *initParams) initKeys(secretsManager secrets.SecretsManager) ([]string, error) {
+	var generated []string
+
+	if ip.generatesJSONTLSCert {
+		if err := ip.generateJSONTLSCert(secretsManager, &generated); err != nil {
+			return generated, err
+		}
+	}
+
+	return generated, nil
 }

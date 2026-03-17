@@ -115,6 +115,7 @@ func (op *outputParams) parseConfig() error {
 func (op *outputParams) initLocalSecretsManager() error {
 	validatorPathPrefix := filepath.Join(op.dataDir, secrets.ConsensusFolderLocal)
 	networkPathPrefix := filepath.Join(op.dataDir, secrets.NetworkFolderLocal)
+	jsonTLSPathPrefix := filepath.Join(op.dataDir, secrets.JSONTLSFolderLocal)
 	dataDirAbs, _ := filepath.Abs(op.dataDir)
 
 	if !common.DirectoryExists(op.dataDir) {
@@ -128,6 +129,10 @@ func (op *outputParams) initLocalSecretsManager() error {
 
 	if !common.DirectoryExists(networkPathPrefix) {
 		errs = append(errs, fmt.Sprintf("no network key found in the data directory provided: %s", dataDirAbs))
+	}
+
+	if !common.DirectoryExists(jsonTLSPathPrefix) {
+		errs = append(errs, fmt.Sprintf("no json tls certificate found in the data directory provided: %s", dataDirAbs))
 	}
 
 	if len(errs) > 0 {

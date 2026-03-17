@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/versioning"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
@@ -71,6 +73,10 @@ type Config struct {
 
 	ConcurrentRequestsDebug uint64
 	WebSocketReadLimit      uint64
+	UseTLS                  bool
+	TLSCertFile             string
+	TLSKeyFile              string
+	SecretsManager          secrets.SecretsManager
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -106,8 +112,6 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 }
 
 func (j *JSONRPC) setupHTTP() error {
-	j.logger.Info("http server started", "addr", j.config.Addr.String())
-
 	lis, err := net.Listen("tcp", j.config.Addr.String())
 	if err != nil {
 		return err
@@ -129,11 +133,48 @@ func (j *JSONRPC) setupHTTP() error {
 		ReadHeaderTimeout: 60 * time.Second,
 	}
 
-	go func() {
-		if err := srv.Serve(lis); err != nil {
-			j.logger.Error("closed http connection", "err", err)
+	if j.config.UseTLS {
+		j.logger.Info("configuring http server with tls...")
+
+		if j.config.TLSCertFile != "" && j.config.TLSKeyFile != "" {
+			j.logger.Info("TLS", "cert file", j.config.TLSCertFile)
+			j.logger.Info("TLS", "key file", j.config.TLSKeyFile)
+
+			go func() {
+				if err := srv.ServeTLS(lis, j.config.TLSCertFile, j.config.TLSKeyFile); err != nil {
+					j.logger.Error("closed https connection", "err", err)
+				}
+			}()
+		} else {
+			j.logger.Info("loading tls certificate from secrets manager...")
+
+			cert, err := loadTLSCertificate(j.config.SecretsManager)
+			if err != nil {
+				j.logger.Error("loading tls certificate", "err", err)
+
+				return err
+			}
+
+			srv.TLSConfig = &tls.Config{
+				Certificates: []tls.Certificate{*cert},
+				MinVersion:   tls.VersionTLS12,
+			}
+
+			go func() {
+				if err := srv.ServeTLS(lis, "", ""); err != nil {
+					j.logger.Error("closed https connection", "err", err)
+				}
+			}()
 		}
-	}()
+	} else {
+		go func() {
+			if err := srv.Serve(lis); err != nil {
+				j.logger.Error("closed http connection", "err", err)
+			}
+		}()
+	}
+
+	j.logger.Info("http server started", "addr", j.config.Addr.String())
 
 	return nil
 }
@@ -343,4 +384,27 @@ func (j *JSONRPC) handleGetRequest(writer io.Writer) {
 	if _, err = writer.Write(resp); err != nil {
 		_, _ = writer.Write([]byte(err.Error()))
 	}
+}
+
+func loadTLSCertificate(manager secrets.SecretsManager) (*tls.Certificate, error) {
+	if manager.HasSecret(secrets.JSONTLSCert) && manager.HasSecret(secrets.JSONTLSKey) {
+		tlsCert, err := manager.GetSecret(secrets.JSONTLSCert)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get a tls cert file from Secrets Manager, %w", err)
+		}
+
+		tlsKey, err := manager.GetSecret(secrets.JSONTLSKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get a tls key file from Secrets Manager, %w", err)
+		}
+
+		cert, err := tls.X509KeyPair(tlsCert, tlsKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create a tls certificate, %w", err)
+		}
+
+		return &cert, nil
+	}
+
+	return nil, secrets.ErrSecretNotFound
 }
