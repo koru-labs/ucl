@@ -430,7 +430,7 @@ func (t *TestServer) Start(ctx context.Context) error {
 		// enable libp2p
 		"--libp2p", t.LibP2PAddr(),
 		// enable jsonrpc
-		"--jsonrpc", t.JSONRPCAddr(),
+		"--jsonrpc", fmt.Sprintf(":%d", t.Config.JSONRPCPort),
 		// TLS certificate file
 		"--tls-cert-file", t.Config.TLSCertFile,
 		// TLS key file
