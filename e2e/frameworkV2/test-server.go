@@ -2,6 +2,7 @@ package frameworkV2
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/server/proto"
 	txpoolProto "github.com/0xPolygon/polygon-edge/txpool/proto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -198,4 +200,30 @@ func (t *TestServer) Stop() {
 	}
 
 	t.node = nil
+}
+
+func (t *TestServer) WaitForNonZeroBalance(address ethgo.Address, dur time.Duration) (*big.Int, error) {
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	rpcClient := t.JSONRPC()
+
+	for {
+		select {
+		case <-timer.C:
+			return nil, fmt.Errorf("timeout occurred while waiting for balance ")
+		case <-ticker.C:
+			balance, err := rpcClient.Eth().GetBalance(address, ethgo.Latest)
+			if err != nil {
+				return nil, fmt.Errorf("error getting balance")
+			}
+
+			if balance.Cmp(big.NewInt(0)) == 1 {
+				return balance, nil
+			}
+		}
+	}
 }

@@ -15,7 +15,7 @@ type node struct {
 }
 
 func newNode(binary string, args []string, stdout io.Writer) (*node, error) {
-	cmd := exec.Command(binary, args...)
+	cmd := exec.Command(binary, args...) //nolint:gosec
 	cmd.Stdout = stdout
 	cmd.Stderr = stdout
 

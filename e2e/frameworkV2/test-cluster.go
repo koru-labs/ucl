@@ -559,6 +559,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		// run genesis configuration population
 		args := []string{
 			"genesis",
+			"--consensus", "ibft",
 			"--validators-path", config.TmpDir,
 			"--validators-prefix", cluster.Config.ValidatorPrefix,
 			"--dir", genesisPath,
@@ -567,15 +568,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			"--epoch-reward", strconv.Itoa(cluster.Config.EpochReward),
 			"--premine", "0x0000000000000000000000000000000000000000",
 			"--trieroot", cluster.Config.InitialStateRoot.String(),
-			"--vote-delay", fmt.Sprint(cluster.Config.VotingDelay),
 		}
-
-		bladeAdmin := cluster.Config.BladeAdmin
-		if cluster.Config.BladeAdmin == "" {
-			bladeAdmin = addresses[0].String()
-		}
-
-		args = append(args, "--blade-admin", bladeAdmin)
 
 		if cluster.Config.RewardWallet != "" {
 			args = append(args, "--reward-wallet", cluster.Config.RewardWallet)
@@ -850,7 +843,7 @@ func (c *TestCluster) getOpenPort() int64 {
 func runCommand(binary string, args []string, stdout io.Writer) error {
 	var stdErr bytes.Buffer
 
-	cmd := exec.Command(binary, args...)
+	cmd := exec.Command(binary, args...) //nolint:gosec
 	cmd.Stderr = &stdErr
 	cmd.Stdout = stdout
 
@@ -903,7 +896,7 @@ func (c *TestCluster) InitSecrets(prefix string, count int) ([]types.Address, er
 }
 
 func CopyDir(source, destination string) error {
-	err := os.Mkdir(destination, 0755)
+	err := os.Mkdir(destination, 0755) //nolint:gosec
 	if err != nil {
 		return err
 	}

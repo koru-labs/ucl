@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
-	frameworkpolybft "github.com/0xPolygon/polygon-edge/e2e-polybft/framework"
 	"github.com/0xPolygon/polygon-edge/e2e/framework"
+	"github.com/0xPolygon/polygon-edge/e2e/frameworkV2"
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-func TestE2E_Migration(t *testing.T) {
+func TestE2E_MigrationV2(t *testing.T) {
 	userKey, _ := wallet.GenerateKey()
 	userAddr := userKey.Address()
 	userKey2, _ := wallet.GenerateKey()
@@ -115,7 +115,7 @@ func TestE2E_Migration(t *testing.T) {
 	tmpDir := t.TempDir()
 	defer os.RemoveAll(tmpDir)
 
-	err = frameworkpolybft.RunEdgeCommand([]string{
+	err = frameworkV2.RunEdgeCommand([]string{
 		"regenesis",
 		"--stateRoot", block.StateRoot.String(),
 		"--source-path", path,
@@ -137,18 +137,19 @@ func TestE2E_Migration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	require.Equal(t, stateRoot, copiedStateRoot)
+	require.EqualValues(t, stateRoot, copiedStateRoot)
 
 	err = db.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cluster := frameworkpolybft.NewTestCluster(t, 7,
-		frameworkpolybft.WithNonValidators(2),
-		frameworkpolybft.WithValidatorSnapshot(5),
-		frameworkpolybft.WithTestRewardToken(),
-		frameworkpolybft.WithGenesisState(tmpDir, types.Hash(stateRoot)),
+	cluster := frameworkV2.NewTestCluster(t, 7,
+		frameworkV2.WithNonValidators(2),
+		frameworkV2.WithValidatorSnapshot(5),
+		frameworkV2.WithTestRewardToken(),
+		frameworkV2.WithGenesisState(tmpDir, types.Hash(stateRoot)),
+		frameworkV2.WithBootnodeCount(1),
 	)
 	defer cluster.Stop()
 
@@ -203,6 +204,6 @@ func TestE2E_Migration(t *testing.T) {
 	_, err = cluster.InitSecrets("test-chain-8", 1)
 	require.NoError(t, err)
 
-	cluster.InitTestServer(t, "test-chain-8", cluster.Bridge.JSONRPCAddr(), frameworkpolybft.None)
+	cluster.InitTestServer(t, "test-chain-8", frameworkV2.None)
 	require.NoError(t, cluster.WaitForBlock(33, time.Minute))
 }
