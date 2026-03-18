@@ -20,7 +20,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-func TestE2E_TxPool_TransferV2(t *testing.T) {
+func TestE2E_TxPool_Transfer(t *testing.T) {
 	// premine an account in the genesis file
 	sender, err := wallet.GenerateKey()
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestE2E_TxPool_TransferV2(t *testing.T) {
 }
 
 // First account send some amount to second one and then second one to third account
-func TestE2E_TxPool_Transfer_LinearV2(t *testing.T) {
+func TestE2E_TxPool_Transfer_Linear(t *testing.T) {
 	premine, err := wallet.GenerateKey()
 	require.NoError(t, err)
 
@@ -193,7 +193,7 @@ func TestE2E_TxPool_Transfer_LinearV2(t *testing.T) {
 	}
 }
 
-func TestE2E_TxPool_TransactionWithHeaderInstructionsV2(t *testing.T) {
+func TestE2E_TxPool_TransactionWithHeaderInstructions(t *testing.T) {
 	sidechainKey, err := wallet.GenerateKey()
 	require.NoError(t, err)
 
@@ -229,7 +229,7 @@ func TestE2E_TxPool_TransactionWithHeaderInstructionsV2(t *testing.T) {
 
 // TestE2E_TxPool_BroadcastTransactions sends several transactions (legacy and dynamic fees) to the cluster
 // with the 1 amount of eth and checks that all cluster nodes have the recipient balance updated.
-func TestE2E_TxPool_BroadcastTransactionsV2(t *testing.T) {
+func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 	var (
 		sendAmount = ethgo.Ether(1)
 	)

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestE2E_NetworkDiscoveryProtocolV2(t *testing.T) {
+func TestE2E_NetworkDiscoveryProtocol(t *testing.T) {
 	const (
 		validatorCount    = 5
 		nonValidatorCount = 5

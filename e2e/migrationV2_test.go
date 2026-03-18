@@ -21,7 +21,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-func TestE2E_MigrationV2(t *testing.T) {
+func TestE2E_Migration(t *testing.T) {
 	userKey, _ := wallet.GenerateKey()
 	userAddr := userKey.Address()
 	userKey2, _ := wallet.GenerateKey()
