@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/memory"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
+	consensusIBFT "github.com/0xPolygon/polygon-edge/consensus/ibft"
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
@@ -1047,7 +1048,7 @@ func initForkManager(engineName string, config *chain.Chain) error {
 func getInitialTrieRoot(engineName string, chain *chain.Chain) (types.Hash, error) {
 	switch ConsensusType(engineName) {
 	case IBFTConsensus:
-		cfg, err := consensusPolyBFT.GetIBFTConfig(chain)
+		cfg, err := consensusIBFT.GetIBFTConfig(chain)
 		if err != nil {
 			return types.ZeroHash, err
 		}
