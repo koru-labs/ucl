@@ -1051,6 +1051,7 @@ func getInitialTrieRoot(engineName string, chain *chain.Chain) (types.Hash, erro
 		if err != nil {
 			return types.ZeroHash, err
 		}
+
 		return cfg.InitialTrieRoot, nil
 
 	case PolyBFTConsensus:
@@ -1058,6 +1059,7 @@ func getInitialTrieRoot(engineName string, chain *chain.Chain) (types.Hash, erro
 		if err != nil {
 			return types.ZeroHash, err
 		}
+
 		return cfg.InitialTrieRoot, nil
 
 	default:
