@@ -11,11 +11,10 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/command/polybftsecrets"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/wallet"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/server/proto"
 	txpoolProto "github.com/0xPolygon/polygon-edge/txpool/proto"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/Ethernal-Tech/ethgo"
-	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -73,8 +72,8 @@ func (t *TestServer) BridgeJSONRPCAddr() string {
 	return t.config.BridgeJSONRPC
 }
 
-func (t *TestServer) JSONRPC() *jsonrpc.Client {
-	clt, err := jsonrpc.NewClient(t.JSONRPCAddr())
+func (t *TestServer) JSONRPC() *jsonrpc.EthClient {
+	clt, err := jsonrpc.NewEthClient(t.JSONRPCAddr())
 	if err != nil {
 		t.t.Fatal(err)
 	}
@@ -202,7 +201,7 @@ func (t *TestServer) Stop() {
 	t.node = nil
 }
 
-func (t *TestServer) WaitForNonZeroBalance(address ethgo.Address, dur time.Duration) (*big.Int, error) {
+func (t *TestServer) WaitForNonZeroBalance(address types.Address, dur time.Duration) (*big.Int, error) {
 	timer := time.NewTimer(dur)
 	defer timer.Stop()
 
@@ -216,7 +215,7 @@ func (t *TestServer) WaitForNonZeroBalance(address ethgo.Address, dur time.Durat
 		case <-timer.C:
 			return nil, fmt.Errorf("timeout occurred while waiting for balance ")
 		case <-ticker.C:
-			balance, err := rpcClient.Eth().GetBalance(address, ethgo.Latest)
+			balance, err := rpcClient.GetBalance(address, jsonrpc.LatestBlockNumberOrHash)
 			if err != nil {
 				return nil, fmt.Errorf("error getting balance")
 			}

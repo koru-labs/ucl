@@ -758,7 +758,7 @@ func (c *TestCluster) Stats(t *testing.T) {
 			continue
 		}
 
-		num, err := i.JSONRPC().Eth().BlockNumber()
+		num, err := i.JSONRPC().BlockNumber()
 		t.Log("Stats node", index, "err", err, "block", num, "validator", i.config.Validator)
 	}
 }
@@ -806,7 +806,7 @@ func (c *TestCluster) WaitForBlock(n uint64, timeout time.Duration) error {
 				continue
 			}
 
-			num, err := i.JSONRPC().Eth().BlockNumber()
+			num, err := i.JSONRPC().BlockNumber()
 
 			if err != nil || num < n {
 				ok = false

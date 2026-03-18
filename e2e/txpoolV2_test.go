@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Ethernal-Tech/ethgo"
-	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/e2e/frameworkV2"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
 )
@@ -85,7 +85,7 @@ func TestE2E_TxPool_Transfer(t *testing.T) {
 
 	err = cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
 		for _, receiver := range receivers {
-			balance, err := client.Eth().GetBalance(receiver, ethgo.Latest)
+			balance, err := client.GetBalance(types.Address(receiver), jsonrpc.LatestBlockNumberOrHash)
 			if err != nil {
 				return true
 			}
@@ -123,7 +123,7 @@ func TestE2E_TxPool_Transfer_Linear(t *testing.T) {
 
 	waitUntilBalancesChanged := func(acct ethgo.Address) error {
 		err := cluster.WaitUntil(30*time.Second, 2*time.Second, func() bool {
-			balance, err := client.Eth().GetBalance(acct, ethgo.Latest)
+			balance, err := client.GetBalance(types.Address(acct), jsonrpc.LatestBlockNumberOrHash)
 			if err != nil {
 				return true
 			}
@@ -187,7 +187,7 @@ func TestE2E_TxPool_Transfer_Linear(t *testing.T) {
 	}
 
 	for i := 1; i < num; i++ {
-		balance, err := client.Eth().GetBalance(receivers[i].Address(), ethgo.Latest)
+		balance, err := client.GetBalance(types.Address(receivers[i].Address()), jsonrpc.LatestBlockNumberOrHash)
 		require.NoError(t, err)
 		require.Equal(t, uint64(sendAmount), balance.Uint64())
 	}
@@ -294,7 +294,7 @@ func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 	// Wait until the balance has changed on all nodes in the cluster
 	err = cluster.WaitUntil(time.Minute, time.Second*3, func() bool {
 		for _, srv := range cluster.Servers {
-			balance, err := srv.WaitForNonZeroBalance(recipient, time.Second*10)
+			balance, err := srv.WaitForNonZeroBalance(types.Address(recipient), time.Second*10)
 			assert.NoError(t, err)
 
 			if balance != nil && balance.BitLen() > 0 {
@@ -310,10 +310,10 @@ func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 }
 
 // sendTransaction is a helper function which signs transaction with provided private key and sends it
-func sendTransaction(t *testing.T, client *jsonrpc.Client, sender *wallet.Key, txn *types.Transaction) {
+func sendTransaction(t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key, txn *types.Transaction) {
 	t.Helper()
 
-	chainID, err := client.Eth().ChainID()
+	chainID, err := client.ChainID()
 	require.NoError(t, err)
 
 	fallbackSigner := crypto.NewEIP155Signer(chainID.Uint64(), true)
@@ -345,7 +345,7 @@ func sendTransaction(t *testing.T, client *jsonrpc.Client, sender *wallet.Key, t
 
 	txnRlp := txn.MarshalRLPTo(nil)
 
-	_, err = client.Eth().SendRawTransaction(txnRlp)
+	_, err = client.SendRawTransaction(txnRlp)
 	require.NoError(t, err)
 }
 

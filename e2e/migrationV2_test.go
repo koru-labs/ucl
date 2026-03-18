@@ -16,6 +16,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/e2e/framework"
 	"github.com/0xPolygon/polygon-edge/e2e/frameworkV2"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/txrelayer"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -155,12 +156,12 @@ func TestE2E_Migration(t *testing.T) {
 
 	cluster.WaitForReady(t)
 
-	senderBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().Eth().GetBalance(userAddr, ethgo.Latest)
+	senderBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().GetBalance(types.Address(userAddr), jsonrpc.LatestBlockNumberOrHash)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	receiverBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().Eth().GetBalance(userAddr2, ethgo.Latest)
+	receiverBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().GetBalance(types.Address(userAddr2), jsonrpc.LatestBlockNumberOrHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,7 @@ func TestE2E_Migration(t *testing.T) {
 	require.Equal(t, balanceSender, senderBalanceAfterMigration)
 	require.Equal(t, balanceReceiver, receiverBalanceAfterMigration)
 
-	deployedCode, err := cluster.Servers[0].JSONRPC().Eth().GetCode(deployedContractAddr, ethgo.Latest)
+	deployedCode, err := cluster.Servers[0].JSONRPC().GetCode(types.Address(deployedContractAddr), jsonrpc.LatestBlockNumberOrHash)
 	if err != nil {
 		t.Fatal(err)
 	}
