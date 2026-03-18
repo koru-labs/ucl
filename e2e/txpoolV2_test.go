@@ -273,7 +273,6 @@ func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 		Value: sendAmount,
 		To:    &toAddr,
 		Gas:   21000,
-		Nonce: nonce,
 	}
 
 	for i := 0; i < txNum; i++ {
@@ -285,6 +284,8 @@ func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 			txn.Type = types.LegacyTx
 			txn.GasPrice = ethgo.Gwei(2)
 		}
+
+		txn.Nonce = nonce
 
 		sendTransaction(t, client, sender, txn)
 		sentAmount = sentAmount.Add(sentAmount, txn.Value)

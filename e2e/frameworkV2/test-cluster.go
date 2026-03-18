@@ -22,6 +22,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/server"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
 	"github.com/stretchr/testify/require"
@@ -109,9 +110,7 @@ type TestClusterConfig struct {
 	NativeTokenConfigRaw string
 	BaseFeeConfig        string
 	SecretsCallback      func([]types.Address, *TestClusterConfig)
-	BladeAdmin           string
 	RewardWallet         string
-	PredeployContract    string
 
 	ContractDeployerAllowListAdmin   []types.Address
 	ContractDeployerAllowListEnabled []types.Address
@@ -121,10 +120,6 @@ type TestClusterConfig struct {
 	TransactionsAllowListEnabled     []types.Address
 	TransactionsBlockListAdmin       []types.Address
 	TransactionsBlockListEnabled     []types.Address
-	BridgeAllowListAdmin             []types.Address
-	BridgeAllowListEnabled           []types.Address
-	BridgeBlockListAdmin             []types.Address
-	BridgeBlockListEnabled           []types.Address
 
 	NumBlockConfirmations uint64
 
@@ -134,18 +129,15 @@ type TestClusterConfig struct {
 	IsPropertyTest  bool
 	TestRewardToken string
 
-	RootTrackerPollInterval time.Duration
-
 	ProxyContractsAdmin string
-
-	VotingPeriod uint64
-	VotingDelay  uint64
 
 	logsDirOnce sync.Once
 
 	UseTLS      bool
 	TLSCertFile string
 	TLSKeyFile  string
+
+	Consensus server.ConsensusType
 }
 
 func (c *TestClusterConfig) Dir(name string) string {
@@ -262,12 +254,6 @@ func WithValidatorSnapshot(validatorsLen uint64) ClusterOption {
 	}
 }
 
-func WithBridge() ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.HasBridge = true
-	}
-}
-
 func WithBaseFeeConfig(config string) ClusterOption {
 	return func(h *TestClusterConfig) {
 		if config == "" {
@@ -375,30 +361,6 @@ func WithTransactionsBlockListEnabled(addr types.Address) ClusterOption {
 	}
 }
 
-func WithBridgeAllowListAdmin(addr types.Address) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.BridgeAllowListAdmin = append(h.BridgeAllowListAdmin, addr)
-	}
-}
-
-func WithBridgeAllowListEnabled(addr types.Address) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.BridgeAllowListEnabled = append(h.BridgeAllowListEnabled, addr)
-	}
-}
-
-func WithBridgeBlockListAdmin(addr types.Address) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.BridgeBlockListAdmin = append(h.BridgeBlockListAdmin, addr)
-	}
-}
-
-func WithBridgeBlockListEnabled(addr types.Address) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.BridgeBlockListEnabled = append(h.BridgeBlockListEnabled, addr)
-	}
-}
-
 func WithPropertyTestLogging() ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.IsPropertyTest = true
@@ -417,45 +379,15 @@ func WithTestRewardToken() ClusterOption {
 	}
 }
 
-func WithRootTrackerPollInterval(pollInterval time.Duration) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.RootTrackerPollInterval = pollInterval
-	}
-}
-
 func WithProxyContractsAdmin(address string) ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.ProxyContractsAdmin = address
 	}
 }
 
-func WithBladeAdmin(address string) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.BladeAdmin = address
-	}
-}
-
-func WithGovernanceVotingPeriod(votingPeriod uint64) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.VotingPeriod = votingPeriod
-	}
-}
-
-func WithGovernanceVotingDelay(votingDelay uint64) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.VotingDelay = votingDelay
-	}
-}
-
 func WithRewardWallet(rewardWallet string) ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.RewardWallet = rewardWallet
-	}
-}
-
-func WithPredeploy(predeployString string) ClusterOption {
-	return func(h *TestClusterConfig) {
-		h.PredeployContract = predeployString
 	}
 }
 
@@ -469,6 +401,12 @@ func WithTLSCertificate(certFile string, keyFile string) ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.TLSCertFile = certFile
 		h.TLSKeyFile = keyFile
+	}
+}
+
+func WithConsensusType(consensusType server.ConsensusType) ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.Consensus = consensusType
 	}
 }
 
@@ -499,7 +437,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		BlockGasLimit: 1e7, // 10M
 		StakeAmounts:  []*big.Int{},
 		HasBridge:     false,
-		VotingDelay:   10,
+		Consensus:     server.IBFTConsensus,
 	}
 
 	if config.ValidatorPrefix == "" {
@@ -576,18 +514,9 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			args = append(args, "--reward-wallet", testRewardWalletAddr.String())
 		}
 
-		if cluster.Config.VotingPeriod > 0 {
-			args = append(args, "--vote-period", fmt.Sprint(cluster.Config.VotingPeriod))
-		}
-
 		if cluster.Config.BlockTime != 0 {
 			args = append(args, "--block-time",
 				cluster.Config.BlockTime.String())
-		}
-
-		if cluster.Config.RootTrackerPollInterval != 0 {
-			args = append(args, "--block-tracker-poll-interval",
-				cluster.Config.RootTrackerPollInterval.String())
 		}
 
 		if cluster.Config.TestRewardToken != "" {
@@ -647,28 +576,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 
 		args = append(args, "--proxy-contracts-admin", proxyAdminAddr)
 
-		if config.PredeployContract != "" {
-			parts := strings.Split(config.PredeployContract, ":")
-			require.Equal(t, 2, len(parts))
-			args = append(args, "--stake-token", parts[0])
-		}
-
 		// run genesis command with all the arguments
-		err = cluster.cmdRun(args...)
-		require.NoError(t, err)
-	}
-
-	if config.PredeployContract != "" {
-		parts := strings.Split(config.PredeployContract, ":")
-		require.Equal(t, 2, len(parts))
-		// run predeploy genesis population
-		args := []string{
-			"genesis", "predeploy",
-			"--predeploy-address", parts[0],
-			"--artifacts-name", parts[1],
-			"--chain", genesisPath,
-			"--deployer-address", config.BladeAdmin}
-
 		err = cluster.cmdRun(args...)
 		require.NoError(t, err)
 	}
