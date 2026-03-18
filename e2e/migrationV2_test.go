@@ -1,0 +1,210 @@
+package e2e
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/Ethernal-Tech/ethgo"
+	"github.com/Ethernal-Tech/ethgo/wallet"
+	"github.com/cockroachdb/pebble"
+	"github.com/stretchr/testify/require"
+
+	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
+	"github.com/0xPolygon/polygon-edge/e2e/framework"
+	"github.com/0xPolygon/polygon-edge/e2e/frameworkV2"
+	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/jsonrpc"
+	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
+	"github.com/0xPolygon/polygon-edge/txrelayer"
+	"github.com/0xPolygon/polygon-edge/types"
+)
+
+func TestE2E_Migration(t *testing.T) {
+	userKey, _ := wallet.GenerateKey()
+	userAddr := userKey.Address()
+	userKey2, _ := wallet.GenerateKey()
+	userAddr2 := userKey2.Address()
+
+	initialBalance := ethgo.Ether(10)
+	srvs := framework.NewTestServers(t, 1, func(config *framework.TestServerConfig) {
+		config.SetConsensus(framework.ConsensusDev)
+		config.Premine(types.Address(userAddr), initialBalance)
+	})
+
+	srv := srvs[0]
+
+	require.NoError(t, srv.WaitForReady(context.TODO()))
+
+	rpcClient := srv.JSONRPC()
+
+	// Fetch the balances before sending
+	balanceSender, err := rpcClient.Eth().GetBalance(userAddr, ethgo.Latest)
+	require.NoError(t, err)
+	require.Equal(t, balanceSender.Cmp(initialBalance), 0)
+
+	balanceReceiver, err := rpcClient.Eth().GetBalance(userAddr2, ethgo.Latest)
+	require.NoError(t, err)
+
+	if balanceReceiver.Uint64() != 0 {
+		t.Fatal("balanceReceiver is not 0")
+	}
+
+	relayer, err := txrelayer.NewTxRelayer(txrelayer.WithClient(rpcClient))
+	require.NoError(t, err)
+
+	// send transaction to user2
+	sendAmount := ethgo.Gwei(10000)
+
+	tx := &ethgo.Transaction{
+		Type:     ethgo.TransactionLegacy,
+		From:     userAddr,
+		To:       &userAddr2,
+		Gas:      1000000,
+		Value:    sendAmount,
+		GasPrice: ethgo.Gwei(2).Uint64(),
+	}
+
+	receipt, err := relayer.SendTransaction(tx, userKey)
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
+
+	secondTx := &ethgo.Transaction{
+		Type:     ethgo.TransactionLegacy,
+		From:     userAddr,
+		Gas:      1000000,
+		Input:    contractsapi.TestWriteBlockMetadata.Bytecode,
+		GasPrice: ethgo.Gwei(2).Uint64(),
+	}
+
+	receipt, err = relayer.SendTransaction(secondTx, userKey)
+	require.NoError(t, err)
+	require.NotNil(t, receipt)
+	require.Equal(t, uint64(types.ReceiptSuccess), receipt.Status)
+
+	deployedContractAddr := receipt.ContractAddress
+
+	initReceipt, err := ABITransaction(relayer, userKey, contractsapi.TestWriteBlockMetadata, receipt.ContractAddress, "init")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Equal(t, uint64(types.ReceiptSuccess), initReceipt.Status)
+
+	// Fetch the balances after sending
+	balanceSender, err = rpcClient.Eth().GetBalance(userAddr, ethgo.Latest)
+	require.NoError(t, err)
+
+	balanceReceiver, err = rpcClient.Eth().GetBalance(userAddr2, ethgo.Latest)
+	require.NoError(t, err)
+	require.Equal(t, sendAmount, balanceReceiver)
+
+	block, err := rpcClient.Eth().GetBlockByNumber(ethgo.Latest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateRoot := block.StateRoot
+
+	path := filepath.Join(srvs[0].Config.RootDir, "trie")
+	srvs[0].Stop()
+	// hack for db closing. leveldb allow only one connection
+	time.Sleep(time.Second)
+
+	tmpDir := t.TempDir()
+	defer os.RemoveAll(tmpDir)
+
+	err = frameworkV2.RunEdgeCommand([]string{
+		"regenesis",
+		"--stateRoot", block.StateRoot.String(),
+		"--source-path", path,
+		"--target-path", tmpDir,
+	}, os.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := pebble.Open(tmpDir, &pebble.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateStorageNew := itrie.NewPebble(db)
+
+	copiedStateRoot, err := itrie.HashChecker(block.StateRoot.Bytes(), stateStorageNew)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.EqualValues(t, stateRoot, copiedStateRoot)
+
+	err = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cluster := frameworkV2.NewTestCluster(t, 7,
+		frameworkV2.WithNonValidators(2),
+		frameworkV2.WithValidatorSnapshot(5),
+		frameworkV2.WithTestRewardToken(),
+		frameworkV2.WithGenesisState(tmpDir, types.Hash(stateRoot)),
+		frameworkV2.WithBootnodeCount(1),
+	)
+	defer cluster.Stop()
+
+	cluster.WaitForReady(t)
+
+	senderBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().GetBalance(types.Address(userAddr), jsonrpc.LatestBlockNumberOrHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receiverBalanceAfterMigration, err := cluster.Servers[0].JSONRPC().GetBalance(types.Address(userAddr2), jsonrpc.LatestBlockNumberOrHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Equal(t, balanceSender, senderBalanceAfterMigration)
+	require.Equal(t, balanceReceiver, receiverBalanceAfterMigration)
+
+	deployedCode, err := cluster.Servers[0].JSONRPC().GetCode(types.Address(deployedContractAddr), jsonrpc.LatestBlockNumberOrHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Equal(t, deployedCode, *common.EncodeBytes(contractsapi.TestWriteBlockMetadata.DeployedBytecode))
+	require.NoError(t, cluster.WaitForBlock(10, 1*time.Minute))
+
+	// stop last node of validator and non-validator
+	cluster.Servers[4].Stop()
+	cluster.Servers[6].Stop()
+
+	require.NoError(t, cluster.WaitForBlock(15, time.Minute))
+
+	// wait sync of that nodes
+	cluster.Servers[4].Start()
+	cluster.Servers[6].Start()
+	require.NoError(t, cluster.WaitForBlock(20, time.Minute))
+
+	// stop all nodes
+	for i := range cluster.Servers {
+		cluster.Servers[i].Stop()
+	}
+
+	time.Sleep(time.Second)
+
+	for i := range cluster.Servers {
+		cluster.Servers[i].Start()
+	}
+
+	require.NoError(t, cluster.WaitForBlock(25, time.Minute))
+
+	// add new node
+	_, err = cluster.InitSecrets("test-chain-8", 1)
+	require.NoError(t, err)
+
+	cluster.InitTestServer(t, "test-chain-8", frameworkV2.None)
+	require.NoError(t, cluster.WaitForBlock(33, time.Minute))
+}

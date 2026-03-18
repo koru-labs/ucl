@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	DefaultEpochSize = 100000
-	IbftKeyName      = "validator.key"
-	KeyEpochSize     = "epochSize"
+	DefaultEpochSize   = 100000
+	IbftKeyName        = "validator.key"
+	KeyEpochSize       = "epochSize"
+	KeyInitialTrieRoot = "initialTrieRoot"
 
 	ibftProto = "/ibft/0.2"
 

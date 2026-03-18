@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/memory"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
+	consensusIBFT "github.com/0xPolygon/polygon-edge/consensus/ibft"
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
@@ -253,26 +254,24 @@ func NewServer(config *Config) (*Server, error) {
 
 	var initialStateRoot = types.ZeroHash
 
-	if ConsensusType(engineName) == PolyBFTConsensus {
-		polyBFTConfig, err := consensusPolyBFT.GetPolyBFTConfig(config.Chain)
+	initialTrieRoot, err := getInitialTrieRoot(engineName, config.Chain)
+	if err != nil {
+		return nil, err
+	}
+
+	if initialTrieRoot != types.ZeroHash {
+		checkedInitialTrieRoot, err := itrie.HashChecker(initialTrieRoot.Bytes(), stateStorage)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error on state root verification %w", err)
 		}
 
-		if polyBFTConfig.InitialTrieRoot != types.ZeroHash {
-			checkedInitialTrieRoot, err := itrie.HashChecker(polyBFTConfig.InitialTrieRoot.Bytes(), stateStorage)
-			if err != nil {
-				return nil, fmt.Errorf("error on state root verification %w", err)
-			}
-
-			if checkedInitialTrieRoot != polyBFTConfig.InitialTrieRoot {
-				return nil, errors.New("invalid initial state root")
-			}
-
-			logger.Info("Initial state root checked and correct")
-
-			initialStateRoot = polyBFTConfig.InitialTrieRoot
+		if checkedInitialTrieRoot != initialTrieRoot {
+			return nil, errors.New("invalid initial state root")
 		}
+
+		logger.Info("Initial state root checked and correct")
+
+		initialStateRoot = initialTrieRoot
 	}
 
 	genesisRoot, err := m.executor.WriteGenesis(config.Chain.Genesis.Alloc, initialStateRoot)
@@ -1042,4 +1041,29 @@ func initForkManager(engineName string, config *chain.Chain) error {
 	}
 
 	return nil
+}
+
+// getInitialTrieRoot returns the InitialTrieRoot for supported consensus types,
+// or types.ZeroHash if the engine is not recognized.
+func getInitialTrieRoot(engineName string, chain *chain.Chain) (types.Hash, error) {
+	switch ConsensusType(engineName) {
+	case IBFTConsensus:
+		cfg, err := consensusIBFT.GetIBFTConfig(chain)
+		if err != nil {
+			return types.ZeroHash, err
+		}
+
+		return cfg.InitialTrieRoot, nil
+
+	case PolyBFTConsensus:
+		cfg, err := consensusPolyBFT.GetPolyBFTConfig(chain)
+		if err != nil {
+			return types.ZeroHash, err
+		}
+
+		return cfg.InitialTrieRoot, nil
+
+	default:
+		return types.ZeroHash, nil
+	}
 }

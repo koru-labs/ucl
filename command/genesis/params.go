@@ -371,10 +371,11 @@ func (p *genesisParams) initConsensusEngineConfig() {
 func (p *genesisParams) initIBFTEngineMap(ibftType fork.IBFTType) {
 	p.consensusEngineConfig = map[string]interface{}{
 		string(server.IBFTConsensus): map[string]interface{}{
-			fork.KeyType:          ibftType,
-			fork.KeyValidatorType: p.ibftValidatorType,
-			fork.KeyBlockTime:     p.blockTime,
-			ibft.KeyEpochSize:     p.epochSize,
+			fork.KeyType:            ibftType,
+			fork.KeyValidatorType:   p.ibftValidatorType,
+			fork.KeyBlockTime:       p.blockTime,
+			ibft.KeyEpochSize:       p.epochSize,
+			ibft.KeyInitialTrieRoot: p.initialStateRoot,
 		},
 	}
 }
