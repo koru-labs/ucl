@@ -23,6 +23,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -236,14 +237,13 @@ type TestCluster struct {
 
 type ClusterOption func(*TestClusterConfig)
 
-func WithPremine(addresses ...types.Address) ClusterOption {
+func WithPremine(amounts map[types.Address]*big.Int) ClusterOption {
 	return func(h *TestClusterConfig) {
-		for _, a := range addresses {
-			h.Premine = append(h.Premine, a.String())
+		for addr, amount := range amounts {
+			h.Premine = append(h.Premine, fmt.Sprintf("%s:0x%s", addr.String(), amount.String()))
 		}
 	}
 }
-
 func WithSecretsCallback(fn func([]types.Address, *TestClusterConfig)) ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.SecretsCallback = fn
@@ -566,7 +566,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			"--block-gas-limit", strconv.FormatUint(cluster.Config.BlockGasLimit, 10),
 			"--epoch-size", strconv.Itoa(cluster.Config.EpochSize),
 			"--epoch-reward", strconv.Itoa(cluster.Config.EpochReward),
-			"--premine", "0x0000000000000000000000000000000000000000",
+			"--premine", "0x0000000000000000000000000000000000000000:0x" + ethgo.Ether(10).String(),
 			"--trieroot", cluster.Config.InitialStateRoot.String(),
 		}
 
@@ -605,7 +605,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		tokenConfig, err := polybft.ParseRawTokenConfig(cluster.Config.NativeTokenConfigRaw)
 		require.NoError(t, err)
 
-		if len(cluster.Config.Premine) != 0 && tokenConfig.IsMintable {
+		if len(cluster.Config.Premine) != 0 {
 			// only add premine flags in genesis if token is mintable
 			for _, premine := range cluster.Config.Premine {
 				args = append(args, "--premine", premine)

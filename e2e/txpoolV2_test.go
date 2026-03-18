@@ -26,7 +26,9 @@ func TestE2E_TxPool_TransferV2(t *testing.T) {
 	require.NoError(t, err)
 
 	cluster := frameworkV2.NewTestCluster(t, 5,
-		frameworkV2.WithPremine(types.Address(sender.Address())),
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(sender.Address()): ethgo.Ether(1),
+		}),
 		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
 		frameworkV2.WithBootnodeCount(1),
 	)
@@ -107,8 +109,11 @@ func TestE2E_TxPool_Transfer_LinearV2(t *testing.T) {
 
 	// first account should have some matics premined
 	cluster := frameworkV2.NewTestCluster(t, 5,
-		frameworkV2.WithPremine(types.Address(premine.Address())),
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(premine.Address()): ethgo.Ether(1),
+		}),
 		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
+		frameworkV2.WithBootnodeCount(1),
 	)
 	defer cluster.Stop()
 
@@ -193,7 +198,10 @@ func TestE2E_TxPool_TransactionWithHeaderInstructionsV2(t *testing.T) {
 	require.NoError(t, err)
 
 	cluster := frameworkV2.NewTestCluster(t, 4,
-		frameworkV2.WithPremine(types.Address(sidechainKey.Address())),
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(sidechainKey.Address()): ethgo.Ether(1),
+		}),
+		frameworkV2.WithBootnodeCount(1),
 	)
 	defer cluster.Stop()
 
@@ -245,8 +253,11 @@ func TestE2E_TxPool_BroadcastTransactionsV2(t *testing.T) {
 
 	// First account should have some matics premined
 	cluster := frameworkV2.NewTestCluster(t, 5,
-		frameworkV2.WithPremine(types.Address(sender.Address())),
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(sender.Address()): ethgo.Ether(1),
+		}),
 		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
+		frameworkV2.WithBootnodeCount(1),
 	)
 	defer cluster.Stop()
 
@@ -322,7 +333,15 @@ func sendTransaction(t *testing.T, client *jsonrpc.Client, sender *wallet.Key, t
 
 	txn.R = new(big.Int).SetBytes(sig[:32])
 	txn.S = new(big.Int).SetBytes(sig[32:64])
-	txn.V = new(big.Int).SetBytes(sig[64:])
+
+	if txn.Type == types.DynamicFeeTx {
+		// EIP-1559: V is just the parity bit (0 or 1)
+		txn.V = big.NewInt(int64(sig[64]))
+	} else {
+		// Legacy/EIP-155: V must be chain_id * 2 + 35 + parity
+		parity := int64(sig[64])
+		txn.V = big.NewInt(int64(chainID.Uint64())*2 + 35 + parity)
+	}
 
 	txnRlp := txn.MarshalRLPTo(nil)
 

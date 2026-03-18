@@ -118,6 +118,21 @@ func GetPolyBFTConfig(chainConfig *chain.Chain) (PolyBFTConfig, error) {
 	return polyBFTConfig, nil
 }
 
+// GetIBFTConfig deserializes provided chain config and returns PolyBFTConfig
+func GetIBFTConfig(chainConfig *chain.Chain) (PolyBFTConfig, error) {
+	consensusConfigJSON, err := json.Marshal(chainConfig.Params.Engine["ibft"])
+	if err != nil {
+		return PolyBFTConfig{}, err
+	}
+
+	var polyBFTConfig PolyBFTConfig
+	if err = json.Unmarshal(consensusConfigJSON, &polyBFTConfig); err != nil {
+		return PolyBFTConfig{}, err
+	}
+
+	return polyBFTConfig, nil
+}
+
 // BridgeConfig is the rootchain configuration, needed for bridging
 type BridgeConfig struct {
 	StateSenderAddr                   types.Address `json:"stateSenderAddress"`
