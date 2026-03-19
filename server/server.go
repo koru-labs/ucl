@@ -351,6 +351,8 @@ func NewServer(config *Config) (*Server, error) {
 				PriceLimit:         m.config.PriceLimit,
 				MaxAccountEnqueued: m.config.MaxAccountEnqueued,
 				TxGossipBatchSize:  m.config.TxGossipBatchSize,
+				JournalRotateSize:  m.config.JournalRotateSize,
+				DataDir:            m.config.DataDir,
 				ChainID:            big.NewInt(m.config.Chain.Params.ChainID),
 			},
 		)
@@ -392,11 +394,6 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
-	// setup and start jsonrpc server
-	if err := m.setupJSONRPC(); err != nil {
-		return nil, err
-	}
-
 	// restore archive data before starting
 	if err := m.restoreChain(); err != nil {
 		return nil, err
@@ -407,8 +404,14 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
+	// start txpool
 	m.txpool.SetBaseFee(m.blockchain.Header())
 	m.txpool.Start(m.consensus.GetSyncer())
+
+	// setup and start jsonrpc server
+	if err := m.setupJSONRPC(); err != nil {
+		return nil, err
+	}
 
 	return m, nil
 }

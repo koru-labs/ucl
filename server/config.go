@@ -26,6 +26,7 @@ type Config struct {
 	MaxAccountEnqueued uint64
 	MaxSlots           uint64
 	TxGossipBatchSize  uint64
+	JournalRotateSize  uint64
 
 	Telemetry *Telemetry
 	Network   *network.Config

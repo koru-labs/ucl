@@ -200,6 +200,13 @@ func setFlags(cmd *cobra.Command) {
 		"maximum number of transactions in gossip message",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.TxPool.JournalRotateSize,
+		journalRotateSizeFlag,
+		defaultConfig.TxPool.JournalRotateSize,
+		"number of local transactions in journal when rotate will be executed",
+	)
+
 	cmd.Flags().StringArrayVar(
 		&params.rawConfig.CorsAllowedOrigins,
 		corsOriginFlag,
