@@ -26,6 +26,31 @@ type mockHostF struct {
 	blockHash types.Hash
 }
 
+// CallNativeToken implements [runtime.Host].
+func (m *mockHostF) CallNativeToken(caller types.Address, to types.Address, input []byte, gas uint64) ([]byte, uint64, error) {
+	panic("unimplemented")
+}
+
+// GetCaller implements [runtime.Host].
+func (m *mockHostF) GetCaller() types.Address {
+	panic("unimplemented")
+}
+
+// GetStateRaw implements [runtime.Host].
+func (m *mockHostF) GetStateRaw(addr types.Address, key types.Hash) []byte {
+	panic("unimplemented")
+}
+
+// IsNativeToken implements [runtime.Host].
+func (m *mockHostF) IsNativeToken(addr types.Address) bool {
+	panic("unimplemented")
+}
+
+// SetStateRaw implements [runtime.Host].
+func (m *mockHostF) SetStateRaw(addr types.Address, key types.Hash, value []byte) {
+	panic("unimplemented")
+}
+
 func (m *mockHostF) AccountExists(addr types.Address) bool {
 	if _, ok := m.nonces[addr]; ok {
 		return true
@@ -132,6 +157,33 @@ func (m *mockHostF) Transfer(from types.Address, to types.Address, amount *big.I
 	t.Add(t, amount)
 
 	return nil
+}
+
+func (m *mockHost) CallNativeToken(
+	caller types.Address,
+	to types.Address,
+	input []byte,
+	gas uint64,
+) ([]byte, uint64, error) {
+	args := m.Called(caller, to, input, gas)
+
+	return args.Get(0).([]byte), args.Get(1).(uint64), args.Error(2)
+}
+
+func (m *mockHost) IsNativeToken(addr types.Address) bool {
+	args := m.Called(addr)
+
+	return args.Bool(0)
+}
+
+func (m *mockHost) GetStateRaw(addr types.Address, key types.Hash) []byte {
+	args := m.Called(addr, key)
+
+	return args.Get(0).([]byte)
+}
+
+func (m *mockHost) SetStateRaw(addr types.Address, key types.Hash, value []byte) {
+	m.Called(addr, key, value)
 }
 
 func (m *mockHostF) GetTracer() runtime.VMTracer {

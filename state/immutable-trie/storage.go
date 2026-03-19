@@ -29,6 +29,30 @@ type Batch interface {
 	Write() error
 }
 
+// ConcurrentBatch wraps a Batch with mutex for thread-safe concurrent writes.
+// Use this when multiple goroutines need to write to the same batch.
+type ConcurrentBatch struct {
+	batch Batch
+	mu    sync.Mutex
+}
+
+// NewConcurrentBatch creates a thread-safe batch wrapper.
+func NewConcurrentBatch(batch Batch) *ConcurrentBatch {
+	return &ConcurrentBatch{batch: batch}
+}
+
+// Put adds a key-value pair to the batch (thread-safe).
+func (cb *ConcurrentBatch) Put(k, v []byte) {
+	cb.mu.Lock()
+	cb.batch.Put(k, v)
+	cb.mu.Unlock()
+}
+
+// Write writes all the key-value pairs to the database.
+func (cb *ConcurrentBatch) Write() error {
+	return cb.batch.Write()
+}
+
 // Storage stores the trie
 type Storage interface {
 	Put(k, v []byte) error

@@ -149,15 +149,23 @@ func TestTransfer(t *testing.T) {
 
 			if err == nil {
 				// should move balance
-				oldBalanceOfFrom := big.NewInt(int64(tt.preState[tt.from].Balance))
-				oldBalanceOfTo := big.NewInt(int64(tt.preState[tt.to].Balance))
-				newBalanceOfFrom := transition.GetBalance(tt.from)
-				newBalanceOfTo := transition.GetBalance(tt.to)
-				diffOfFrom := new(big.Int).Sub(newBalanceOfFrom, oldBalanceOfFrom)
-				diffOfTo := new(big.Int).Sub(newBalanceOfTo, oldBalanceOfTo)
+				fromPreState := tt.preState[tt.from]
+				toPreState := tt.preState[tt.to]
 
-				assert.Zero(t, diffOfFrom.Cmp(new(big.Int).Mul(big.NewInt(-1), amount)))
-				assert.Zero(t, diffOfTo.Cmp(amount))
+				assert.NotNil(t, fromPreState, "from account should exist in preState")
+				assert.NotNil(t, toPreState, "to account should exist in preState")
+
+				if fromPreState != nil && toPreState != nil {
+					oldBalanceOfFrom := big.NewInt(int64(fromPreState.Balance))
+					oldBalanceOfTo := big.NewInt(int64(toPreState.Balance))
+					newBalanceOfFrom := transition.GetBalance(tt.from)
+					newBalanceOfTo := transition.GetBalance(tt.to)
+					diffOfFrom := new(big.Int).Sub(newBalanceOfFrom, oldBalanceOfFrom)
+					diffOfTo := new(big.Int).Sub(newBalanceOfTo, oldBalanceOfTo)
+
+					assert.Zero(t, diffOfFrom.Cmp(new(big.Int).Mul(big.NewInt(-1), amount)))
+					assert.Zero(t, diffOfTo.Cmp(amount))
+				}
 			}
 		})
 	}
