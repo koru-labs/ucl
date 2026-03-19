@@ -61,12 +61,40 @@ type env struct {
 	Timestamp  string `json:"currentTimestamp"`
 }
 
-func remove0xPrefix(str string) string {
-	if strings.HasPrefix(str, "0x") {
-		return strings.Replace(str, "0x", "", -1)
+func (e *env) ToHeader(t testing.TB) *types.Header {
+	t.Helper()
+
+	baseFee := uint64(0)
+	if e.BaseFee != "" {
+		baseFee = stringToUint64T(t, e.BaseFee)
 	}
 
-	return str
+	return &types.Header{
+		Miner:      stringToAddressT(t, e.Coinbase).Bytes(),
+		BaseFee:    baseFee,
+		Difficulty: stringToUint64T(t, e.Difficulty),
+		GasLimit:   stringToUint64T(t, e.GasLimit),
+		Number:     stringToUint64T(t, e.Number),
+		Timestamp:  stringToUint64T(t, e.Timestamp),
+	}
+}
+
+func (e *env) ToEnv(t testing.TB) runtime.TxContext {
+	t.Helper()
+
+	baseFee := new(big.Int)
+	if e.BaseFee != "" {
+		baseFee = stringToBigIntT(t, e.BaseFee)
+	}
+
+	return runtime.TxContext{
+		Coinbase:   stringToAddressT(t, e.Coinbase),
+		BaseFee:    baseFee,
+		Difficulty: stringToHashT(t, e.Difficulty),
+		GasLimit:   stringToInt64T(t, e.GasLimit),
+		Number:     stringToInt64T(t, e.Number),
+		Timestamp:  stringToInt64T(t, e.Timestamp),
+	}
 }
 
 func stringToAddress(str string) (types.Address, error) {
@@ -93,11 +121,11 @@ func stringToBigInt(str string) (*big.Int, error) {
 	base := 10
 
 	if strings.HasPrefix(str, "0x") {
-		str, base = remove0xPrefix(str), 16
+		str = strings.TrimPrefix(str, "0x")
+		base = 16
 	}
 
-	n, ok := big.NewInt(1).SetString(str, base)
-
+	n, ok := new(big.Int).SetString(str, base)
 	if !ok {
 		return nil, fmt.Errorf("failed to convert %s to big.Int with base %d", str, base)
 	}
@@ -157,42 +185,6 @@ func stringToInt64T(t testing.TB, str string) int64 {
 	require.NoError(t, err)
 
 	return int64(n)
-}
-
-func (e *env) ToHeader(t testing.TB) *types.Header {
-	t.Helper()
-
-	baseFee := uint64(0)
-	if e.BaseFee != "" {
-		baseFee = stringToUint64T(t, e.BaseFee)
-	}
-
-	return &types.Header{
-		Miner:      stringToAddressT(t, e.Coinbase).Bytes(),
-		BaseFee:    baseFee,
-		Difficulty: stringToUint64T(t, e.Difficulty),
-		GasLimit:   stringToUint64T(t, e.GasLimit),
-		Number:     stringToUint64T(t, e.Number),
-		Timestamp:  stringToUint64T(t, e.Timestamp),
-	}
-}
-
-func (e *env) ToEnv(t testing.TB) runtime.TxContext {
-	t.Helper()
-
-	baseFee := new(big.Int)
-	if e.BaseFee != "" {
-		baseFee = stringToBigIntT(t, e.BaseFee)
-	}
-
-	return runtime.TxContext{
-		Coinbase:   stringToAddressT(t, e.Coinbase),
-		BaseFee:    baseFee,
-		Difficulty: stringToHashT(t, e.Difficulty),
-		GasLimit:   stringToInt64T(t, e.GasLimit),
-		Number:     stringToInt64T(t, e.Number),
-		Timestamp:  stringToInt64T(t, e.Timestamp),
-	}
 }
 
 func buildState(
@@ -266,14 +258,14 @@ func (p *postEntry) UnmarshalJSON(input []byte) error {
 
 type stTransaction struct {
 	Data                 []string       `json:"data"`
+	Value                []string       `json:"value"`
+	Nonce                uint64         `json:"nonce"`
+	To                   *types.Address `json:"to"`
 	GasLimit             []uint64       `json:"gasLimit"`
-	Value                []*big.Int     `json:"value"`
 	GasPrice             *big.Int       `json:"gasPrice"`
 	MaxFeePerGas         *big.Int       `json:"maxFeePerGas"`
 	MaxPriorityFeePerGas *big.Int       `json:"maxPriorityFeePerGas"`
-	Nonce                uint64         `json:"nonce"`
-	From                 types.Address  `json:"secretKey"`
-	To                   *types.Address `json:"to"`
+	From                 types.Address  // derived field
 }
 
 func (t *stTransaction) At(i indexes, baseFee *big.Int) (*types.Transaction, error) {
@@ -317,11 +309,23 @@ func (t *stTransaction) At(i indexes, baseFee *big.Int) (*types.Transaction, err
 		return nil, errors.New("no gas price provided")
 	}
 
+	valueHex := t.Value[i.Value]
+	value := new(big.Int)
+
+	if valueHex != "0x" {
+		v, err := common.ParseUint256orHex(&valueHex)
+		if err != nil {
+			return nil, err
+		}
+
+		value = v
+	}
+
 	return &types.Transaction{
 		From:      t.From,
 		To:        t.To,
 		Nonce:     t.Nonce,
-		Value:     new(big.Int).Set(t.Value[i.Value]),
+		Value:     value,
 		Gas:       t.GasLimit[i.Gas],
 		GasPrice:  new(big.Int).Set(gasPrice),
 		GasFeeCap: t.MaxFeePerGas,
@@ -350,6 +354,7 @@ func (t *stTransaction) UnmarshalJSON(input []byte) error {
 	}
 
 	t.Data = dec.Data
+	t.Value = dec.Value
 
 	for _, i := range dec.GasLimit {
 		j, err := stringToUint64(i)
@@ -358,22 +363,6 @@ func (t *stTransaction) UnmarshalJSON(input []byte) error {
 		}
 
 		t.GasLimit = append(t.GasLimit, j)
-	}
-
-	for _, i := range dec.Value {
-		value := new(big.Int)
-		loopVal := i
-
-		if loopVal != "0x" {
-			v, err := common.ParseUint256orHex(&loopVal)
-			if err != nil {
-				return err
-			}
-
-			value = v
-		}
-
-		t.Value = append(t.Value, value)
 	}
 
 	var err error
