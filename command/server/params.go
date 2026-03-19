@@ -39,11 +39,13 @@ const (
 	logFileLocationFlag          = "log-to"
 	gossipMessageSizeFlag        = "gossip-msg-size"
 	txGossipBatchSizeFlag        = "tx-gossip-batch-size"
-	useTLSFlag                   = "use-tls"
-	tlsCertFileLocationFlag      = "tls-cert-file"
-	tlsKeyFileLocationFlag       = "tls-key-file"
-	blockCacheTTLFlag            = "block-cache-ttl"
-	blockCacheCapacityFlag       = "block-cache-capacity"
+	journalRotateSizeFlag        = "journal-rotate-size"
+
+	useTLSFlag              = "use-tls"
+	tlsCertFileLocationFlag = "tls-cert-file"
+	tlsKeyFileLocationFlag  = "tls-key-file"
+	blockCacheTTLFlag       = "block-cache-ttl"
+	blockCacheCapacityFlag  = "block-cache-capacity"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -190,6 +192,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		MaxSlots:           p.rawConfig.TxPool.MaxSlots,
 		MaxAccountEnqueued: p.rawConfig.TxPool.MaxAccountEnqueued,
 		TxGossipBatchSize:  p.rawConfig.TxPool.TxGossipBatchSize,
+		JournalRotateSize:  p.rawConfig.TxPool.JournalRotateSize,
 		SecretsManager:     p.secretsConfig,
 		RestoreFile:        p.getRestoreFilePath(),
 		LogLevel:           hclog.LevelFromString(p.rawConfig.LogLevel),
