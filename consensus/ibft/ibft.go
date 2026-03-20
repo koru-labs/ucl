@@ -237,9 +237,13 @@ func (i *backendIBFT) Initialize() error {
 // sync runs the syncer in the background to receive blocks from advanced peers
 func (i *backendIBFT) startSyncing() {
 	callInsertBlockHook := func(fullBlock *types.FullBlock) bool {
+		i.mutex.RLock()
+
 		if err := i.currentHooks.PostInsertBlock(fullBlock.Block); err != nil {
 			i.logger.Error("failed to call PostInsertBlock", "height", fullBlock.Block.Header.Number, "error", err)
 		}
+
+		i.mutex.RUnlock()
 
 		// O.B. clashing with consensus routine since it updates properties used in consensus, this call seems obsolete
 		// if err := i.updateCurrentModules(fullBlock.Block.Number() + 1); err != nil {
