@@ -82,10 +82,7 @@ type backendIBFT struct {
 	transport      transport              // Reference to the transport protocol
 
 	// Dynamic References
-	forkManager       forkManagerInterface  // Manager to hold IBFT Forks
-	currentSigner     signer.Signer         // Signer at current sequence
-	currentValidators validators.Validators // signer at current sequence
-	currentHooks      fork.HooksInterface   // Hooks at current sequence
+	forkManager forkManagerInterface // Manager to hold IBFT Forks
 
 	// Configurations
 	config             *consensus.Config // Consensus configuration
@@ -212,11 +209,12 @@ func (i *backendIBFT) Initialize() error {
 		return err
 	}
 
-	if err := i.updateCurrentModules(i.blockchain.Header().Number + 1); err != nil {
+	signer, err := i.forkManager.GetSigner(i.blockchain.Header().Number + 1)
+	if err != nil {
 		return err
 	}
 
-	i.logger.Info("validator key", "addr", i.currentSigner.Address().String())
+	i.logger.Info("validator key", "addr", signer.Address().String())
 
 	i.consensus = newIBFT(
 		i.logger.Named("consensus"),
@@ -233,12 +231,9 @@ func (i *backendIBFT) Initialize() error {
 // sync runs the syncer in the background to receive blocks from advanced peers
 func (i *backendIBFT) startSyncing() {
 	callInsertBlockHook := func(fullBlock *types.FullBlock) bool {
-		if err := i.currentHooks.PostInsertBlock(fullBlock.Block); err != nil {
+		hooks := i.forkManager.GetHooks(fullBlock.Block.Number())
+		if err := hooks.PostInsertBlock(fullBlock.Block); err != nil {
 			i.logger.Error("failed to call PostInsertBlock", "height", fullBlock.Block.Header.Number, "error", err)
-		}
-
-		if err := i.updateCurrentModules(fullBlock.Block.Number() + 1); err != nil {
-			i.logger.Error("failed to update sub modules", "height", fullBlock.Block.Number()+1, "err", err)
 		}
 
 		i.txpool.ResetWithBlock(fullBlock.Block)
@@ -312,16 +307,17 @@ func (i *backendIBFT) startConsensus() {
 			pending = latest + 1
 		)
 
-		if err := i.updateCurrentModules(pending); err != nil {
+		validators, err := i.forkManager.GetValidators(pending)
+		if err != nil {
 			i.logger.Error(
-				"failed to update submodules",
+				"failed to get active validators",
 				"height", pending,
 				"err", err,
 			)
 		}
 
 		// Update the No.of validator metric
-		metrics.SetGauge([]string{consensusMetrics, "validators"}, float32(i.currentValidators.Len()))
+		metrics.SetGauge([]string{consensusMetrics, "validators"}, float32(validators.Len()))
 
 		isValidator = i.isActiveValidator()
 
@@ -350,7 +346,16 @@ func (i *backendIBFT) startConsensus() {
 
 // isActiveValidator returns whether my signer belongs to current validators
 func (i *backendIBFT) isActiveValidator() bool {
-	return i.currentValidators.Includes(i.currentSigner.Address())
+	pending := i.blockchain.Header().Number + 1
+
+	signer, validators, _, err := getModulesFromForkManager(i.forkManager, pending)
+	if err != nil {
+		i.logger.Error("cannot get modules from fork manager for", "block number", pending, "err", err)
+
+		return false
+	}
+
+	return validators.Includes(signer.Address())
 }
 
 // updateMetrics will update various metrics based on the given block
@@ -576,35 +581,6 @@ func (i *backendIBFT) FilterExtra(extra []byte) ([]byte, error) {
 // GetSyncer returns the syncer instance used by IBFT
 func (p *backendIBFT) GetSyncer() syncer.Syncer {
 	return p.syncer
-}
-
-// updateCurrentModules updates Signer, Hooks, and Validators
-// that are used at specified height
-// by fetching from ForkManager
-func (i *backendIBFT) updateCurrentModules(height uint64) error {
-	lastSigner := i.currentSigner
-
-	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, height)
-	if err != nil {
-		return err
-	}
-
-	i.currentSigner = signer
-	i.currentValidators = validators
-	i.currentHooks = hooks
-
-	i.logFork(lastSigner, signer)
-
-	return nil
-}
-
-// logFork logs validation type switch
-func (i *backendIBFT) logFork(
-	lastSigner, signer signer.Signer,
-) {
-	if lastSigner != nil && signer != nil && lastSigner.Type() != signer.Type() {
-		i.logger.Info("IBFT validation type switched", "old", lastSigner.Type(), "new", signer.Type())
-	}
 }
 
 func (i *backendIBFT) verifyParentCommittedSeals(

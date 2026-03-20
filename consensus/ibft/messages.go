@@ -12,7 +12,16 @@ func (i *backendIBFT) signMessage(msg *protoIBFT.IbftMessage) *protoIBFT.IbftMes
 		return nil
 	}
 
-	if msg.Signature, err = i.currentSigner.SignIBFTMessage(raw); err != nil {
+	pending := i.blockchain.Header().Number + 1
+
+	signer, err := i.forkManager.GetSigner(pending)
+	if err != nil {
+		i.logger.Error("cannot get signer from fork manager for", "block number", pending, "err", err)
+
+		return nil
+	}
+
+	if msg.Signature, err = signer.SignIBFTMessage(raw); err != nil {
 		return nil
 	}
 
@@ -67,7 +76,16 @@ func (i *backendIBFT) BuildPrepareMessage(proposalHash []byte, view *protoIBFT.V
 }
 
 func (i *backendIBFT) BuildCommitMessage(proposalHash []byte, view *protoIBFT.View) *protoIBFT.IbftMessage {
-	committedSeal, err := i.currentSigner.CreateCommittedSeal(proposalHash)
+	pending := i.blockchain.Header().Number + 1
+
+	signer, err := i.forkManager.GetSigner(pending)
+	if err != nil {
+		i.logger.Error("cannot get signer from fork manager for", "block number", pending, "err", err)
+
+		return nil
+	}
+
+	committedSeal, err := signer.CreateCommittedSeal(proposalHash)
 	if err != nil {
 		i.logger.Error("Unable to build commit message, %v", err)
 
