@@ -237,9 +237,10 @@ func (i *backendIBFT) startSyncing() {
 			i.logger.Error("failed to call PostInsertBlock", "height", fullBlock.Block.Header.Number, "error", err)
 		}
 
-		if err := i.updateCurrentModules(fullBlock.Block.Number() + 1); err != nil {
-			i.logger.Error("failed to update sub modules", "height", fullBlock.Block.Number()+1, "err", err)
-		}
+		// O.B. clashing with consensus routine since it updates properties used in consensus, this call seems obsolete
+		// if err := i.updateCurrentModules(fullBlock.Block.Number() + 1); err != nil {
+		// 	i.logger.Error("failed to update sub modules", "height", fullBlock.Block.Number()+1, "err", err)
+		// }
 
 		i.txpool.ResetWithBlock(fullBlock.Block)
 
