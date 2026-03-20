@@ -3,6 +3,7 @@ package ibft
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	protomsg "github.com/0xPolygon/go-ibft/messages/proto"
@@ -95,6 +96,9 @@ type backendIBFT struct {
 
 	// Channels
 	closeCh chan struct{} // Channel for closing
+
+	// mutex for dynamic reference protection
+	mutex sync.RWMutex
 }
 
 // Factory implements the base consensus Factory method
@@ -351,6 +355,9 @@ func (i *backendIBFT) startConsensus() {
 
 // isActiveValidator returns whether my signer belongs to current validators
 func (i *backendIBFT) isActiveValidator() bool {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+
 	return i.currentValidators.Includes(i.currentSigner.Address())
 }
 
@@ -590,9 +597,11 @@ func (i *backendIBFT) updateCurrentModules(height uint64) error {
 		return err
 	}
 
+	i.mutex.Lock()
 	i.currentSigner = signer
 	i.currentValidators = validators
 	i.currentHooks = hooks
+	i.mutex.Unlock()
 
 	i.logFork(lastSigner, signer)
 
