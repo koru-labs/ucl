@@ -83,14 +83,14 @@ func (i *backendIBFT) IsValidProposal(rawProposal []byte) bool {
 		return false
 	}
 
-	if err := i.verifyHeaderImpl(
-		latestHeader,
-		newBlock.Header,
-		i.currentSigner,
-		i.currentValidators,
-		i.currentHooks,
-		true,
-	); err != nil {
+	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, newBlock.Number())
+	if err != nil {
+		i.logger.Error("cannot get modules from fork manager for", "block number", newBlock.Number(), "err", err)
+
+		return false
+	}
+
+	if err := i.verifyHeaderImpl(latestHeader, newBlock.Header, signer, validators, hooks, true); err != nil {
 		i.logger.Error("block header verification failed", "err", err)
 
 		return false
@@ -102,7 +102,7 @@ func (i *backendIBFT) IsValidProposal(rawProposal []byte) bool {
 		return false
 	}
 
-	if err := i.currentHooks.VerifyBlock(newBlock); err != nil {
+	if err := hooks.VerifyBlock(newBlock); err != nil {
 		i.logger.Error("additional block verification failed", "err", err)
 
 		return false
@@ -117,7 +117,12 @@ func (i *backendIBFT) IsValidValidator(msg *protoIBFT.IbftMessage) bool {
 		return false
 	}
 
-	signerAddress, err := i.currentSigner.EcrecoverFromIBFTMessage(
+	signer, err := i.forkManager.GetSigner(msg.View.Height)
+	if err != nil {
+		return false
+	}
+
+	signerAddress, err := signer.EcrecoverFromIBFTMessage(
 		msg.Signature,
 		msgNoSig,
 	)
@@ -172,11 +177,14 @@ func (i *backendIBFT) IsProposer(id []byte, height, round uint64) bool {
 		return false
 	}
 
-	nextProposer := calcProposer(
-		i.currentValidators,
-		round,
-		previousProposer,
-	)
+	validators, err := i.forkManager.GetValidators(height)
+	if err != nil {
+		i.logger.Error("failed to active validator set", "height", height, "err", err)
+
+		return false
+	}
+
+	nextProposer := calcProposer(validators, round, previousProposer)
 
 	return types.BytesToAddress(id) == nextProposer.Addr()
 }
@@ -194,8 +202,17 @@ func (i *backendIBFT) IsValidCommittedSeal(
 	proposalHash []byte,
 	committedSeal *messages.CommittedSeal,
 ) bool {
-	err := i.currentSigner.VerifyCommittedSeal(
-		i.currentValidators,
+	pending := i.blockchain.Header().Number + 1
+
+	signer, validators, _, err := getModulesFromForkManager(i.forkManager, pending)
+	if err != nil {
+		i.logger.Error("cannot get modules from fork manager for", "block number", pending, "err", err)
+
+		return false
+	}
+
+	err = signer.VerifyCommittedSeal(
+		validators,
 		types.BytesToAddress(committedSeal.Signer),
 		committedSeal.Signature,
 		proposalHash,

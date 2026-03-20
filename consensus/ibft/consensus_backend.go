@@ -64,8 +64,15 @@ func (i *backendIBFT) InsertProposal(
 	extraDataBackup := make([]byte, len(extraDataOriginal))
 	copy(extraDataBackup, extraDataOriginal)
 
+	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, newBlock.Number())
+	if err != nil {
+		i.logger.Error("cannot get modules from fork manager for", "block number", newBlock.Number(), "err", err)
+
+		return
+	}
+
 	// Push the committed seals to the header
-	header, err := i.currentSigner.WriteCommittedSeals(newBlock.Header, proposal.Round, committedSealsMap)
+	header, err := signer.WriteCommittedSeals(newBlock.Header, proposal.Round, committedSealsMap)
 	if err != nil {
 		i.logger.Error("cannot write committed seals", "err", err)
 
@@ -111,12 +118,12 @@ func (i *backendIBFT) InsertProposal(
 		"block committed",
 		"number", newBlock.Number(),
 		"hash", newBlock.Hash(),
-		"validation_type", i.currentSigner.Type(),
-		"validators", i.currentValidators.Len(),
+		"validation_type", signer.Type(),
+		"validators", validators.Len(),
 		"committed", len(committedSeals),
 	)
 
-	if err := i.currentHooks.PostInsertBlock(newBlock); err != nil {
+	if err := hooks.PostInsertBlock(newBlock); err != nil {
 		i.logger.Error(
 			"failed to call PostInsertBlock hook",
 			"height", newBlock.Number(),
@@ -133,11 +140,27 @@ func (i *backendIBFT) InsertProposal(
 }
 
 func (i *backendIBFT) ID() []byte {
-	return i.currentSigner.Address().Bytes()
+	// signer for pending block
+	signer, err := i.forkManager.GetSigner(i.blockchain.Header().Number + 1)
+	if err != nil {
+		i.logger.Error("cannot get signer for pending block", "err", err)
+
+		return []byte{}
+	}
+
+	return signer.Address().Bytes()
 }
 
 func (i *backendIBFT) MaximumFaultyNodes() uint64 {
-	return uint64(calcMaxFaultyNodes(i.currentValidators))
+	// validators for pending block
+	validators, err := i.forkManager.GetValidators(i.blockchain.Header().Number + 1)
+	if err != nil {
+		i.logger.Error("cannot get validators for pending block", "err", err)
+
+		return 0
+	}
+
+	return uint64(calcMaxFaultyNodes(validators))
 }
 
 // DISCLAIMER: IBFT will be deprecated so we set 1 as a voting power to all validators
@@ -181,7 +204,14 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	// calculate base fee
 	header.GasLimit = gasLimit
 
-	if err := i.currentHooks.ModifyHeader(header, i.currentSigner.Address()); err != nil {
+	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, header.Number)
+	if err != nil {
+		i.logger.Error("cannot get modules from fork manager for", "block number", header.Number, "err", err)
+
+		return nil, err
+	}
+
+	if err := hooks.ModifyHeader(header, signer.Address()); err != nil {
 		return nil, err
 	}
 
@@ -194,9 +224,9 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 		return nil, err
 	}
 
-	i.currentSigner.InitIBFTExtra(header, i.currentValidators, parentCommittedSeals)
+	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
-	transition, err := i.executor.BeginTxn(parent.StateRoot, header, i.currentSigner.Address())
+	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +264,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	})
 
 	// write the seal of the block after all the fields are completed
-	header, err = i.currentSigner.WriteProposerSeal(header)
+	header, err = signer.WriteProposerSeal(header)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +330,8 @@ func (i *backendIBFT) writeTransactions(
 ) (executed []*types.Transaction) {
 	executed = make([]*types.Transaction, 0)
 
-	if !i.currentHooks.ShouldWriteTransactions(blockNumber) {
+	hooks := i.forkManager.GetHooks(blockNumber)
+	if !hooks.ShouldWriteTransactions(blockNumber) {
 		return
 	}
 
