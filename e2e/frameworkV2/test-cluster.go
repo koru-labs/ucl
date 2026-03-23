@@ -183,7 +183,7 @@ func (c *TestClusterConfig) GetStdout(name string, custom ...io.Writer) io.Write
 }
 
 func (c *TestClusterConfig) initLogsDir() {
-	logsDir := path.Join("../..", fmt.Sprintf("e2e-logs-%d", startTime), c.t.Name())
+	logsDir := path.Join("..", fmt.Sprintf("e2e-logs-%d", startTime), c.t.Name())
 	if c.IsPropertyTest {
 		// property tests run cluster multiple times, so each cluster run will be in the main folder
 		// e2e-logs-{someNumber}/NameOfPropertyTest/NameOfPropertyTest-{someNumber}
