@@ -54,6 +54,7 @@ type TxRelayerImpl struct {
 	client              *jsonrpc.EthClient
 	receiptTimeout      time.Duration
 	numRetries          int
+	noWaitReceipt       bool
 	estimateGasFallback bool
 	collectTxnHashes    bool
 	txnHashes           []types.Hash
@@ -285,8 +286,7 @@ func (t *TxRelayerImpl) sendTransactionLocalLocked(txn *types.Transaction) (type
 }
 
 func (t *TxRelayerImpl) waitForReceipt(hash types.Hash) (*ethgo.Receipt, error) {
-	// A negative numRetries means we don't want to receive the receipt after SendTransaction/SendTransactionLocal calls
-	if t.numRetries < 0 {
+	if t.noWaitReceipt {
 		return nil, nil
 	}
 
@@ -387,5 +387,11 @@ func WithCollectTxnHashes() TxRelayerOption {
 func WithEstimateGasFallback() TxRelayerOption {
 	return func(t *TxRelayerImpl) {
 		t.estimateGasFallback = true
+	}
+}
+
+func WithNoWaiting() TxRelayerOption {
+	return func(t *TxRelayerImpl) {
+		t.noWaitReceipt = true
 	}
 }

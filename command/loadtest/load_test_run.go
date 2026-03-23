@@ -1,11 +1,13 @@
 package loadtest
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/command"
 	"github.com/0xPolygon/polygon-edge/command/helper"
 	"github.com/0xPolygon/polygon-edge/loadtest/runner"
+	"github.com/0xPolygon/polygon-edge/server"
 	"github.com/spf13/cobra"
 )
 
@@ -21,20 +23,23 @@ func GetCommand() *cobra.Command {
 		Run:     runCommand,
 	}
 
-	helper.RegisterJSONRPCFlag(loadTestCmd)
-
 	setFlags(loadTestCmd)
 
 	return loadTestCmd
 }
 
 func preRunCommand(cmd *cobra.Command, _ []string) error {
-	params.jsonRPCAddress = helper.GetJSONRPCAddress(cmd)
-
 	return params.validateFlags()
 }
 
 func setFlags(cmd *cobra.Command) {
+	cmd.Flags().StringSliceVar(
+		&params.jsonRPCAddresses,
+		command.JSONRPCFlag,
+		[]string{fmt.Sprintf("%s:%d", helper.AllInterfacesBinding, server.DefaultJSONRPCPort)},
+		"the JSON-RPC interface addresses",
+	)
+
 	cmd.Flags().StringVar(
 		&params.mnemonic,
 		MnemonicFlag,
@@ -45,8 +50,8 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(
 		&params.loadTestType,
 		loadTestTypeFlag,
-		"erc20",
-		"the type of load test to run (for now only supported erc20)",
+		"eoa",
+		"the type of load test to run (supported types: eoa, erc20, erc721, erc1155, mixed, perf-contract)",
 	)
 
 	cmd.Flags().StringVar(
@@ -112,8 +117,52 @@ func setFlags(cmd *cobra.Command) {
 		"size of a batch of transactions to send to rpc node",
 	)
 
+	cmd.Flags().DurationVar(
+		&params.executionTime,
+		executionTimeFlag,
+		0,
+		"the duration of the load test expressed in time. When set, the load test will run for the specified duration",
+	)
+
+	cmd.Flags().IntVar(
+		&params.stateReadThreads,
+		stateReadThreadsFlag,
+		0,
+		"the number of state read threads (threads that read the state of the blockchain)",
+	)
+
+	cmd.Flags().IntVar(
+		&params.txpoolReadThreads,
+		txpoolReadThreadsFlag,
+		0,
+		"the number of txpool read threads (threads that read the transaction pool)",
+	)
+
+	cmd.Flags().IntVar(
+		&params.receiversNum,
+		receiversNumFlag,
+		1,
+		"the number of receivers for tokens being sent in load test",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.blockNumberDeadband,
+		blockNumberDeadbandFlag,
+		0,
+		"the deadband of block numbers, that is used when checking whether all the nodes are on the same block number",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.tearDown,
+		tearDownFlag,
+		false,
+		"indicates whether to tear down the load test",
+	)
+
 	_ = cmd.MarkFlagRequired(MnemonicFlag)
 	_ = cmd.MarkFlagRequired(loadTestTypeFlag)
+
+	cmd.MarkFlagsMutuallyExclusive(executionTimeFlag, txsPerUserFlag)
 }
 
 func runCommand(cmd *cobra.Command, _ []string) {
@@ -122,11 +171,11 @@ func runCommand(cmd *cobra.Command, _ []string) {
 
 	loadTestRunner := &runner.LoadTestRunner{}
 
-	err := loadTestRunner.Run(runner.LoadTestConfig{
-		Mnemonnic:            params.mnemonic,
+	err := loadTestRunner.Run(cmd.Context(), runner.LoadTestConfig{
+		Mnemonic:             params.mnemonic,
 		LoadTestType:         params.loadTestType,
 		LoadTestName:         params.loadTestName,
-		JSONRPCUrl:           params.jsonRPCAddress,
+		JSONRPCUrls:          params.jsonRPCAddresses,
 		ReceiptsTimeout:      params.receiptsTimeout,
 		TxPoolTimeout:        params.txPoolTimeout,
 		VUs:                  params.vus,
@@ -135,7 +184,14 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		DynamicTxs:           params.dynamicTxs,
 		ResultsToJSON:        params.toJSON,
 		WaitForTxPoolToEmpty: params.waitForTxPoolToEmpty,
+		ExecutionTime:        params.executionTime,
+		StateReadThreads:     params.stateReadThreads,
+		TxPoolReadThreads:    params.txpoolReadThreads,
+		ReceiversNum:         params.receiversNum,
+		BlockNumberDeadband:  params.blockNumberDeadband,
+		TearDown:             params.tearDown,
 	})
+
 	if err != nil {
 		outputter.SetError(err)
 	}

@@ -46,7 +46,7 @@ func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
 // 7. Waits for transaction receipts.
 // 8. Calculates the transactions per second (TPS) based on block information and transaction statistics.
 // Returns an error if any of the steps fail.
-func (e *ERC20Runner) Run() error {
+func (e *ERC20Runner) Run(ctx context.Context) error {
 	fmt.Println("Running ERC20 load test", e.cfg.LoadTestName)
 
 	if err := e.createVUs(); err != nil {
@@ -65,8 +65,19 @@ func (e *ERC20Runner) Run() error {
 		return err
 	}
 
+	cancelableCtx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+
+		e.resultsCollector.PrintResults()
+	}()
+
+	go e.resultsCollector.CollectResults(ctx)
+	go e.readState(cancelableCtx)
+	go e.readTxPool(cancelableCtx)
+
 	if !e.cfg.WaitForTxPoolToEmpty {
-		go e.waitForReceiptsParallel()
+		go e.waitForReceiptsParallel(cancelableCtx)
 		go e.calculateResultsParallel()
 
 		_, err := e.sendTransactions(e.createERC20Transaction)
@@ -74,7 +85,16 @@ func (e *ERC20Runner) Run() error {
 			return err
 		}
 
-		return <-e.done
+		if err := <-e.done; err != nil {
+			return err
+		}
+
+		nodeInfos, err := e.queryLatestBlocks()
+		if err != nil {
+			return err
+		}
+
+		return e.printNodeInfos(nodeInfos)
 	}
 
 	txHashes, err := e.sendTransactions(e.createERC20Transaction)
@@ -86,7 +106,20 @@ func (e *ERC20Runner) Run() error {
 		return err
 	}
 
-	return e.calculateResults(e.waitForReceipts(txHashes))
+	if err := e.calculateResults(e.waitForReceipts(txHashes)); err != nil {
+		return err
+	}
+
+	nodeInfos, err := e.queryLatestBlocks()
+	if err != nil {
+		return err
+	}
+
+	if err := e.tearDown(); err != nil {
+		return err
+	}
+
+	return e.printNodeInfos(nodeInfos)
 }
 
 // deployERC20Token deploys an ERC20 token contract.
@@ -109,6 +142,7 @@ func (e *ERC20Runner) deployERC20Token() error {
 		"coinSymbol": "ZEX",
 		"total":      500000000000,
 	})
+
 	if err != nil {
 		return err
 	}
@@ -120,14 +154,14 @@ func (e *ERC20Runner) deployERC20Token() error {
 		From:  e.loadTestAccount.key.Address(),
 	}
 
-	txRelayer, err := txrelayerv2.NewTxRelayer(
-		txrelayerv2.WithClient(e.client),
+	txrelayerv2, err := txrelayerv2.NewTxRelayer(
+		txrelayerv2.WithClient(e.clients.getClient()),
 		txrelayerv2.WithReceiptTimeout(e.cfg.ReceiptsTimeout))
 	if err != nil {
 		return err
 	}
 
-	receipt, err := txRelayer.SendTransaction(txn, e.loadTestAccount.key)
+	receipt, err := txrelayerv2.SendTransaction(txn, e.loadTestAccount.key)
 	if err != nil {
 		return err
 	}
@@ -140,7 +174,7 @@ func (e *ERC20Runner) deployERC20Token() error {
 	e.erc20TokenArtifact = artifact
 
 	input, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
-		"receiver":  receiverAddr,
+		"receiver":  e.receivers.getReceiver(),
 		"numTokens": big.NewInt(1),
 	})
 	if err != nil {
@@ -163,6 +197,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 
 	start := time.Now().UTC()
 	bar := progressbar.Default(int64(e.cfg.VUs), "Minting ERC20 tokens to VUs")
+	client := e.clients.getClient()
 
 	defer func() {
 		_ = bar.Close()
@@ -171,7 +206,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 	}()
 
 	txRelayer, err := txrelayerv2.NewTxRelayer(
-		txrelayerv2.WithClient(e.client),
+		txrelayerv2.WithClient(client),
 		txrelayerv2.WithoutNonceGet(),
 		txrelayerv2.WithReceiptTimeout(e.cfg.ReceiptsTimeout),
 	)
@@ -179,7 +214,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 		return err
 	}
 
-	nonce, err := e.client.GetNonce(e.loadTestAccount.key.Address(), jsonrpc.PendingBlockNumberOrHash)
+	nonce, err := client.GetNonce(e.loadTestAccount.key.Address(), jsonrpc.PendingBlockNumberOrHash)
 	if err != nil {
 		return err
 	}
@@ -203,13 +238,11 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 					return err
 				}
 
-				tokenAddr := e.erc20Token
-
 				tx := &types.Transaction{
 					Type:  types.LegacyTx,
-					To:    &tokenAddr,
-					Nonce: nonce + uint64(i),
+					To:    &e.erc20Token,
 					Input: input,
+					Nonce: nonce + uint64(i),
 					From:  e.loadTestAccount.key.Address(),
 				}
 
@@ -238,7 +271,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 
 // createERC20Transaction creates an ERC20 transaction
 func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
-	chainID *big.Int) *types.Transaction {
+	chainID *big.Int) (*types.Transaction, error) {
 	if e.cfg.DynamicTxs {
 		return &types.Transaction{
 			Type:      types.DynamicFeeTx,
@@ -249,7 +282,7 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 			GasTipCap: feeData.gasTipCap,
 			ChainID:   chainID,
 			Input:     e.txInput,
-		}
+		}, nil
 	}
 
 	return &types.Transaction{
@@ -259,5 +292,5 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 		GasPrice: feeData.gasPrice,
 		From:     account.key.Address(),
 		Input:    e.txInput,
-	}
+	}, nil
 }
