@@ -25,6 +25,10 @@ func NewEthClient(url string) (*EthClient, error) {
 	return &EthClient{client}, nil
 }
 
+func (e *EthClient) Close() error {
+	return e.client.Close()
+}
+
 // GetCode returns the code of a contract
 func (e *EthClient) GetCode(addr types.Address, block BlockNumberOrHash) (string, error) {
 	var res string
