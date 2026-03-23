@@ -51,7 +51,7 @@ func setFlags(cmd *cobra.Command) {
 		&params.loadTestType,
 		loadTestTypeFlag,
 		"eoa",
-		"the type of load test to run (supported types: eoa, erc20, erc721, erc1155, mixed, perf-contract)",
+		"the type of load test to run (for now only supported erc20)",
 	)
 
 	cmd.Flags().StringVar(
@@ -191,7 +191,6 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		BlockNumberDeadband:  params.blockNumberDeadband,
 		TearDown:             params.tearDown,
 	})
-
 	if err != nil {
 		outputter.SetError(err)
 	}

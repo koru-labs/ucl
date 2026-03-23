@@ -66,6 +66,7 @@ func (e *ERC20Runner) Run(ctx context.Context) error {
 	}
 
 	cancelableCtx, cancel := context.WithCancel(ctx)
+
 	defer func() {
 		cancel()
 
@@ -142,7 +143,6 @@ func (e *ERC20Runner) deployERC20Token() error {
 		"coinSymbol": "ZEX",
 		"total":      500000000000,
 	})
-
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func (e *ERC20Runner) deployERC20Token() error {
 
 	txrelayerv2, err := txrelayerv2.NewTxRelayer(
 		txrelayerv2.WithClient(e.clients.getClient()),
-		txrelayerv2.WithReceiptTimeout(e.cfg.ReceiptsTimeout))
+		txrelayerv2.WithReceiptsTimeout(e.cfg.ReceiptsTimeout))
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 	txRelayer, err := txrelayerv2.NewTxRelayer(
 		txrelayerv2.WithClient(client),
 		txrelayerv2.WithoutNonceGet(),
-		txrelayerv2.WithReceiptTimeout(e.cfg.ReceiptsTimeout),
+		txrelayerv2.WithReceiptsTimeout(e.cfg.ReceiptsTimeout),
 	)
 	if err != nil {
 		return err
