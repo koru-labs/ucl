@@ -484,7 +484,9 @@ func (r *BaseLoadTestRunner) waitForReceipts(txHashes []types.Hash) (map[uint64]
 			receipt, err := r.waitForReceipt(txHash)
 			if err != nil {
 				lock.Lock()
+
 				foundErrors = append(foundErrors, err)
+
 				lock.Unlock()
 
 				continue
