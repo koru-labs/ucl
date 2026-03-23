@@ -931,6 +931,16 @@ func opJumpi(c *state) {
 func opJumpDest(c *state) {
 }
 
+func opPush0(c *state) {
+	if !c.config.EIP3855 {
+		c.exit(errOpCodeNotFound)
+
+		return
+	}
+
+	c.push(uint256.Int{})
+}
+
 func opPush(n int) instruction {
 	return func(c *state) {
 		ins := c.code

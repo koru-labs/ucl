@@ -125,6 +125,48 @@ func TestSub(t *testing.T) {
 	}
 }
 
+func TestPush0(t *testing.T) {
+	t.Run("single push0 success", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		s.config = &allEnabledForks
+
+		opPush0(s)
+
+		assert.Equal(t, uint256.Int{}, s.pop())
+	})
+
+	t.Run("single push0 (EIP-3855 disabled)", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		disabledEIP3855Fork := chain.AllForksEnabled.Copy().RemoveFork(chain.EIP3855).At(0)
+		s.config = &disabledEIP3855Fork
+
+		opPush0(s)
+
+		assert.Error(t, errOpCodeNotFound, s.err)
+	})
+
+	t.Run("within stack size push0", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		s.config = &allEnabledForks
+
+		for i := 0; i < stackSize; i++ {
+			opPush0(s)
+
+			require.NoError(t, s.err)
+		}
+
+		for i := 0; i < stackSize; i++ {
+			require.Equal(t, uint256.Int{}, s.pop())
+		}
+	})
+}
+
 func TestDiv(t *testing.T) {
 	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()
