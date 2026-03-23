@@ -2073,7 +2073,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 		checkTxExistence(t, pool, tx.Hash, true)
 
 		// set 9 to skips in order to drop transaction next
-		accountMap.skips = 9
+		accountMap.skips = maxAccountSkips - 1
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
 			// empty
@@ -2108,7 +2108,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 		checkTxExistence(t, pool, tx.Hash, true)
 
 		// set 9 to skips in order to drop transaction next
-		accountMap.skips = 9
+		accountMap.skips = maxAccountSkips - 1
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
 			// empty
@@ -2142,7 +2142,7 @@ func Test_updateAccountSkipsCounts(t *testing.T) {
 		assert.Equal(t, slotsRequired(tx), pool.gauge.read())
 		checkTxExistence(t, pool, tx.Hash, true)
 
-		// set 9 to skips in order to drop transaction next
+		// set 5 to skips in order to drop transaction next
 		accountMap.skips = 5
 
 		pool.updateAccountSkipsCounts(map[types.Address]uint64{
@@ -3673,8 +3673,8 @@ func TestGetNonceAccountExist(t *testing.T) {
 
 	pool.SetSigner(signer)
 
-	addr := crypto.PubKeyToAddress(&key.PublicKey)
-	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	addr := crypto.PubKeyToAddress(key.PublicKey())
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key.PrivateKey())
 	require.NoError(t, err)
 
 	assert.NoError(t, pool.addTx(local, tx))
@@ -3693,8 +3693,8 @@ func TestGetPendingTx(t *testing.T) {
 
 	pool.SetSigner(signer)
 
-	addr := crypto.PubKeyToAddress(&key.PublicKey)
-	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	addr := crypto.PubKeyToAddress(key.PublicKey())
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key.PrivateKey())
 	require.NoError(t, err)
 
 	assert.NoError(t, pool.addTx(local, tx))
@@ -3714,8 +3714,8 @@ func TestGetCapacity(t *testing.T) {
 
 	pool.SetSigner(signer)
 
-	addr := crypto.PubKeyToAddress(&key.PublicKey)
-	tx, err := signer.SignTx(newTx(addr, 0, 1), key)
+	addr := crypto.PubKeyToAddress(key.PublicKey())
+	tx, err := signer.SignTx(newTx(addr, 0, 1), key.PrivateKey())
 	require.NoError(t, err)
 
 	assert.NoError(t, pool.addTx(local, tx))
@@ -3918,8 +3918,8 @@ func TestAddTxsInOrder(t *testing.T) {
 		require.NoError(t, err)
 
 		addrsTxs[i] = container{
-			key:  key,
-			addr: crypto.PubKeyToAddress(&key.PublicKey),
+			key:  key.PrivateKey(),
+			addr: crypto.PubKeyToAddress(key.PublicKey()),
 			txs:  make([]*types.Transaction, defaultMaxAccountEnqueued),
 		}
 
@@ -4250,7 +4250,7 @@ func BenchmarkAddTxTime(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		signedTx, err := signer.SignTx(newTx(crypto.PubKeyToAddress(&key.PublicKey), 0, 1), key)
+		signedTx, err := signer.SignTx(newTx(crypto.PubKeyToAddress(key.PublicKey()), 0, 1), key.PrivateKey())
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -4278,11 +4278,11 @@ func BenchmarkAddTxTime(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		addr := crypto.PubKeyToAddress(&key.PublicKey)
+		addr := crypto.PubKeyToAddress(key.PublicKey())
 		txs := make([]*types.Transaction, defaultMaxAccountEnqueued)
 
 		for i := range txs {
-			txs[i], err = signer.SignTx(newTx(addr, uint64(i), uint64(1)), key)
+			txs[i], err = signer.SignTx(newTx(addr, uint64(i), uint64(1)), key.PrivateKey())
 			if err != nil {
 				b.Fatal(err)
 			}

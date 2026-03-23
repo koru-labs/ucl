@@ -35,9 +35,9 @@ func GenerateKeyAndAddr(t *testing.T) (*ecdsa.PrivateKey, types.Address) {
 
 	assert.NoError(t, err)
 
-	addr := crypto.PubKeyToAddress(&key.PublicKey)
+	addr := crypto.PubKeyToAddress(key.PublicKey())
 
-	return key, addr
+	return key.PrivateKey(), addr
 }
 
 func GenerateTestMultiAddr(t *testing.T) multiaddr.Multiaddr {

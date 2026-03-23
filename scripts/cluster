@@ -72,7 +72,7 @@ function initPolybftConsensus() {
 function createGenesis() {
   ./polygon-edge genesis $genesis_params \
     --block-gas-limit 10000000 \
-    --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6:1000000000000000000000 \
+    --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6 \
     --premine 0x0000000000000000000000000000000000000000 \
     --epoch-size 10 \
     --reward-wallet 0xDEADBEEF:1000000 \
@@ -186,12 +186,14 @@ function startNodes() {
       ./polygon-edge server --data-dir "$data_dir" --chain genesis.json \
         --grpc-address ":$grpc_port" --libp2p ":$libp2p_port" --jsonrpc ":$jsonrpc_port" \
         --num-block-confirmations 2 $relayer_arg \
+        --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
         --log-level DEBUG 2>&1 | tee $log_file &
     else
       ./polygon-edge server --data-dir "$data_dir" --chain genesis.json \
         --grpc-address ":$grpc_port" --libp2p ":$libp2p_port" --jsonrpc ":$jsonrpc_port" \
         --num-block-confirmations 2 $relayer_arg \
+        --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
         --log-level DEBUG &
     fi

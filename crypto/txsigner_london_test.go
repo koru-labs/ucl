@@ -82,7 +82,7 @@ func TestLondonSignerSender(t *testing.T) {
 			chainID := testCase.chainID.Uint64()
 			signer := NewLondonSigner(chainID, true, NewEIP155Signer(chainID, true))
 
-			signedTx, signErr := signer.SignTx(txn, key)
+			signedTx, signErr := signer.SignTx(txn, key.PrivateKey())
 			if signErr != nil {
 				t.Fatalf("Unable to sign transaction")
 			}
@@ -92,7 +92,7 @@ func TestLondonSignerSender(t *testing.T) {
 				t.Fatalf("Unable to recover sender")
 			}
 
-			assert.Equal(t, recoveredSender.String(), PubKeyToAddress(&key.PublicKey).String())
+			assert.Equal(t, recoveredSender.String(), PubKeyToAddress(key.PublicKey()).String())
 		})
 	}
 }

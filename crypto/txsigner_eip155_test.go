@@ -81,7 +81,7 @@ func TestEIP155Signer_Sender(t *testing.T) {
 				testCase.isHomestead,
 			)
 
-			signedTx, signErr := signer.SignTx(txn, key)
+			signedTx, signErr := signer.SignTx(txn, key.PrivateKey())
 			if signErr != nil {
 				t.Fatalf("Unable to sign transaction")
 			}
@@ -91,7 +91,7 @@ func TestEIP155Signer_Sender(t *testing.T) {
 				t.Fatalf("Unable to recover sender")
 			}
 
-			assert.Equal(t, recoveredSender.String(), PubKeyToAddress(&key.PublicKey).String())
+			assert.Equal(t, recoveredSender.String(), PubKeyToAddress(key.PublicKey()).String())
 		})
 	}
 }
@@ -114,7 +114,7 @@ func TestEIP155Signer_ChainIDMismatch(t *testing.T) {
 
 		signer := NewEIP155Signer(chainIDTop, true)
 
-		signedTx, signErr := signer.SignTx(txn, key)
+		signedTx, signErr := signer.SignTx(txn, key.PrivateKey())
 		if signErr != nil {
 			t.Fatalf("Unable to sign transaction")
 		}
@@ -127,7 +127,7 @@ func TestEIP155Signer_ChainIDMismatch(t *testing.T) {
 				// Addresses should match, no error should be present
 				assert.NoError(t, recoverErr)
 
-				assert.Equal(t, recoveredSender.String(), PubKeyToAddress(&key.PublicKey).String())
+				assert.Equal(t, recoveredSender.String(), PubKeyToAddress(key.PublicKey()).String())
 			} else {
 				// There should be an error for mismatched chain IDs
 				assert.Error(t, recoverErr)

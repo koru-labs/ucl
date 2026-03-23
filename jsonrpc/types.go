@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -565,4 +566,45 @@ func (c *CallMsg) MarshalJSON() ([]byte, error) {
 	defaultArena.Put(a)
 
 	return res, nil
+}
+
+// FeeHistory represents the fee history data returned by an rpc node
+type FeeHistory struct {
+	OldestBlock  uint64     `json:"oldestBlock"`
+	Reward       [][]uint64 `json:"reward,omitempty"`
+	BaseFee      []uint64   `json:"baseFeePerGas,omitempty"`
+	GasUsedRatio []float64  `json:"gasUsedRatio"`
+}
+
+// UnmarshalJSON unmarshals the FeeHistory object from JSON
+func (f *FeeHistory) UnmarshalJSON(data []byte) error {
+	var raw feeHistoryResult
+
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	f.OldestBlock = uint64(raw.OldestBlock)
+
+	if raw.Reward != nil {
+		f.Reward = make([][]uint64, 0, len(raw.Reward))
+
+		for _, r := range raw.Reward {
+			elem := make([]uint64, 0, len(r))
+			for _, i := range r {
+				elem = append(elem, uint64(i))
+			}
+
+			f.Reward = append(f.Reward, elem)
+		}
+	}
+
+	f.BaseFee = make([]uint64, 0, len(raw.BaseFeePerGas))
+	for _, i := range raw.BaseFeePerGas {
+		f.BaseFee = append(f.BaseFee, uint64(i))
+	}
+
+	f.GasUsedRatio = raw.GasUsedRatio
+
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/Ethernal-Tech/ethgo/jsonrpc"
 )
 
@@ -105,8 +106,8 @@ func (e *EthClient) SendTransaction(txn *types.Transaction) (types.Hash, error) 
 }
 
 // GetTransactionReceipt returns the receipt of a transaction by transaction hash
-func (e *EthClient) GetTransactionReceipt(hash types.Hash) (*types.Receipt, error) {
-	var receipt *types.Receipt
+func (e *EthClient) GetTransactionReceipt(hash types.Hash) (*ethgo.Receipt, error) {
+	var receipt *ethgo.Receipt
 
 	err := e.client.Call("eth_getTransactionReceipt", &receipt, hash)
 
@@ -183,4 +184,39 @@ func (e *EthClient) MaxPriorityFeePerGas() (*big.Int, error) {
 	}
 
 	return common.ParseUint256orHex(&out)
+}
+
+// TxPoolStatus returns the transaction pool status (pending and queued transactions)
+func (e *EthClient) TxPoolStatus() (*StatusResponse, error) {
+	var out StatusResponse
+	if err := e.client.Call("txpool_status", &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
+// FeeHistory returns base fee per gas and transaction effective priority fee
+func (e *EthClient) FeeHistory(
+	blockCount uint64,
+	newestBlock BlockNumber,
+	rewardPercentiles []float64,
+) (*FeeHistory, error) {
+	var out *FeeHistory
+	if err := e.client.Call("eth_feeHistory", &out, blockCount,
+		newestBlock.String(), rewardPercentiles); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// Accounts returns a list of addresses owned by client
+func (e *EthClient) Accounts() ([]types.Address, error) {
+	var out []types.Address
+	if err := e.client.Call("eth_accounts", &out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
