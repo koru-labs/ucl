@@ -34,10 +34,10 @@ const (
 
 	// maximum allowed number of times an account
 	// was excluded from block building (ibft.writeTransactions)
-	maxAccountDemotions uint64 = 10
+	maxAccountDemotions uint64 = 1000
 
 	// maximum allowed number of consecutive blocks that don't have the account's transaction
-	maxAccountSkips = uint64(10)
+	maxAccountSkips = uint64(1000)
 
 	pruningCooldown = 5000 * time.Millisecond
 
@@ -111,6 +111,7 @@ type Config struct {
 	JournalRotateSize  uint64
 	ChainID            *big.Int
 	DataDir            string
+	PeerID             peer.ID
 }
 
 // A promoteRequest is created each time some account

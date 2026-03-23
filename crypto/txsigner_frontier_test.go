@@ -20,10 +20,10 @@ func TestFrontierSigner(t *testing.T) {
 		Value:    big.NewInt(10),
 		GasPrice: big.NewInt(0),
 	}
-	signedTx, err := signer.SignTx(txn, key)
+	signedTx, err := signer.SignTx(txn, key.PrivateKey())
 	assert.NoError(t, err)
 
 	from, err := signer.Sender(signedTx)
 	assert.NoError(t, err)
-	assert.Equal(t, from, PubKeyToAddress(&key.PublicKey))
+	assert.Equal(t, from, PubKeyToAddress(key.PublicKey()))
 }

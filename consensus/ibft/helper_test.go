@@ -39,7 +39,7 @@ func newTesterAccountPool(t *testing.T, num ...int) *testerAccountPool {
 
 			pool.accounts = append(pool.accounts, &testerAccount{
 				alias: strconv.Itoa(i),
-				priv:  key,
+				priv:  key.PrivateKey(),
 			})
 		}
 	}
@@ -55,12 +55,12 @@ func (ap *testerAccountPool) add(accounts ...string) {
 			continue
 		}
 
-		priv, err := crypto.GenerateECDSAKey()
+		key, err := crypto.GenerateECDSAKey()
 		require.NoError(ap.t, err)
 
 		ap.accounts = append(ap.accounts, &testerAccount{
 			alias: account,
-			priv:  priv,
+			priv:  key.PrivateKey(),
 		})
 	}
 }

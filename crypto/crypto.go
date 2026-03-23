@@ -132,7 +132,7 @@ func MarshalECDSAPrivateKey(priv *ecdsa.PrivateKey) ([]byte, error) {
 }
 
 // GenerateECDSAKey generates a new key based on the secp256k1 elliptic curve.
-func GenerateECDSAKey() (*ecdsa.PrivateKey, error) {
+func GenerateECDSAPrivateKey() (*ecdsa.PrivateKey, error) {
 	return ecdsa.GenerateKey(btcec.S256(), rand.Reader)
 }
 
@@ -304,7 +304,7 @@ func GetAddressFromKey(key goCrypto.PrivateKey) (types.Address, error) {
 
 // generateECDSAKeyAndMarshal generates a new ECDSA private key and serializes it to a byte array
 func generateECDSAKeyAndMarshal() ([]byte, error) {
-	key, err := GenerateECDSAKey()
+	key, err := GenerateECDSAPrivateKey()
 	if err != nil {
 		return nil, err
 	}

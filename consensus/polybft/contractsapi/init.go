@@ -56,6 +56,7 @@ var (
 	EIP1559Burn                     *artifact.Artifact
 	GenesisProxy                    *artifact.Artifact
 	TransparentUpgradeableProxy     *artifact.Artifact
+	ZexCoinERC20                    *artifact.Artifact
 
 	// test smart contracts
 	//go:embed test-contracts/*
@@ -290,6 +291,11 @@ func init() {
 	}
 
 	TransparentUpgradeableProxy, err = artifact.DecodeArtifact([]byte(TransparentUpgradeableProxyArtifact))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ZexCoinERC20, err = artifact.DecodeArtifact(readTestContractContent("ZexCoinERC20.json"))
 	if err != nil {
 		log.Fatal(err)
 	}
