@@ -127,7 +127,7 @@ func init() {
 	register(GASLIMIT, handler{inst: opGasLimit, stack: 0, gas: 2})
 	register(BASEFEE, handler{inst: opBaseFee, stack: 0, gas: 2})
 
-	// INVALID is explicitly registered with a nil handler, matching the behavior
+	// INVALID is explicitly registered with a nil instruction, matching the behavior
 	// of any undefined opcode.
 	register(INVALID, handler{inst: nil, stack: 0, gas: 0})
 
