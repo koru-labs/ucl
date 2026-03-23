@@ -531,7 +531,6 @@ type CallMsg struct {
 // MarshalJSON implements the Marshal interface.
 func (c *CallMsg) MarshalJSON() ([]byte, error) {
 	a := defaultArena.Get()
-	defer a.Reset()
 
 	o := a.NewObject()
 	o.Set("from", a.NewString(c.From.String()))
@@ -562,6 +561,8 @@ func (c *CallMsg) MarshalJSON() ([]byte, error) {
 	}
 
 	res := o.MarshalTo(nil)
+
+	a.Reset()
 
 	defaultArena.Put(a)
 
