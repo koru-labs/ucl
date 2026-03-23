@@ -224,9 +224,6 @@ func (t *TxRelayerImpl) sendTransactionLocked(txn *types.Transaction, key crypto
 	}
 
 	data := txn.MarshalRLPTo(nil)
-	if err != nil {
-		return types.ZeroHash, err
-	}
 
 	if t.writer != nil {
 		var msg string
