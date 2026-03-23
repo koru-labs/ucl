@@ -192,7 +192,7 @@ func (t *TxRelayerImpl) sendTransactionLocked(txn *types.Transaction, key crypto
 			compMaxFeePerGas = compMaxFeePerGas.Div(compMaxFeePerGas, big.NewInt(100))
 			txn.GasFeeCap = new(big.Int).Add(maxFeePerGas, compMaxFeePerGas)
 		}
-	} else if txn.GasPrice != nil || txn.GasPrice.Uint64() == 0 {
+	} else if txn.GasPrice == nil || txn.GasPrice.BitLen() == 0 {
 		gasPrice, err := t.Client().GasPrice()
 		if err != nil {
 			return types.ZeroHash, fmt.Errorf("failed to get gas price: %w", err)
