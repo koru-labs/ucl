@@ -260,6 +260,9 @@ const (
 	// REVERT reverts with return data
 	REVERT = 0xFD
 
+	// INVALID aborts execution and consumes all remaining gas
+	INVALID = 0xFE
+
 	// SELFDESTRUCT destroys the contract and sends all funds to addr
 	SELFDESTRUCT = 0xFF
 )
