@@ -127,6 +127,10 @@ func init() {
 	register(GASLIMIT, handler{inst: opGasLimit, stack: 0, gas: 2})
 	register(BASEFEE, handler{inst: opBaseFee, stack: 0, gas: 2})
 
+	// INVALID is explicitly registered with a nil instruction, matching the behavior
+	// of any undefined opcode.
+	register(INVALID, handler{inst: nil, stack: 0, gas: 0})
+
 	register(SELFDESTRUCT, handler{inst: opSelfDestruct, stack: 1, gas: 0})
 
 	// jumps

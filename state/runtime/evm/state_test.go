@@ -120,15 +120,29 @@ func TestStackUnderflow(t *testing.T) {
 }
 
 func TestOpcodeNotFound(t *testing.T) {
-	s, closeFn := getState(&chain.ForksInTime{})
-	defer closeFn()
+	t.Run("code contains undefined opcode", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
 
-	s.code = []byte{0xA5}
-	s.gas = 1000
-	s.host = &mockHost{}
+		s.code = []byte{0xA5}
+		s.gas = 1000
+		s.host = &mockHost{}
 
-	_, err := s.Run()
-	assert.Equal(t, errOpCodeNotFound, err)
+		_, err := s.Run()
+		assert.Equal(t, errOpCodeNotFound, err)
+	})
+
+	t.Run("code contains invalid opcode (0xFE)", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		s.code = []byte{0xFE}
+		s.gas = 1000
+		s.host = &mockHost{}
+
+		_, err := s.Run()
+		assert.Equal(t, errOpCodeNotFound, err)
+	})
 }
 
 func TestErrorHandlingStopsContractExecution(t *testing.T) {
