@@ -241,11 +241,11 @@ func (s *SnapshotValidatorStore) VerifyHeader(header *types.Header) error {
 	// The nonce field must have either an AUTH or DROP vote value.
 	// Block nonce values are not taken into account when the Miner field is set to zeroes, indicating
 	// no vote casting is taking place within a block
-	if header.Nonce != nonceAuthVote && header.Nonce != nonceDropVote {
-		return ErrInvalidNonce
+	if header.Nonce == nonceDropVote || header.Nonce == nonceAuthVote {
+		return nil
 	}
 
-	return nil
+	return ErrInvalidNonce
 }
 
 // ProcessHeadersInRange is a helper function process headers in the given range
