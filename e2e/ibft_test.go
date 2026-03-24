@@ -203,7 +203,11 @@ func TestIbft_TransactionFeeRecipient(t *testing.T) {
 			balanceProposer, err := clt.Eth().GetBalance(ethgo.Address(proposerAddr), ethgo.Latest)
 			assert.NoError(t, err)
 
-			txFee := new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), txn.GasPrice)
+			feeHistory, err := clt.Eth().FeeHistory(1, ethgo.BlockNumber(receipt.BlockNumber), []float64{})
+			assert.NoError(t, err)
+
+			minerTip := new(big.Int).Sub(txn.GasPrice, feeHistory.BaseFee[0])
+			txFee := new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), minerTip)
 			assert.Equalf(t, txFee, balanceProposer, "Proposer didn't get appropriate transaction fee")
 		})
 	}
