@@ -201,8 +201,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 		return nil, err
 	}
 
-	// calculate base fee
 	header.GasLimit = gasLimit
+	header.BaseFee = i.blockchain.CalculateBaseFee(parent)
 
 	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, header.Number)
 	if err != nil {
@@ -232,7 +232,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	}
 
 	// Get the block transactions
-	writeCtx, cancelFn := context.WithDeadline(context.Background(), potentialTimestamp)
+	writeCtx, cancelFn := context.WithTimeout(context.Background(), i.blockTime)
 	defer cancelFn()
 
 	txs := i.writeTransactions(
@@ -289,20 +289,10 @@ func (i *backendIBFT) calcHeaderTimestamp(parentUnix uint64, currentTime time.Ti
 	)
 
 	if potentialTimestamp.Before(currentTime) {
-		// The deadline for creating this next block
-		// has passed, round it to the nearest
-		// multiple of block time
-		// t........t+blockT...x (t+blockT.x; now).....t+blockT (potential)
-		potentialTimestamp = roundUpTime(currentTime, i.blockTime)
+		potentialTimestamp = currentTime
 	}
 
 	return potentialTimestamp
-}
-
-// roundUpTime rounds up the specified time to the
-// nearest higher multiple
-func roundUpTime(t time.Time, roundOn time.Duration) time.Time {
-	return t.Add(roundOn / 2).Round(roundOn)
 }
 
 type status uint8

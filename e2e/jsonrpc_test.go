@@ -63,22 +63,18 @@ func TestJsonRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, balance1, newBalance)
 
-		// Test. return 0 if the balance of an existing account is empty
-		gasPrice, err := client.GasPrice()
-		require.NoError(t, err)
-
 		toAddr := key1.Address()
 		msg := &ethgo.CallMsg{
 			From:     fund.Address(),
 			To:       &toAddr,
 			Value:    newBalance,
-			GasPrice: gasPrice,
+			GasPrice: framework.DefaultGasPrice,
 		}
 
 		estimatedGas, err := client.EstimateGas(msg)
 		require.NoError(t, err)
 
-		txPrice := gasPrice * estimatedGas
+		txPrice := msg.GasPrice * estimatedGas
 		// subtract gasPrice * estimatedGas from the balance and transfer the rest to the other account
 		// in order to leave no funds on the account
 		amountToSend := new(big.Int).Sub(newBalance, big.NewInt(int64(txPrice)))
