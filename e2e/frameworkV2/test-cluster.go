@@ -83,7 +83,7 @@ func resolveBinary() string {
 		return bin
 	}
 	// fallback
-	return "blade"
+	return "polygon-edge"
 }
 
 type TestClusterConfig struct {
@@ -497,7 +497,7 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		// run genesis configuration population
 		args := []string{
 			"genesis",
-			"--consensus", "ibft",
+			"--consensus", string(cluster.Config.Consensus),
 			"--validators-path", config.TmpDir,
 			"--validators-prefix", cluster.Config.ValidatorPrefix,
 			"--dir", genesisPath,
