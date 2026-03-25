@@ -74,6 +74,8 @@ type Blockchain struct {
 	gpAverage *gasPriceAverage // A reference to the average gas price
 
 	writeLock sync.Mutex
+
+	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -1043,12 +1045,17 @@ func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) error {
 			continue
 		}
 
-		sender, err := b.txSigner.Sender(tx)
-		if err != nil {
-			return err
-		}
+		poolTx, ok := b.GetPendingTxHook(tx.Hash)
+		if ok {
+			tx.From = poolTx.From
+		} else {
+			sender, err := b.txSigner.Sender(tx)
+			if err != nil {
+				return err
+			}
 
-		tx.From = sender
+			tx.From = sender
+		}
 	}
 
 	return nil
