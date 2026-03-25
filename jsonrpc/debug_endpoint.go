@@ -42,6 +42,9 @@ type debugBlockchainStore interface {
 	// GetHeaderByNumber gets a header using the provided number
 	GetHeaderByNumber(uint64) (*types.Header, bool)
 
+	// GetReceiptsByHash returns the receipts by block number and hash
+	GetReceiptsByHash(uint64, types.Hash) ([]*types.Receipt, error)
+
 	// ReadTxLookup returns a block hash in which a given txn was mined
 	ReadTxLookup(txnHash types.Hash) (uint64, bool)
 
@@ -170,6 +173,7 @@ func (d *Debug) MutexProfile(file string, nsec int64) (interface{}, error) {
 		func() (interface{}, error) {
 			runtime.SetMutexProfileFraction(1)
 			time.Sleep(time.Duration(nsec) * time.Second)
+
 			defer runtime.SetMutexProfileFraction(0)
 
 			absPath, err := filepath.Abs(file)
@@ -411,6 +415,32 @@ func (d *Debug) TraceBlockByHash(
 			}
 
 			return d.traceBlock(block, config)
+		},
+	)
+}
+
+// GetRawReceipts retrieves the binary-encoded receipts of a single block.
+func (d *Debug) GetRawReceipts(filter BlockNumberOrHash) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			header, err := GetHeaderFromBlockNumberOrHash(filter, d.store)
+			if err != nil {
+				return nil, err
+			}
+
+			receipts, err := d.store.GetReceiptsByHash(header.Number, header.Hash)
+			if err != nil {
+				return nil, err
+			}
+
+			result := make([][]byte, len(receipts))
+
+			for i, receipt := range receipts {
+				result[i] = receipt.MarshalRLP()
+			}
+
+			return result, nil
 		},
 	)
 }
