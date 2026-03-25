@@ -18,6 +18,15 @@ type Snapshot struct {
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
 func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.Hash) types.Hash {
+	result := s.GetStorageRaw(addr, root, rawkey)
+	if len(result) == 0 {
+		return types.Hash{}
+	}
+
+	return types.BytesToHash(result)
+}
+
+func (s *Snapshot) GetStorageRaw(addr types.Address, root types.Hash, rawkey types.Hash) []byte {
 	var (
 		err  error
 		trie *Trie
@@ -28,7 +37,7 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 	} else {
 		trie, err = s.state.newTrieAt(root)
 		if err != nil {
-			return types.Hash{}
+			return nil
 		}
 	}
 
@@ -36,22 +45,22 @@ func (s *Snapshot) GetStorage(addr types.Address, root types.Hash, rawkey types.
 
 	val, ok := trie.Get(key, s.state.storage)
 	if !ok {
-		return types.Hash{}
+		return nil
 	}
 
 	p := &fastrlp.Parser{}
 
 	v, err := p.Parse(val)
 	if err != nil {
-		return types.Hash{}
+		return nil
 	}
 
 	res := []byte{}
 	if res, err = v.GetBytes(res[:0]); err != nil {
-		return types.Hash{}
+		return nil
 	}
 
-	return types.BytesToHash(res)
+	return res
 }
 
 func (s *Snapshot) GetAccount(addr types.Address) (*state.Account, error) {

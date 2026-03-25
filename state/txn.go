@@ -17,6 +17,7 @@ import (
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
 type readSnapshot interface {
+	GetStorageRaw(addr types.Address, root types.Hash, key types.Hash) []byte
 	GetStorage(addr types.Address, root types.Hash, key types.Hash) types.Hash
 	GetAccount(addr types.Address) (*Account, error)
 	GetCode(hash types.Hash) ([]byte, bool)
@@ -386,9 +387,7 @@ func (txn *Txn) GetStateRaw(addr types.Address, key types.Hash) []byte {
 
 	// For raw storage, we need to get from snapshot
 	// This requires the snapshot to support raw storage retrieval
-	return txn.snapshot.(interface {
-		GetStorageRaw(types.Address, types.Hash, types.Hash) []byte
-	}).GetStorageRaw(addr, object.Account.Root, key)
+	return txn.snapshot.GetStorageRaw(addr, object.Account.Root, key)
 }
 
 // Nonce

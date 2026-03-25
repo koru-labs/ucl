@@ -29,6 +29,20 @@ func (m *mockSnapshot) GetStorage(addr types.Address, root types.Hash, key types
 	return res
 }
 
+func (m *mockSnapshot) GetStorageRaw(addr types.Address, root types.Hash, key types.Hash) []byte {
+	raw, ok := m.state[addr]
+	if !ok {
+		return nil
+	}
+
+	res, ok := raw.State[key]
+	if !ok {
+		return nil
+	}
+
+	return res.Bytes()
+}
+
 func (m *mockSnapshot) GetAccount(addr types.Address) (*Account, error) {
 	raw, ok := m.state[addr]
 	if !ok {
