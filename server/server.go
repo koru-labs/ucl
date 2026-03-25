@@ -363,6 +363,7 @@ func NewServer(config *Config) (*Server, error) {
 
 		m.txpool.SetSigner(signer)
 		m.executor.GetPendingTxHook = m.txpool.GetPendingTx
+		m.blockchain.GetPendingTxHook = m.txpool.GetPendingTx
 	}
 
 	{

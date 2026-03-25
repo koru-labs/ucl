@@ -561,6 +561,10 @@ func TestBlockchainWriteBody(t *testing.T) {
 	) *Blockchain {
 		t.Helper()
 
+		getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+			return nil, false
+		}
+
 		dbStorage, err := memory.NewMemoryStorage()
 		assert.NoError(t, err)
 
@@ -569,6 +573,7 @@ func TestBlockchainWriteBody(t *testing.T) {
 			txSigner: &mockSigner{
 				txFromByTxHash: txFromByTxHash,
 			},
+			GetPendingTxHook: getPendingTxHook,
 		}
 
 		return chain
@@ -702,11 +707,16 @@ func Test_recoverFromFieldsInBlock(t *testing.T) {
 	t.Run("should succeed", func(t *testing.T) {
 		t.Parallel()
 
+		getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+			return nil, false
+		}
+
 		txFromByTxHash := map[types.Hash]types.Address{}
 		chain := &Blockchain{
 			txSigner: &mockSigner{
 				txFromByTxHash: txFromByTxHash,
 			},
+			GetPendingTxHook: getPendingTxHook,
 		}
 
 		tx1 := &types.Transaction{Nonce: 0, From: addr1}
@@ -732,11 +742,16 @@ func Test_recoverFromFieldsInBlock(t *testing.T) {
 	t.Run("should stop and return error if recovery fails", func(t *testing.T) {
 		t.Parallel()
 
+		getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+			return nil, false
+		}
+
 		txFromByTxHash := map[types.Hash]types.Address{}
 		chain := &Blockchain{
 			txSigner: &mockSigner{
 				txFromByTxHash: txFromByTxHash,
 			},
+			GetPendingTxHook: getPendingTxHook,
 		}
 
 		tx1 := &types.Transaction{Nonce: 0, From: types.ZeroAddress}
@@ -884,12 +899,17 @@ func TestBlockchainReadBody(t *testing.T) {
 	txFromByTxHash := make(map[types.Hash]types.Address)
 	addr := types.StringToAddress("1")
 
+	getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+		return nil, false
+	}
+
 	b := &Blockchain{
 		logger: hclog.NewNullLogger(),
 		db:     dbStorage,
 		txSigner: &mockSigner{
 			txFromByTxHash: txFromByTxHash,
 		},
+		GetPendingTxHook: getPendingTxHook,
 	}
 
 	batchWriter := b.db.NewWriter()
@@ -1419,6 +1439,10 @@ func TestBlockchain_WriteFullBlock(t *testing.T) {
 		},
 	}
 
+	getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+		return nil, false
+	}
+
 	storageMock, _ := memory.NewMemoryStorage()
 
 	bc := &Blockchain{
@@ -1437,6 +1461,8 @@ func TestBlockchain_WriteFullBlock(t *testing.T) {
 			Genesis: &chain.Genesis{},
 		},
 		stream: newEventStream(),
+
+		GetPendingTxHook: getPendingTxHook,
 	}
 
 	bc.headersCache, _ = lru.New(10)
