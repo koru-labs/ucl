@@ -92,6 +92,7 @@ func (debug *DebugHandler) StartGoTrace(file string) error {
 	}
 
 	f, err := os.Create(expandHomeDirectory(file))
+
 	if err != nil {
 		return err
 	}
