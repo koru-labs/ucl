@@ -877,6 +877,60 @@ func TestGetRawBlock(t *testing.T) {
 	}
 }
 
+func TestGetRawHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		filter BlockNumberOrHash
+		store  *debugEndpointMockStore
+		result interface{}
+		err    bool
+	}{
+		{
+			name:   "HeaderNotFound",
+			filter: BlockNumberOrHash{BlockHash: &hash1},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return nil, false
+				},
+			},
+			result: nil,
+			err:    true,
+		},
+		{
+			name:   "Success",
+			filter: LatestBlockNumberOrHash,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+			},
+			result: testLatestBlock.Header.MarshalRLP(),
+			err:    false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.GetRawHeader(test.filter)
+
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func Test_newTracer(t *testing.T) {
 	t.Parallel()
 
