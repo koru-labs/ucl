@@ -20,6 +20,7 @@ type debugEndpointMockStore struct {
 	headerFn            func() *types.Header
 	getHeaderByNumberFn func(uint64) (*types.Header, bool)
 	readTxLookupFn      func(types.Hash) (uint64, bool)
+	getPendingTxFn      func(types.Hash) (*types.Transaction, bool)
 	getBlockByHashFn    func(types.Hash, bool) (*types.Block, bool)
 	getBlockByNumberFn  func(uint64, bool) (*types.Block, bool)
 	traceBlockFn        func(*types.Block, tracer.Tracer) ([]interface{}, error)
@@ -39,6 +40,10 @@ func (s *debugEndpointMockStore) GetHeaderByNumber(num uint64) (*types.Header, b
 
 func (s *debugEndpointMockStore) ReadTxLookup(txnHash types.Hash) (uint64, bool) {
 	return s.readTxLookupFn(txnHash)
+}
+
+func (s *debugEndpointMockStore) GetPendingTx(txHash types.Hash) (*types.Transaction, bool) {
+	return s.getPendingTxFn(txHash)
 }
 
 func (s *debugEndpointMockStore) GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool) {
@@ -927,6 +932,136 @@ func TestGetRawHeader(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestGetRawTransaction(t *testing.T) {
+	t.Parallel()
+
+	blockWithTx := &types.Block{
+		Header: testBlock10.Header,
+		Transactions: []*types.Transaction{
+			testTx1,
+		},
+	}
+
+	tests := []struct {
+		name   string
+		txHash types.Hash
+		store  *debugEndpointMockStore
+		result interface{}
+	}{
+		{
+			name:   "successful because ReadTxLookup is filled",
+			txHash: testTxHash1,
+			store: &debugEndpointMockStore{
+				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return testBlock10.Number(), true
+				},
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return blockWithTx, true
+				},
+			},
+			result: blockWithTx.Transactions[0].MarshalRLP(),
+		},
+		{
+			name:   "should return error if ReadTxLookup and GetPendingTx returns null",
+			txHash: testTxHash1,
+			store: &debugEndpointMockStore{
+				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return 0, false
+				},
+				getPendingTxFn: func(hash types.Hash) (*types.Transaction, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return nil, false
+				},
+			},
+			result: nil,
+		},
+		{
+			name:   "should return error if block not found",
+			txHash: testTxHash1,
+			store: &debugEndpointMockStore{
+				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return testBlock10.Number(), true
+				},
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return nil, false
+				},
+				getPendingTxFn: func(hash types.Hash) (*types.Transaction, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return nil, false
+				},
+			},
+			result: nil,
+		},
+		{
+			name:   "should return error if the tx is not including the block",
+			txHash: testTxHash1,
+			store: &debugEndpointMockStore{
+				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return testBlock10.Number(), true
+				},
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return testBlock10, true
+				},
+				getPendingTxFn: func(hash types.Hash) (*types.Transaction, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return nil, false
+				},
+			},
+			result: nil,
+		},
+		{
+			name:   "should succeed if GetPendingTx succeeds",
+			txHash: testTxHash1,
+			store: &debugEndpointMockStore{
+				readTxLookupFn: func(hash types.Hash) (uint64, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return 0, false
+				},
+				getPendingTxFn: func(hash types.Hash) (*types.Transaction, bool) {
+					require.Equal(t, testTxHash1, hash)
+
+					return blockWithTx.Transactions[0], true
+				},
+			},
+			result: blockWithTx.Transactions[0].MarshalRLP(),
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, _ := endpoint.GetRawTransaction(test.txHash)
+
+			require.Equal(t, test.result, res)
 		})
 	}
 }
