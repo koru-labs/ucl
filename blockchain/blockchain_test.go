@@ -884,12 +884,17 @@ func TestBlockchainReadBody(t *testing.T) {
 	txFromByTxHash := make(map[types.Hash]types.Address)
 	addr := types.StringToAddress("1")
 
+	getPendingTxHook := func(types.Hash) (*types.Transaction, bool) {
+		return nil, false
+	}
+
 	b := &Blockchain{
 		logger: hclog.NewNullLogger(),
 		db:     dbStorage,
 		txSigner: &mockSigner{
 			txFromByTxHash: txFromByTxHash,
 		},
+		GetPendingTxHook: getPendingTxHook,
 	}
 
 	batchWriter := b.db.NewWriter()
