@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/calltracer"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/structtracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/davecgh/go-spew/spew"
 )
 
 const (
@@ -98,7 +99,7 @@ func NewDebug(store debugStore, requestsPerSecond uint64) *Debug {
 	}
 }
 
-// CpuProfile turns on CPU profiling for nsec seconds and writesExpand commentComment on line R101Resolved
+// CpuProfile turns on CPU profiling for nsec seconds and writes
 // profile data to file.
 //
 //nolint:stylecheck
@@ -118,7 +119,7 @@ func (d *Debug) CpuProfile(file string, nsec int64) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
@@ -173,12 +174,11 @@ func (d *Debug) MutexProfile(file string, nsec int64) (interface{}, error) {
 		func() (interface{}, error) {
 			runtime.SetMutexProfileFraction(1)
 			time.Sleep(time.Duration(nsec) * time.Second)
-
 			defer runtime.SetMutexProfileFraction(0)
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(mutexString, file)
@@ -200,7 +200,7 @@ func (d *Debug) BlockProfile(file string, nsec int64) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(blockString, file)
@@ -255,10 +255,50 @@ func (d *Debug) StartCPUProfile(file string) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
+		},
+	)
+}
+
+// GoTrace turns on tracing for nsec seconds and writes
+func (d *Debug) GoTrace(file string, nsec int64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			if err := d.handler.StartGoTrace(file); err != nil {
+				return nil, err
+			}
+
+			time.Sleep(time.Duration(nsec) * time.Second)
+
+			if err := d.handler.StopGoTrace(); err != nil {
+				return nil, err
+			}
+
+			absPath, err := filepath.Abs(file)
+			if err != nil {
+				return nil, err
+			}
+
+			return absPath, nil
+		},
+	)
+}
+
+// PrintBlock retrieves a block and returns its pretty printed form.
+func (d *Debug) PrintBlock(number uint64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			block, ok := d.store.GetBlockByNumber(number, true)
+			if !ok {
+				return nil, fmt.Errorf("block %d not found", number)
+			}
+
+			return spew.Sdump(block), nil
 		},
 	)
 }
@@ -274,7 +314,7 @@ func (d *Debug) StartGoTrace(file string) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
@@ -317,7 +357,7 @@ func (d *Debug) WriteBlockProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(blockString, file)
@@ -335,7 +375,7 @@ func (d *Debug) WriteMemProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(heapString, file)
@@ -350,7 +390,7 @@ func (d *Debug) WriteMutexProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(mutexString, file)
