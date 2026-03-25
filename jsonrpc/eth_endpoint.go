@@ -53,6 +53,9 @@ type ethBlockchainStore interface {
 	// GetBlockByHash gets a block using the provided hash
 	GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool)
 
+	// GetHeaderByHash returns the header by his hash
+	GetHeaderByHash(hash types.Hash) (*types.Header, bool)
+
 	// GetBlockByNumber returns a block using the provided number
 	GetBlockByNumber(num uint64, full bool) (*types.Block, bool)
 
@@ -100,10 +103,6 @@ type Eth struct {
 	priceLimit    uint64
 	cache         *rpcCache
 }
-
-var (
-	ErrInsufficientFunds = errors.New("insufficient funds for execution")
-)
 
 // ChainId returns the chain id of the client
 //
@@ -160,21 +159,76 @@ func (e *Eth) GetBlockByHash(hash types.Hash, fullTx bool) (interface{}, error) 
 	return toBlock(block, fullTx), nil
 }
 
-func (e *Eth) filterExtra(block *types.Block) error {
+// GetHeaderByNumber returns the requested canonical block header.
+func (e *Eth) GetHeaderByNumber(number BlockNumber) (interface{}, error) {
+	num, err := GetNumericBlockNumber(number, e.store)
+	if err != nil {
+		return nil, err
+	}
+
+	header, ok := e.store.GetHeaderByNumber(num)
+	if !ok {
+		return nil, nil
+	}
+
+	headerCopy, err := e.headerFilterExtra(header)
+	if err != nil {
+		return nil, err
+	}
+
+	return toHeader(headerCopy), nil
+}
+
+// GetHeaderByHash returns the requested header by hash.
+func (e *Eth) GetHeaderByHash(hash types.Hash) (interface{}, error) {
+	header, ok := e.store.GetHeaderByHash(hash)
+	if !ok {
+		return nil, nil
+	}
+
+	headerCopy, err := e.headerFilterExtra(header)
+	if err != nil {
+		return nil, err
+	}
+
+	return toHeader(headerCopy), nil
+}
+
+func (e *Eth) headerFilterExtra(header *types.Header) (*types.Header, error) {
 	// we need to copy it because the store returns header from storage directly
 	// and not a copy, so changing it, actually changes it in storage as well
-	headerCopy := block.Header.Copy()
+	headerCopy := header.Copy()
 
 	filteredExtra, err := e.store.FilterExtra(headerCopy.ExtraData)
+	if err != nil {
+		return nil, err
+	}
+
+	headerCopy.ExtraData = filteredExtra
+
+	return headerCopy, err
+}
+
+func (e *Eth) filterExtra(block *types.Block) error {
+	headerCopy, err := e.headerFilterExtra(block.Header)
 	if err != nil {
 		return err
 	}
 
-	headerCopy.ExtraData = filteredExtra
 	// no need to recompute hash (filtered out data is not in the hash in the first place)
 	block.Header = headerCopy
 
 	return nil
+}
+
+// GetBlockTransactionCountByHash returns the number of transactions in the block with the given hash.
+func (e *Eth) GetBlockTransactionCountByHash(blockHash types.Hash) (interface{}, error) {
+	block, ok := e.store.GetBlockByHash(blockHash, true)
+	if !ok {
+		return nil, nil
+	}
+
+	return *common.EncodeUint64(uint64(len(block.Transactions))), nil
 }
 
 func (e *Eth) GetBlockTransactionCountByNumber(number BlockNumber) (interface{}, error) {
@@ -192,11 +246,36 @@ func (e *Eth) GetBlockTransactionCountByNumber(number BlockNumber) (interface{},
 	return *common.EncodeUint64(uint64(len(block.Transactions))), nil
 }
 
+// GetTransactionByBlockNumberAndIndex returns the transaction for the given block number and index.
+func (e *Eth) GetTransactionByBlockNumberAndIndex(number BlockNumber, index argUint64) (interface{}, error) {
+	num, err := GetNumericBlockNumber(number, e.store)
+	if err != nil {
+		return nil, err
+	}
+
+	block, ok := e.store.GetBlockByNumber(num, true)
+	if !ok {
+		return nil, nil
+	}
+
+	return GetTransactionByBlockAndIndex(block, index)
+}
+
+// GetTransactionByBlockHashAndIndex returns the transaction for the given block hash and index.
+func (e *Eth) GetTransactionByBlockHashAndIndex(blockHash types.Hash, index argUint64) (interface{}, error) {
+	block, ok := e.store.GetBlockByHash(blockHash, true)
+	if !ok {
+		return nil, nil
+	}
+
+	return GetTransactionByBlockAndIndex(block, index)
+}
+
 // BlockNumber returns current block number
 func (e *Eth) BlockNumber() (interface{}, error) {
 	h := e.store.Header()
 	if h == nil {
-		return nil, fmt.Errorf("header has a nil value")
+		return nil, ErrHeaderNotFound
 	}
 
 	return argUintPtr(h.Number), nil
@@ -249,8 +328,7 @@ func (e *Eth) GetTransactionByHash(hash types.Hash) (interface{}, error) {
 
 			return toTransaction(
 				txn,
-				argUintPtr(block.Number()),
-				argHashPtr(block.Hash()),
+				block.Header,
 				&idx,
 			)
 		}
@@ -334,6 +412,47 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 	logs := toLogs(raw.Logs, uint64(logIndex), uint64(txIndex), block.Header, hash)
 
 	return toReceipt(raw, txn, uint64(txIndex), block.Header, logs), nil
+}
+
+// GetBlockReceipts returns all transaction receipts for a given block.
+func (e *Eth) GetBlockReceipts(number BlockNumber) (interface{}, error) {
+	num, err := GetNumericBlockNumber(number, e.store)
+	if err != nil {
+		return nil, err
+	}
+
+	block, ok := e.store.GetBlockByNumber(num, true)
+	if !ok {
+		return nil, ErrBlockNotFound
+	}
+
+	if len(block.Transactions) == 0 {
+		return nil, nil
+	}
+
+	receipts, err := e.store.GetReceiptsByHash(block.Number(), block.Hash())
+	if err != nil {
+		return nil, err
+	}
+
+	receiptsNum := len(receipts)
+	if receiptsNum == 0 {
+		return nil, nil
+	}
+
+	resReceipts := make([]*receipt, receiptsNum)
+	logIndex := 0
+
+	for i, transaction := range block.Transactions {
+		raw := receipts[i]
+		// accumulate receipt logs indices from block transactions
+		// that are before the desired transaction
+		logs := toLogs(raw.Logs, uint64(logIndex), uint64(i), block.Header, raw.TxHash)
+		resReceipts[i] = toReceipt(raw, transaction, uint64(i), block.Header, logs)
+		logIndex += len(raw.Logs)
+	}
+
+	return resReceipts, nil
 }
 
 // GetStorageAt returns the contract storage at the index position

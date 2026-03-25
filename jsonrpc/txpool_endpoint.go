@@ -29,6 +29,11 @@ type ContentResponse struct {
 	Queued  map[types.Address]map[uint64]*transaction `json:"queued"`
 }
 
+type ContentAddressResponse struct {
+	Pending map[uint64]*transaction `json:"pending"`
+	Queued  map[uint64]*transaction `json:"queued"`
+}
+
 type InspectResponse struct {
 	Pending         map[string]map[string]string `json:"pending"`
 	Queued          map[string]map[string]string `json:"queued"`
@@ -41,6 +46,26 @@ type StatusResponse struct {
 	Queued  uint64 `json:"queued"`
 }
 
+// ContentFrom returns the transactions contained within the transaction pool.
+func (t *TxPool) ContentFrom(addr types.Address) (interface{}, error) {
+	convertTxMap := func(txs []*types.Transaction) map[uint64]*transaction {
+		result := make(map[uint64]*transaction, len(txs))
+		for _, tx := range txs {
+			result[tx.Nonce] = toTransaction(tx, nil, nil)
+		}
+
+		return result
+	}
+
+	pendingTxs, queuedTxs := t.store.GetTxs(true)
+	resp := ContentAddressResponse{
+		Pending: convertTxMap(pendingTxs[addr]),
+		Queued:  convertTxMap(queuedTxs[addr]),
+	}
+
+	return resp, nil
+}
+
 // Create response for txpool_content request.
 // See https://geth.ethereum.org/docs/rpc/ns-txpool#txpool_content.
 func (t *TxPool) Content() (interface{}, error) {
@@ -51,7 +76,7 @@ func (t *TxPool) Content() (interface{}, error) {
 			result[addr] = make(map[uint64]*transaction, len(txs))
 
 			for _, tx := range txs {
-				result[addr][tx.Nonce] = toTransaction(tx, nil, &types.ZeroHash, nil)
+				result[addr][tx.Nonce] = toTransaction(tx, nil, nil)
 			}
 		}
 
