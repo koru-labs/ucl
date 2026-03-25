@@ -103,6 +103,7 @@ func (e *EthClient) SendRawTransaction(data []byte) (types.Hash, error) {
 // GetHeaderByHash returns the requested header by hash.
 func (e *EthClient) GetHeaderByHash(hash types.Hash) (*types.Header, error) {
 	var header types.Header
+
 	err := e.client.Call("eth_getHeaderByHash", &header, hash)
 
 	return &header, err
@@ -111,6 +112,7 @@ func (e *EthClient) GetHeaderByHash(hash types.Hash) (*types.Header, error) {
 // GetBlockReceipts returns all transaction receipts for a given block.
 func (e *EthClient) GetBlockReceipts(blockNumber BlockNumber) ([]*ethgo.Receipt, error) {
 	var receipts []*ethgo.Receipt
+
 	err := e.client.Call("eth_getBlockReceipts", &receipts, blockNumber)
 
 	return receipts, err
@@ -119,6 +121,7 @@ func (e *EthClient) GetBlockReceipts(blockNumber BlockNumber) ([]*ethgo.Receipt,
 // GetHeaderByNumber returns the requested canonical block header.
 func (e *EthClient) GetHeaderByNumber(blockNumber BlockNumber) (*types.Header, error) {
 	var header types.Header
+
 	err := e.client.Call("eth_getHeaderByNumber", &header, blockNumber)
 
 	return &header, err

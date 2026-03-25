@@ -99,10 +99,6 @@ func toTransaction(
 		if t.GasFeeCap != nil {
 			res.GasFeeCap = argBigPtr(t.GasFeeCap)
 		}
-
-		/* 		if res.GasPrice == nil { // TODO: check for this
-			res.GasPrice = res.GasFeeCap
-		} */
 	}
 
 	if t.ChainID != nil {

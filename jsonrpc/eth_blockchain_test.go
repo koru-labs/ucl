@@ -144,6 +144,7 @@ func TestEth_Block_GetBlockTransactionCountByHash(t *testing.T) {
 		block.Transactions = append(block.Transactions,
 			&types.Transaction{Type: types.LegacyTx, Nonce: 0, From: addr0})
 	}
+
 	store.add(block)
 
 	eth := newTestEthEndpoint(store)
@@ -183,6 +184,7 @@ func TestEth_Block_GetTransactionByBlockNumberAndIndex(t *testing.T) {
 		txn := newTestTransaction(uint64(i), addr0)
 		block.Transactions = append(block.Transactions, txn)
 	}
+
 	store.add(block)
 
 	testIndex := 5
@@ -207,6 +209,7 @@ func TestEth_Block_GetTransactionByBlockHashAndIndex(t *testing.T) {
 		txn := newTestTransaction(uint64(i), addr0)
 		block.Transactions = append(block.Transactions, txn)
 	}
+
 	store.add(block)
 
 	eth := newTestEthEndpoint(store)

@@ -188,8 +188,6 @@ func TestContentFrom(t *testing.T) {
 		assert.NotNil(t, txData)
 		assert.Equal(t, testTx1.Gas, uint64(txData.Gas))
 		assert.Equal(t, *(testTx1.GasPrice), big.Int(*txData.GasPrice))
-		//assert.Equal(t, *(testTx1.GasFeeCap), big.Int(*txData.GasPrice)) GasFeeCap is nil
-		//assert.Equal(t, *(testTx1.GasTipCap), big.Int(*txData.GasPrice)) GasTipCap is nil
 		assert.Equal(t, testTx1.To, txData.To)
 		assert.Equal(t, testTx1.From, txData.From)
 		assert.Equal(t, *(testTx1.Value), big.Int(txData.Value))
