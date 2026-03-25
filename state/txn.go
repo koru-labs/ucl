@@ -150,7 +150,7 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Suicide {
-			*object = *newStateObject(txn)
+			*object = *newStateObject()
 			object.Account.Balance.SetBytes(balance.Bytes())
 		} else {
 			object.Account.Balance.Add(object.Account.Balance, balance)
@@ -546,7 +546,7 @@ func (txn *Txn) Empty(addr types.Address) bool {
 	return obj.Empty()
 }
 
-func newStateObject(txn *Txn) *StateObject {
+func newStateObject() *StateObject {
 	return &StateObject{
 		Account: &Account{
 			Balance:  big.NewInt(0),

@@ -417,3 +417,11 @@ func (f *UnsafePool[T]) Put(resetFunc func(T) T, obj T) {
 
 	f.stack = append(f.stack, obj)
 }
+
+// ToMB converts a byte slice size to a string representation in MB
+func ToMB(data []byte) string {
+	sizeInBytes := len(data)
+	sizeInMB := float64(sizeInBytes) / (1024 * 1024)
+
+	return fmt.Sprintf("%.2f MB", sizeInMB)
+}

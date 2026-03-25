@@ -238,6 +238,11 @@ func Test_maxPriceQueue(t *testing.T) {
 
 			queue := newPricesQueue(tt.baseFee, tt.unsorted)
 
+			if len(tt.unsorted) > 0 {
+				tx := queue.queue.Peek()
+				assert.Equal(t, tx.Nonce, tt.unsorted[0].Nonce)
+			}
+
 			for _, tx := range tt.sorted {
 				actual := queue.pop()
 				assert.Equal(t, tx, actual)
