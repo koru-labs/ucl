@@ -289,7 +289,7 @@ func writeProfile(name, file string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	return p.WriteTo(f, 0)
 }
