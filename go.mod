@@ -17,6 +17,7 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/hashicorp/go-bexpr v0.1.16
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-immutable-radix v1.3.1
 	github.com/hashicorp/go-metrics v0.5.4
@@ -179,6 +180,7 @@ require (
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/pointerstructure v1.2.1 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/sys/user v0.3.0 // indirect
