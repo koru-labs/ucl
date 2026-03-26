@@ -9,6 +9,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/backup"
 	"github.com/0xPolygon/polygon-edge/command/bridge"
 	"github.com/0xPolygon/polygon-edge/command/genesis"
+	"github.com/0xPolygon/polygon-edge/command/hamsa"
 	"github.com/0xPolygon/polygon-edge/command/helper"
 	"github.com/0xPolygon/polygon-edge/command/ibft"
 	"github.com/0xPolygon/polygon-edge/command/license"
@@ -63,6 +64,7 @@ func (rc *RootCommand) registerSubCommands() {
 		bridge.GetCommand(),
 		regenesis.GetCommand(),
 		loadtest.GetCommand(),
+		hamsa.GetCommand(),
 	)
 }
 

@@ -114,6 +114,8 @@ type TestClusterConfig struct {
 	SecretsCallback      func([]types.Address, *TestClusterConfig)
 	RewardWallet         string
 
+	HasHamsaContracts bool
+
 	ContractDeployerAllowListAdmin   []types.Address
 	ContractDeployerAllowListEnabled []types.Address
 	ContractDeployerBlockListAdmin   []types.Address
@@ -412,6 +414,12 @@ func WithConsensusType(consensusType server.ConsensusType) ClusterOption {
 	}
 }
 
+func WithHamsaContracts() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.HasHamsaContracts = true
+	}
+}
+
 func isTrueEnv(e string) bool {
 	return strings.ToLower(os.Getenv(e)) == "true"
 }
@@ -596,6 +604,22 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 	for i := 1; i <= cluster.Config.NonValidatorCount; i++ {
 		dir := nonValidatorPrefix + strconv.Itoa(i)
 		cluster.InitTestServer(t, dir, None)
+	}
+
+	if cluster.Config.HasHamsaContracts {
+		// we need to wait for the cluster to be ready before deploying Hamsa contracts,
+		// since they require interaction with the chain
+		cluster.WaitForReady(t)
+
+		args := []string{
+			"hamsa", "deploy",
+			"--json-rpc", cluster.Servers[0].JSONRPCAddr(),
+			"--chain-id", strconv.FormatUint(command.DefaultChainID, 10),
+			"--data-dir", cluster.Config.Dir(cluster.Config.ValidatorPrefix + "1"),
+			"--network", "dev",
+		}
+
+		require.NoError(t, RunEdgeCommand(args, cluster.Config.GetStdout("hamsa-deploy")))
 	}
 
 	return cluster

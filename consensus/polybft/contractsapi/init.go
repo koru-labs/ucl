@@ -57,6 +57,7 @@ var (
 	GenesisProxy                    *artifact.Artifact
 	TransparentUpgradeableProxy     *artifact.Artifact
 	ZexCoinERC20                    *artifact.Artifact
+	PToken                          *artifact.Artifact
 
 	// test smart contracts
 	//go:embed test-contracts/*
@@ -296,6 +297,11 @@ func init() {
 	}
 
 	ZexCoinERC20, err = artifact.DecodeArtifact(readTestContractContent("ZexCoinERC20.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	PToken, err = artifact.DecodeArtifact(readTestContractContent("PToken.json"))
 	if err != nil {
 		log.Fatal(err)
 	}

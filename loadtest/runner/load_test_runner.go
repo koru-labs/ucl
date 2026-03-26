@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	EOATestType      = "eoa"
-	ERC20TestType    = "erc20"
-	ERC721TestType   = "erc721"
-	ERC1155TestType  = "erc1155"
-	MixedTestType    = "mixed"
-	PerfContractType = "perf-contract"
+	EOATestType        = "eoa"
+	ERC20TestType      = "erc20"
+	PTokenMintTestType = "ptokenMint"
+	ERC721TestType     = "erc721"
+	ERC1155TestType    = "erc1155"
+	MixedTestType      = "mixed"
+	PerfContractType   = "perf-contract"
 )
 
 func IsLoadTestSupported(loadTestType string) bool {
@@ -24,6 +25,7 @@ func IsLoadTestSupported(loadTestType string) bool {
 
 	return ltp == EOATestType ||
 		ltp == ERC20TestType ||
+		ltp == PTokenMintTestType ||
 		ltp == ERC721TestType ||
 		ltp == ERC1155TestType ||
 		ltp == MixedTestType ||
@@ -100,6 +102,13 @@ func (r *LoadTestRunner) Run(ctx context.Context, cfg LoadTestConfig) error {
 		}
 
 		return erc20Runner.Run(ctx)
+	case PTokenMintTestType:
+		mintPTokenRunner, err := NewMintPTokenRunner(cfg)
+		if err != nil {
+			return err
+		}
+
+		return mintPTokenRunner.Run(ctx)
 	default:
 		return fmt.Errorf("unknown load test type %s", cfg.LoadTestType)
 	}
