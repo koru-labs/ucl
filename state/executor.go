@@ -56,17 +56,8 @@ func NewExecutor(config *chain.Params, s State, logger hclog.Logger) *Executor {
 func (e *Executor) WriteGenesis(
 	alloc map[types.Address]*chain.GenesisAccount,
 	initialStateRoot types.Hash) (types.Hash, error) {
-	var (
-		snap Snapshot
-		err  error
-	)
 
-	if initialStateRoot == types.ZeroHash {
-		snap = e.state.NewSnapshot()
-	} else {
-		snap, err = e.state.NewSnapshotAt(initialStateRoot)
-	}
-
+	snap, err := e.state.NewSnapshot(initialStateRoot)
 	if err != nil {
 		return types.Hash{}, err
 	}
@@ -125,12 +116,6 @@ func (e *Executor) WriteGenesis(
 	return types.BytesToHash(root), nil
 }
 
-type BlockResult struct {
-	Root     types.Hash
-	Receipts []*types.Receipt
-	TotalGas uint64
-}
-
 // GetDumpTree function returns accounts based on the selected criteria.
 func (e *Executor) GetDumpTree(dump *Dump, parentHash types.Hash,
 	block *types.Block, opts *DumpInfo) ([]byte, error) {
@@ -144,7 +129,7 @@ func (e *Executor) GetDumpTree(dump *Dump, parentHash types.Hash,
 		return nil, err
 	}
 
-	snap, err := e.state.NewSnapshotAt(block.Header.StateRoot)
+	snap, err := e.state.NewSnapshot(block.Header.StateRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -184,16 +169,6 @@ func (e *Executor) ProcessBlock(
 	return txn, nil
 }
 
-// StateAt returns snapshot at given root
-func (e *Executor) State() State {
-	return e.state
-}
-
-// StateAt returns snapshot at given root
-func (e *Executor) StateAt(root types.Hash) (Snapshot, error) {
-	return e.state.NewSnapshotAt(root)
-}
-
 // GetForksInTime returns the active forks at the given block height
 func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
@@ -206,7 +181,7 @@ func (e *Executor) BeginTxn(
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
-	auxSnap2, err := e.state.NewSnapshotAt(parentRoot)
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
 		return nil, err
 	}

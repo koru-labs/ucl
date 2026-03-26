@@ -32,6 +32,7 @@ type Batch interface {
 // Storage stores the trie
 type Storage interface {
 	Put(k, v []byte) error
+	Has(k []byte) (bool, error)
 	Get(k []byte) ([]byte, bool, error)
 	Batch() Batch
 	SetCode(hash types.Hash, code []byte) error
@@ -93,6 +94,19 @@ func (kv *KVStorage) Get(k []byte) ([]byte, bool, error) {
 	return data, true, nil
 }
 
+func (kv *KVStorage) Has(k []byte) (bool, error) {
+	ok, err := kv.db.Has(k, nil)
+	if err != nil {
+		if err.Error() == levelDBNotFoundMsg {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return ok, nil
+}
+
 func (kv *KVStorage) Close() error {
 	return kv.db.Close()
 }
@@ -143,6 +157,15 @@ func (m *memStorage) Get(p []byte) ([]byte, bool, error) {
 	}
 
 	return v, true, nil
+}
+
+func (m *memStorage) Has(p []byte) (bool, error) {
+	m.l.Lock()
+	defer m.l.Unlock()
+
+	_, ok := m.db[hex.EncodeToHex(p)]
+
+	return ok, nil
 }
 
 func (m *memStorage) SetCode(hash types.Hash, code []byte) error {
