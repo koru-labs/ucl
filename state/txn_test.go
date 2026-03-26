@@ -47,6 +47,10 @@ func (m *mockSnapshot) GetCode(hash types.Hash) ([]byte, bool) {
 	return nil, false
 }
 
+func (m *mockSnapshot) GetRootHash() types.Hash {
+	return emptyStateHash
+}
+
 func (m *mockSnapshot) Commit(objs []*Object) (Snapshot, []byte, error) {
 	return nil, nil, nil
 }
@@ -71,6 +75,46 @@ func TestSnapshotUpdateData(t *testing.T) {
 
 	assert.NoError(t, txn.RevertToSnapshot(ss))
 	assert.Equal(t, hash1, txn.GetState(addr1, hash1))
+}
+
+func TestGetDumpTree(t *testing.T) {
+	txn := newTestTxn(defaultPreState)
+	txn.SetState(addr1, hash1, hash2)
+	txn.SetState(addr2, hash2, hash1)
+
+	dump := &Dump{
+		Accounts: make(map[types.Address]DumpAccount),
+	}
+	opts := &DumpInfo{
+		Start:             []byte{},
+		Max:               1,
+		OnlyWithAddresses: false,
+		SkipCode:          false,
+		SkipStorage:       false,
+	}
+
+	nextKey, err := txn.GetDumpTree(dump, opts, false)
+
+	assert.NoError(t, err)
+	assert.Equal(t, addr2.Bytes(), nextKey)
+	assert.Len(t, dump.Accounts, 1)
+
+	dumpAcc, exist := dump.Accounts[addr1]
+
+	assert.True(t, exist)
+	assert.Equal(t, dumpAcc.Key, addr1.Bytes())
+
+	opts.Start = nextKey
+	nextKey, err = txn.GetDumpTree(dump, opts, false)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []byte(nil), nextKey)
+	assert.Len(t, dump.Accounts, 1)
+
+	dumpAcc, exist = dump.Accounts[addr2]
+
+	assert.True(t, exist)
+	assert.Equal(t, dumpAcc.Key, addr2.Bytes())
 }
 
 func TestIncrNonce(t *testing.T) {

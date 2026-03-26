@@ -74,6 +74,17 @@ func (s *Snapshot) GetCode(hash types.Hash) ([]byte, bool) {
 	return s.state.GetCode(hash)
 }
 
+func (s *Snapshot) GetRootHash() types.Hash {
+	tt := s.trie.Txn(s.state.storage)
+
+	res, err := tt.Hash()
+	if err != nil {
+		return types.ZeroHash
+	}
+
+	return types.BytesToHash(res)
+}
+
 func (s *Snapshot) Commit(objs []*state.Object) (state.Snapshot, []byte, error) {
 	batch := s.state.storage.Batch()
 
