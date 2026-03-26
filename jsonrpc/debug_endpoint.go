@@ -78,6 +78,10 @@ type debugBlockchainStore interface {
 	// TraceBlock traces all transactions in the given block
 	TraceBlock(*types.Block, tracer.Tracer) ([]interface{}, error)
 
+	// IntermediateRoots executes a block, and returns a list
+	// of intermediate roots: the state root after each transaction.
+	IntermediateRoots(*types.Block, tracer.Tracer) ([]types.Hash, error)
+
 	// TraceTxn traces a transaction in the block, associated with the given hash
 	TraceTxn(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
 
@@ -727,6 +731,36 @@ func (d *Debug) DumpBlock(blockNumber BlockNumber) (interface{}, error) {
 			}
 
 			return dump, nil
+		},
+	)
+}
+
+// IntermediateRoots executes a block, and returns a list
+// of intermediate roots: the state root after each transaction.
+func (d *Debug) IntermediateRoots(
+	blockHash types.Hash,
+	config *TraceConfig,
+) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			block, ok := d.store.GetBlockByHash(blockHash, true)
+			if !ok {
+				return nil, fmt.Errorf("block %s not found", blockHash)
+			}
+
+			if block.Number() == 0 {
+				return nil, ErrTraceGenesisBlock
+			}
+
+			tracer, cancel, err := newTracer(config)
+			if err != nil {
+				return nil, err
+			}
+
+			defer cancel()
+
+			return d.store.IntermediateRoots(block, tracer)
 		},
 	)
 }
