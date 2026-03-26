@@ -63,11 +63,19 @@ type debugBlockchainStore interface {
 	// DB does not contains the key.
 	Get(key string) ([]byte, error)
 
+	// Verbosity sets the log verbosity ceiling.
+	Verbosity(level int) (string, error)
+
 	// GetIteratorDumpTree returns a set of accounts based on the given criteria and depends on the starting element.
 	GetIteratorDumpTree(block *types.Block, opts *state.DumpInfo) (*state.IteratorDump, error)
 
 	// DumpTree retrieves accounts based on the specified criteria for the given block.
 	DumpTree(block *types.Block, opts *state.DumpInfo) (*state.Dump, error)
+
+	// GetModifiedAccountsByHash returns all accounts that have changed between the
+	// two blocks specified. A change is defined as a difference in nonce, balance,
+	// code hash, or storage hash.
+	GetModifiedAccounts(startBlock, endBlock *types.Block) ([]types.Address, error)
 
 	// GetBlockByHash gets a block using the provided hash
 	GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool)
@@ -739,6 +747,17 @@ func (d *Debug) DumpBlock(blockNumber BlockNumber) (interface{}, error) {
 	)
 }
 
+// Verbosity sets the log verbosity ceiling. The verbosity of individual packages
+// and source files can be raised using Vmodule.
+func (d *Debug) Verbosity(level int) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			return d.store.Verbosity(level)
+		},
+	)
+}
+
 // IntermediateRoots executes a block, and returns a list
 // of intermediate roots: the state root after each transaction.
 func (d *Debug) IntermediateRoots(
@@ -875,6 +894,74 @@ func (d *Debug) StorageRangeAt(blockHash types.Hash, txIndex int, contractAddres
 			err := d.store.StorageRangeAt(&storageRangeResult, block, &contractAddress, keyStart, txIndex, maxResult)
 
 			return storageRangeResult, err
+		},
+	)
+}
+
+// GetModifiedAccountsByHash returns all accounts that have changed between the
+// two blocks specified. A change is defined as a difference in nonce, balance,
+// code hash, or storage hash.
+//
+// With one parameter, returns the list of accounts modified in the specified block.
+func (d *Debug) GetModifiedAccountsByHash(startHash types.Hash, endHash *types.Hash) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			startBlock, ok := d.store.GetBlockByHash(startHash, true)
+			if !ok {
+				return nil, fmt.Errorf("start block %s not found", startHash)
+			}
+
+			var endBlock *types.Block
+			if endHash == nil {
+				endBlock = startBlock
+
+				startBlock, ok = d.store.GetBlockByHash(startBlock.Header.ParentHash, true)
+				if !ok {
+					return nil, fmt.Errorf("parent block %s not found", endBlock.Header.ParentHash.String())
+				}
+			} else {
+				endBlock, ok = d.store.GetBlockByHash(*endHash, true)
+				if !ok {
+					return nil, fmt.Errorf("end block %s not found", *endHash)
+				}
+			}
+
+			return d.store.GetModifiedAccounts(startBlock, endBlock)
+		},
+	)
+}
+
+// GetModifiedAccountsByNumber returns all accounts that have changed between the
+// two blocks specified. A change is defined as a difference in nonce, balance,
+// code hash, or storage hash.
+//
+// With one parameter, returns the list of accounts modified in the specified block.
+func (d *Debug) GetModifiedAccountsByNumber(startNum uint64, endNum *uint64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			startBlock, ok := d.store.GetBlockByNumber(startNum, true)
+			if !ok {
+				return nil, fmt.Errorf("startBlock %d not found", startNum)
+			}
+
+			var endBlock *types.Block
+			if endNum == nil {
+				endBlock = startBlock
+
+				startBlock, ok = d.store.GetBlockByHash(startBlock.Header.ParentHash, true)
+				if !ok {
+					return nil, fmt.Errorf("parent block %s not found", endBlock.Header.ParentHash)
+				}
+			} else {
+				endBlock, ok = d.store.GetBlockByNumber(*endNum, true)
+				if !ok {
+					return nil, fmt.Errorf("end block %d not found", *endNum)
+				}
+			}
+
+			return d.store.GetModifiedAccounts(startBlock, endBlock)
 		},
 	)
 }
