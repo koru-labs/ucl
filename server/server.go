@@ -704,9 +704,29 @@ func (j *jsonRPCHub) GetCode(root types.Hash, addr types.Address) ([]byte, error
 	return code, nil
 }
 
+// GetCodeByCodeHash retrieves the bytecode based on the provided code hash.
+func (j *jsonRPCHub) GetCodeByCodeHash(codeHash types.Hash) ([]byte, error) {
+	code, ok := j.state.GetCode(codeHash)
+	if !ok {
+		return nil, fmt.Errorf("unable to fetch code for code hash %s", codeHash)
+	}
+
+	return code, nil
+}
+
 // Has returns true if the DB does contains the given key.
 func (j *jsonRPCHub) Has(rootHash types.Hash) bool {
 	return j.state.Has(rootHash)
+}
+
+// Stat returns a particular internal stat of the database.
+func (j *jsonRPCHub) Stat(property string) (string, error) {
+	return j.state.Stat(property)
+}
+
+// Compact flattens the underlying data store for the given key range.
+func (j *jsonRPCHub) Compact(start []byte, limit []byte) error {
+	return j.state.Compact(start, limit)
 }
 
 // DumpTree retrieves accounts based on the specified criteria for the given block.

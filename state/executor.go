@@ -56,7 +56,6 @@ func NewExecutor(config *chain.Params, s State, logger hclog.Logger) *Executor {
 func (e *Executor) WriteGenesis(
 	alloc map[types.Address]*chain.GenesisAccount,
 	initialStateRoot types.Hash) (types.Hash, error) {
-
 	snap, err := e.state.NewSnapshot(initialStateRoot)
 	if err != nil {
 		return types.Hash{}, err

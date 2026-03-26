@@ -265,8 +265,8 @@ func (e *EthClient) GetAccessibleState(from, to BlockNumber) (uint64, error) {
 }
 
 // StorageRangeAt returns the storage at the given block height and transaction index.
-func (e *EthClient) StorageRangeAt(blockHash types.Hash, txIndex int, contractAddress types.Address,
-	keyStart []byte, maxResult int) (state.StorageRangeResult, error) {
+func (e *EthClient) StorageRangeAt(blockHash types.Hash, txIndex uint64, contractAddress types.Address,
+	keyStart []byte, maxResult uint64) (state.StorageRangeResult, error) {
 	var out state.StorageRangeResult
 
 	if err := e.client.Call("debug_storageRangeAt", &out, blockHash, txIndex, contractAddress,

@@ -126,6 +126,7 @@ func testDeleteCommonStateRoot(t *testing.T, buildPreState buildPreState) {
 
 	snap, err := buildPreState(nil)
 	require.NoError(t, err)
+
 	txn := newTxn(snap)
 
 	txn.SetNonce(addr1, 1)
@@ -167,6 +168,7 @@ func testWriteState(t *testing.T, buildPreState buildPreState) {
 
 	snap, err := buildPreState(nil)
 	require.NoError(t, err)
+
 	txn := newTxn(snap)
 
 	txn.SetState(addr1, hash1, hash1)
@@ -191,6 +193,7 @@ func testWriteEmptyState(t *testing.T, buildPreState buildPreState) {
 	// Create account and write empty state
 	snap, err := buildPreState(nil)
 	require.NoError(t, err)
+
 	txn := newTxn(snap)
 
 	// Without EIP150 the data is added

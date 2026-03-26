@@ -72,6 +72,22 @@ func (s *State) Has(hash types.Hash) bool {
 	return ok
 }
 
+// Stat returns a particular internal stat of the database.
+func (s *State) Stat(property string) (string, error) {
+	return s.storage.Stat(property)
+}
+
+// Compact flattens the underlying data store for the given key range. In essence,
+// deleted and overwritten versions are discarded, and the data is rearranged to
+// reduce the cost of operations needed to access them.
+//
+// A nil start is treated as a key before all keys in the data store; a nil limit
+// is treated as a key after all keys in the data store. If both is nil then it
+// will compact entire data store.
+func (s *State) Compact(start []byte, limit []byte) error {
+	return s.storage.Compact(start, limit)
+}
+
 func (s *State) Get(hash types.Hash) ([]byte, bool, error) {
 	if hash == types.EmptyCodeHash {
 		return nil, false, nil

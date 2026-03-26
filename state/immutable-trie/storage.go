@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/umbracle/fastrlp"
 )
 
@@ -37,6 +38,8 @@ type Storage interface {
 	Batch() Batch
 	SetCode(hash types.Hash, code []byte) error
 	GetCode(hash types.Hash) ([]byte, bool)
+	Stat(property string) (string, error)
+	Compact(start []byte, limit []byte) error
 
 	Close() error
 }
@@ -107,6 +110,22 @@ func (kv *KVStorage) Has(k []byte) (bool, error) {
 	return ok, nil
 }
 
+// Stat returns a particular internal stat of the database.
+func (kv *KVStorage) Stat(property string) (string, error) {
+	return kv.db.GetProperty(property)
+}
+
+// Compact flattens the underlying data store for the given key range. In essence,
+// deleted and overwritten versions are discarded, and the data is rearranged to
+// reduce the cost of operations needed to access them.
+//
+// A nil start is treated as a key before all keys in the data store; a nil limit
+// is treated as a key after all keys in the data store. If both is nil then it
+// will compact entire data store.
+func (kv *KVStorage) Compact(start []byte, limit []byte) error {
+	return kv.db.CompactRange(util.Range{Start: start, Limit: limit})
+}
+
 func (kv *KVStorage) Close() error {
 	return kv.db.Close()
 }
@@ -166,6 +185,17 @@ func (m *memStorage) Has(p []byte) (bool, error) {
 	_, ok := m.db[hex.EncodeToHex(p)]
 
 	return ok, nil
+}
+
+// Stat returns a particular internal stat of the database.
+func (m *memStorage) Stat(property string) (string, error) {
+	return "", fmt.Errorf("not implemented for in-memory storage")
+}
+
+// Compact is not supported on a memory database, but there's no need either as
+// a memory database doesn't waste space anyway.
+func (m *memStorage) Compact(start []byte, limit []byte) error {
+	return nil
 }
 
 func (m *memStorage) SetCode(hash types.Hash, code []byte) error {
