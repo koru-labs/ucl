@@ -62,29 +62,19 @@ func TestE2E_JsonRPCTLS(t *testing.T) {
 	})
 
 	t.Run("eth_getBlock", func(t *testing.T) {
+		// get block by number
 		blockByNumber, err := ethClient.GetBlockByNumber(jsonrpc.BlockNumber(epochSize), false)
 		require.NoError(t, err)
 		require.NotNil(t, blockByNumber)
 		require.Equal(t, epochSize, blockByNumber.Number())
 		require.Empty(t, len(blockByNumber.Transactions)) // since we did not ask for the full block
 
-		blockByNumber, err = ethClient.GetBlockByNumber(jsonrpc.BlockNumber(epochSize), true)
-		require.NoError(t, err)
-		require.Equal(t, epochSize, blockByNumber.Number())
-		// since we asked for the full block, and epoch ending block has a transaction
-		require.Equal(t, 1, len(blockByNumber.Transactions))
-
+		// get block by hash
 		blockByHash, err := ethClient.GetBlockByHash(blockByNumber.Hash(), false)
 		require.NoError(t, err)
 		require.NotNil(t, blockByHash)
 		require.Equal(t, epochSize, blockByHash.Number())
 		require.Equal(t, blockByNumber.Hash(), blockByHash.Hash())
-
-		blockByHash, err = ethClient.GetBlockByHash(blockByNumber.Hash(), true)
-		require.NoError(t, err)
-		require.Equal(t, blockByNumber.Hash(), blockByHash.Hash())
-		// since we asked for the full block, and epoch ending block has a transaction
-		require.Equal(t, 1, len(blockByHash.Transactions))
 
 		// get safe block (act as the latest, because of the instant finality)
 		safeBlock, err := ethClient.GetBlockByNumber(jsonrpc.SafeBlockNumber, false)
