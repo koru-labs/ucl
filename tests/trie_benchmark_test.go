@@ -210,7 +210,7 @@ func reader(ch_root_address chan types.Hash, executor state.Executor, starting_a
 
 func refill(s state.State, currentRoot types.Hash, nonce uint64) (state.State, state.Snapshot, types.Hash, error) {
 
-	snap, err := s.NewSnapshotAt(currentRoot)
+	snap, err := s.NewSnapshot(currentRoot)
 	if err != nil {
 		return nil, nil, types.ZeroHash, err
 	}
@@ -307,7 +307,10 @@ func buildStateWithHelperAccounts(numberOfTransactionsPerBlock uint64) (state.St
 
 	s := itrie.NewState(storage_object)
 
-	snap := s.NewSnapshot()
+	snap, err := s.NewSnapshot(types.ZeroHash)
+	if err != nil {
+		return nil, nil, types.ZeroHash, err
+	}
 
 	txn := state.NewTxn(snap)
 

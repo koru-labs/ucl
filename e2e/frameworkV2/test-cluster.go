@@ -21,8 +21,10 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/genesis"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
+	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/server"
+	"github.com/0xPolygon/polygon-edge/txrelayerv2"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
 	"github.com/stretchr/testify/require"
@@ -822,4 +824,82 @@ func CopyDir(source, destination string) error {
 
 		return os.WriteFile(filepath.Join(destination, relPath), data, 0600)
 	})
+}
+
+func (c *TestCluster) Deploy(t *testing.T, sender *crypto.ECDSAKey, bytecode []byte) *TestTxn {
+	t.Helper()
+
+	tx := &types.Transaction{
+		Type:  types.LegacyTx,
+		From:  sender.Address(),
+		Input: bytecode,
+	}
+
+	return c.SendTxn(t, sender, tx)
+}
+
+func (c *TestCluster) Transfer(t *testing.T, sender *crypto.ECDSAKey, target types.Address, value *big.Int) *TestTxn {
+	t.Helper()
+
+	tx := &types.Transaction{
+		Type:  types.LegacyTx,
+		From:  sender.Address(),
+		Value: value,
+		To:    &target,
+	}
+
+	return c.SendTxn(t, sender, tx)
+}
+
+// SendTxn sends a transaction
+func (c *TestCluster) SendTxn(t *testing.T, sender *crypto.ECDSAKey, txn *types.Transaction) *TestTxn {
+	t.Helper()
+
+	txRelayer, err := txrelayerv2.NewTxRelayer(
+		txrelayerv2.WithIPAddress(c.Servers[0].JSONRPCAddr()),
+		txrelayerv2.WithReceiptsTimeout(1*time.Minute),
+		txrelayerv2.WithEstimateGasFallback(),
+	)
+	require.NoError(t, err)
+
+	receipt, err := txRelayer.SendTransaction(txn, sender)
+	if err != nil {
+		t.Errorf("failed to send transaction: %s", err.Error())
+	}
+
+	return &TestTxn{
+		txn:     txn,
+		receipt: receipt,
+	}
+}
+
+type TestTxn struct {
+	txn     *types.Transaction
+	receipt *ethgo.Receipt
+}
+
+// Txn returns the raw transaction that was sent
+func (t *TestTxn) Txn() *types.Transaction {
+	return t.txn
+}
+
+// Receipt returns the receipt of the transaction
+func (t *TestTxn) Receipt() *ethgo.Receipt {
+	return t.receipt
+}
+
+// Succeed returns whether the transaction succeed and it was not reverted
+func (t *TestTxn) Succeed() bool {
+	return t.receipt != nil && t.receipt.Status == uint64(types.ReceiptSuccess)
+}
+
+// Failed returns whether the transaction failed
+func (t *TestTxn) Failed() bool {
+	return t.receipt == nil || t.receipt.Status == uint64(types.ReceiptFailed)
+}
+
+// Reverted returns whether the transaction failed and was reverted consuming
+// all the gas from the call
+func (t *TestTxn) Reverted() bool {
+	return t.Failed() && t.txn.Gas == t.receipt.GasUsed
 }

@@ -122,7 +122,10 @@ func getPredeployAccount(address types.Address, input []byte, chainID int64) (*c
 	st := itrie.NewState(itrie.NewMemoryStorage())
 
 	// Create a snapshot
-	snapshot := st.NewSnapshot()
+	snapshot, err := st.NewSnapshot(types.ZeroHash)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create a radix
 	radix := state.NewTxn(snapshot)
@@ -155,7 +158,7 @@ func getPredeployAccount(address types.Address, input []byte, chainID int64) (*c
 	// the state needs to be walked to collect all touched all storage slots
 	storageMap := getModifiedStorageMap(radix, address)
 
-	_, _, err := transition.Commit()
+	_, _, err = transition.Commit()
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}

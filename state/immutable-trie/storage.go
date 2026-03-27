@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/umbracle/fastrlp"
 )
 
@@ -32,10 +33,13 @@ type Batch interface {
 // Storage stores the trie
 type Storage interface {
 	Put(k, v []byte) error
+	Has(k []byte) (bool, error)
 	Get(k []byte) ([]byte, bool, error)
 	Batch() Batch
 	SetCode(hash types.Hash, code []byte) error
 	GetCode(hash types.Hash) ([]byte, bool)
+	Stat(property string) (string, error)
+	Compact(start []byte, limit []byte) error
 
 	Close() error
 }
@@ -93,6 +97,35 @@ func (kv *KVStorage) Get(k []byte) ([]byte, bool, error) {
 	return data, true, nil
 }
 
+func (kv *KVStorage) Has(k []byte) (bool, error) {
+	ok, err := kv.db.Has(k, nil)
+	if err != nil {
+		if err.Error() == levelDBNotFoundMsg {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return ok, nil
+}
+
+// Stat returns a particular internal stat of the database.
+func (kv *KVStorage) Stat(property string) (string, error) {
+	return kv.db.GetProperty(property)
+}
+
+// Compact flattens the underlying data store for the given key range. In essence,
+// deleted and overwritten versions are discarded, and the data is rearranged to
+// reduce the cost of operations needed to access them.
+//
+// A nil start is treated as a key before all keys in the data store; a nil limit
+// is treated as a key after all keys in the data store. If both is nil then it
+// will compact entire data store.
+func (kv *KVStorage) Compact(start []byte, limit []byte) error {
+	return kv.db.CompactRange(util.Range{Start: start, Limit: limit})
+}
+
 func (kv *KVStorage) Close() error {
 	return kv.db.Close()
 }
@@ -143,6 +176,26 @@ func (m *memStorage) Get(p []byte) ([]byte, bool, error) {
 	}
 
 	return v, true, nil
+}
+
+func (m *memStorage) Has(p []byte) (bool, error) {
+	m.l.Lock()
+	defer m.l.Unlock()
+
+	_, ok := m.db[hex.EncodeToHex(p)]
+
+	return ok, nil
+}
+
+// Stat returns a particular internal stat of the database.
+func (m *memStorage) Stat(property string) (string, error) {
+	return "", fmt.Errorf("not implemented for in-memory storage")
+}
+
+// Compact is not supported on a memory database, but there's no need either as
+// a memory database doesn't waste space anyway.
+func (m *memStorage) Compact(start []byte, limit []byte) error {
+	return nil
 }
 
 func (m *memStorage) SetCode(hash types.Hash, code []byte) error {

@@ -56,17 +56,7 @@ func NewExecutor(config *chain.Params, s State, logger hclog.Logger) *Executor {
 func (e *Executor) WriteGenesis(
 	alloc map[types.Address]*chain.GenesisAccount,
 	initialStateRoot types.Hash) (types.Hash, error) {
-	var (
-		snap Snapshot
-		err  error
-	)
-
-	if initialStateRoot == types.ZeroHash {
-		snap = e.state.NewSnapshot()
-	} else {
-		snap, err = e.state.NewSnapshotAt(initialStateRoot)
-	}
-
+	snap, err := e.state.NewSnapshot(initialStateRoot)
 	if err != nil {
 		return types.Hash{}, err
 	}
@@ -125,10 +115,38 @@ func (e *Executor) WriteGenesis(
 	return types.BytesToHash(root), nil
 }
 
-type BlockResult struct {
-	Root     types.Hash
-	Receipts []*types.Receipt
-	TotalGas uint64
+// GetDumpTree function returns accounts based on the selected criteria.
+func (e *Executor) GetDumpTree(dump *Dump, parentHash types.Hash,
+	block *types.Block, opts *DumpInfo) ([]byte, error) {
+	txn, err := e.ProcessBlock(parentHash, block, types.BytesToAddress(block.Header.Miner))
+	if err != nil {
+		return nil, err
+	}
+
+	next, err := txn.state.GetDumpTree(dump, opts, false)
+	if err != nil {
+		return nil, err
+	}
+
+	snap, err := e.state.NewSnapshot(block.Header.StateRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	dump.Root = snap.GetRootHash().Bytes()
+
+	return next, nil
+}
+
+// Verbosity sets the log verbosity ceiling.
+func (e *Executor) Verbosity(level int) (string, error) {
+	if level < int(hclog.NoLevel) || level > int(hclog.Off) {
+		return hclog.Level(level).String(), fmt.Errorf("invalid log level: %d", level)
+	}
+
+	e.logger.SetLevel(hclog.Level(level))
+
+	return hclog.Level(level).String(), nil
 }
 
 // ProcessBlock already does all the handling of the whole process
@@ -161,16 +179,6 @@ func (e *Executor) ProcessBlock(
 	return txn, nil
 }
 
-// StateAt returns snapshot at given root
-func (e *Executor) State() State {
-	return e.state
-}
-
-// StateAt returns snapshot at given root
-func (e *Executor) StateAt(root types.Hash) (Snapshot, error) {
-	return e.state.NewSnapshotAt(root)
-}
-
 // GetForksInTime returns the active forks at the given block height
 func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
@@ -183,7 +191,7 @@ func (e *Executor) BeginTxn(
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
-	auxSnap2, err := e.state.NewSnapshotAt(parentRoot)
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +305,12 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 	}
+}
+
+// StorageRangeAt returns the storage at the given block height and transaction index.
+func (t *Transition) StorageRangeAt(storageRangeResult *StorageRangeResult,
+	addr *types.Address, keyStart []byte, maxResult int) error {
+	return t.state.StorageRangeAt(storageRangeResult, addr, keyStart, maxResult)
 }
 
 func (t *Transition) WithStateOverride(override types.StateOverride) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,10 +12,12 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/calltracer"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/structtracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/davecgh/go-spew/spew"
 )
 
 const (
@@ -22,6 +25,8 @@ const (
 	blockString    = "block"
 	mutexString    = "mutex"
 	heapString     = "heap"
+	// AccountRangeMaxResults is the maximum number of results to be returned per call
+	AccountRangeMaxResults = 256
 )
 
 var (
@@ -51,6 +56,36 @@ type debugBlockchainStore interface {
 	// GetPendingTx returns the transaction by hash in the TxPool (pending txn) [Thread-safe]
 	GetPendingTx(txHash types.Hash) (*types.Transaction, bool)
 
+	// Has returns true if the DB does contains the given key.
+	Has(hashRoot types.Hash) bool
+
+	// Stat returns a particular internal stat of the database.
+	Stat(property string) (string, error)
+
+	// Compact flattens the underlying data store for the given key range.
+	Compact(start []byte, limit []byte) error
+
+	// Get gets the value for the given key. It returns ErrNotFound if the
+	// DB does not contains the key.
+	Get(key string) ([]byte, error)
+
+	// Verbosity sets the log verbosity ceiling.
+	Verbosity(level int) (string, error)
+
+	// GetCode retrieves the bytecode associated with a specific code hash.
+	GetCodeByCodeHash(codeHash types.Hash) ([]byte, error)
+
+	// GetIteratorDumpTree returns a set of accounts based on the given criteria and depends on the starting element.
+	GetIteratorDumpTree(block *types.Block, opts *state.DumpInfo) (*state.IteratorDump, error)
+
+	// DumpTree retrieves accounts based on the specified criteria for the given block.
+	DumpTree(block *types.Block, opts *state.DumpInfo) (*state.Dump, error)
+
+	// GetModifiedAccountsByHash returns all accounts that have changed between the
+	// two blocks specified. A change is defined as a difference in nonce, balance,
+	// code hash, or storage hash.
+	GetModifiedAccounts(startBlock, endBlock *types.Block) ([]types.Address, error)
+
 	// GetBlockByHash gets a block using the provided hash
 	GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool)
 
@@ -59,6 +94,14 @@ type debugBlockchainStore interface {
 
 	// TraceBlock traces all transactions in the given block
 	TraceBlock(*types.Block, tracer.Tracer) ([]interface{}, error)
+
+	// IntermediateRoots executes a block, and returns a list
+	// of intermediate roots: the state root after each transaction.
+	IntermediateRoots(*types.Block, tracer.Tracer) ([]types.Hash, error)
+
+	// StorageRangeAt returns the storage at the given block height and transaction index.
+	StorageRangeAt(storageRangeResult *state.StorageRangeResult, block *types.Block,
+		addr *types.Address, keyStart []byte, txIndex, maxResult int) error
 
 	// TraceTxn traces a transaction in the block, associated with the given hash
 	TraceTxn(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
@@ -89,6 +132,14 @@ type Debug struct {
 	ReadFileFunc func(filename string) ([]byte, error)
 }
 
+// BlockTraceResult represents the results of tracing a single block
+type BlockTraceResult struct {
+	Block  uint64      // Block number corresponding to this trace
+	Hash   types.Hash  // Block hash corresponding to this trace
+	Traces interface{} // Trace results produced by the task
+	Error  error
+}
+
 func NewDebug(store debugStore, requestsPerSecond uint64) *Debug {
 	return &Debug{
 		store:        store,
@@ -98,7 +149,7 @@ func NewDebug(store debugStore, requestsPerSecond uint64) *Debug {
 	}
 }
 
-// CpuProfile turns on CPU profiling for nsec seconds and writesExpand commentComment on line R101Resolved
+// CpuProfile turns on CPU profiling for nsec seconds and writes
 // profile data to file.
 //
 //nolint:stylecheck
@@ -118,7 +169,7 @@ func (d *Debug) CpuProfile(file string, nsec int64) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
@@ -178,7 +229,7 @@ func (d *Debug) MutexProfile(file string, nsec int64) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(mutexString, file)
@@ -200,7 +251,7 @@ func (d *Debug) BlockProfile(file string, nsec int64) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(blockString, file)
@@ -255,10 +306,50 @@ func (d *Debug) StartCPUProfile(file string) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
+		},
+	)
+}
+
+// GoTrace turns on tracing for nsec seconds and writes
+func (d *Debug) GoTrace(file string, nsec int64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			if err := d.handler.StartGoTrace(file); err != nil {
+				return nil, err
+			}
+
+			time.Sleep(time.Duration(nsec) * time.Second)
+
+			if err := d.handler.StopGoTrace(); err != nil {
+				return nil, err
+			}
+
+			absPath, err := filepath.Abs(file)
+			if err != nil {
+				return nil, err
+			}
+
+			return absPath, nil
+		},
+	)
+}
+
+// PrintBlock retrieves a block and returns its pretty printed form.
+func (d *Debug) PrintBlock(number uint64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			block, ok := d.store.GetBlockByNumber(number, true)
+			if !ok {
+				return nil, fmt.Errorf("block %d not found", number)
+			}
+
+			return spew.Sdump(block), nil
 		},
 	)
 }
@@ -274,7 +365,7 @@ func (d *Debug) StartGoTrace(file string) (interface{}, error) {
 
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, nil
@@ -317,7 +408,7 @@ func (d *Debug) WriteBlockProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(blockString, file)
@@ -335,7 +426,7 @@ func (d *Debug) WriteMemProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(heapString, file)
@@ -350,7 +441,7 @@ func (d *Debug) WriteMutexProfile(file string) (interface{}, error) {
 		func() (interface{}, error) {
 			absPath, err := filepath.Abs(file)
 			if err != nil {
-				absPath = file
+				return nil, err
 			}
 
 			return absPath, writeProfile(mutexString, file)
@@ -602,6 +693,397 @@ func (d *Debug) GetRawTransaction(txHash types.Hash) (interface{}, error) {
 			}
 
 			return tx.MarshalRLP(), nil
+		},
+	)
+}
+
+// TraceChain traces a range of blocks from `start` to `end` and returns their trace results or an error.
+func (d *Debug) TraceChain(start, end BlockNumber, config *TraceConfig) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			startNum, err := GetNumericBlockNumber(start, d.store)
+			if err != nil {
+				return nil, err
+			}
+
+			endNum, err := GetNumericBlockNumber(end, d.store)
+			if err != nil {
+				return nil, err
+			}
+
+			if startNum > endNum {
+				return nil, fmt.Errorf(
+					"end block number (#%d) must be greater than or equal to start block number (#%d)",
+					endNum,
+					startNum,
+				)
+			}
+
+			blocks := int(endNum-startNum) + 1
+			results := make([]BlockTraceResult, blocks)
+			resultCh := make(chan *BlockTraceResult, blocks)
+
+			for i := 0; i < blocks; i++ {
+				go func(i int) {
+					blockNum := startNum + uint64(i)
+					traceResult := &BlockTraceResult{Block: blockNum}
+
+					block, ok := d.store.GetBlockByNumber(blockNum, true)
+					if !ok {
+						traceResult.Error = fmt.Errorf("block %d not found", blockNum)
+					} else {
+						traceResult.Hash = block.Hash()
+
+						res, err := d.traceBlock(block, config)
+						if err != nil {
+							traceResult.Error = fmt.Errorf("failed to trace block %d: %w", blockNum, err)
+						} else {
+							traceResult.Traces = res
+						}
+					}
+
+					resultCh <- traceResult
+				}(i)
+			}
+
+			traceResults := 0
+
+			for {
+				select {
+				case traceResult := <-resultCh:
+					results[traceResult.Block-startNum] = *traceResult
+
+					traceResults++
+					if traceResults == blocks {
+						return results, nil
+					}
+				}
+			}
+		},
+	)
+}
+
+// AccountRange enumerates all accounts in the given block and start point in paging request
+func (d *Debug) AccountRange(filter BlockNumberOrHash, start []byte, maxResults int, noCode,
+	noStorage, incompletes bool) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			header, err := GetHeaderFromBlockNumberOrHash(filter, d.store)
+			if err != nil {
+				return state.IteratorDump{}, fmt.Errorf("failed to get header: %w", err)
+			}
+
+			block, ok := d.store.GetBlockByHash(header.Hash, true)
+			if !ok {
+				return state.IteratorDump{}, fmt.Errorf("block not found for hash %s", header.Hash.String())
+			}
+
+			if maxResults <= 0 || maxResults > AccountRangeMaxResults {
+				maxResults = AccountRangeMaxResults
+			}
+
+			opts := &state.DumpInfo{
+				SkipCode:          noCode,
+				SkipStorage:       noStorage,
+				OnlyWithAddresses: !incompletes,
+				Start:             start,
+				Max:               maxResults,
+			}
+
+			iDump, err := d.store.GetIteratorDumpTree(block, opts)
+			if err != nil {
+				return state.IteratorDump{}, fmt.Errorf("failed to get iterator dump tree: %w", err)
+			}
+
+			return iDump, nil
+		},
+	)
+}
+
+// DumpBlock retrieves the entire state of the database at a given block.
+func (d *Debug) DumpBlock(blockNumber BlockNumber) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			num, err := GetNumericBlockNumber(blockNumber, d.store)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get block number: %w", err)
+			}
+
+			block, ok := d.store.GetBlockByNumber(num, true)
+			if !ok {
+				return nil, fmt.Errorf("block not found for number %d", num)
+			}
+
+			opts := &state.DumpInfo{
+				OnlyWithAddresses: true,
+				Max:               AccountRangeMaxResults,
+			}
+
+			dump, err := d.store.DumpTree(block, opts)
+			if err != nil {
+				return nil, fmt.Errorf("failed to dump tree: %w", err)
+			}
+
+			return dump, nil
+		},
+	)
+}
+
+// Verbosity sets the log verbosity ceiling. The verbosity of individual packages
+// and source files can be raised using Vmodule.
+func (d *Debug) Verbosity(level int) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			return d.store.Verbosity(level)
+		},
+	)
+}
+
+// IntermediateRoots executes a block, and returns a list
+// of intermediate roots: the state root after each transaction.
+func (d *Debug) IntermediateRoots(
+	blockHash types.Hash,
+	config *TraceConfig,
+) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			block, ok := d.store.GetBlockByHash(blockHash, true)
+			if !ok {
+				return nil, fmt.Errorf("block %s not found", blockHash)
+			}
+
+			if block.Number() == 0 {
+				return nil, ErrTraceGenesisBlock
+			}
+
+			tracer, cancel, err := newTracer(config)
+			if err != nil {
+				return nil, err
+			}
+
+			defer cancel()
+
+			return d.store.IntermediateRoots(block, tracer)
+		},
+	)
+}
+
+// GetAccessibleState returns the first number where the node has accessible
+// state on disk. Note this being the post-state of that block and the pre-state
+// of the next block.
+// The (from, to) parameters are the sequence of blocks to search, which can go
+// either forwards or backwards
+func (d *Debug) GetAccessibleState(from, to BlockNumber) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			getBlockNumber := func(num BlockNumber) (int64, error) {
+				n, err := GetNumericBlockNumber(num, d.store)
+				if err != nil {
+					return 0, fmt.Errorf("failed to get block number: %w", err)
+				}
+
+				if n > math.MaxInt64 {
+					return 0, fmt.Errorf("block number %d overflows int64", n)
+				}
+
+				return int64(n), nil
+			}
+
+			// Get start and end block numbers
+			start, err := getBlockNumber(from)
+			if err != nil {
+				return 0, err
+			}
+
+			end, err := getBlockNumber(to)
+			if err != nil {
+				return 0, err
+			}
+
+			if start == end {
+				if start < 0 {
+					return 0, fmt.Errorf("block number overflow: %d", start)
+				}
+
+				blockStart := uint64(start)
+
+				h, ok := d.store.GetHeaderByNumber(blockStart)
+				if ok {
+					if d.store.Has(h.StateRoot) {
+						return blockStart, nil
+					}
+				}
+
+				return 0, fmt.Errorf("no accessible state found in the block %d", start)
+			}
+
+			delta := int64(1)
+			if start > end {
+				delta = -1
+			}
+
+			for i := start; i != end; i += delta {
+				if i < 0 {
+					return 0, fmt.Errorf("block number overflow: %d", i)
+				}
+
+				blockNum := uint64(i)
+				h, ok := d.store.GetHeaderByNumber(blockNum)
+
+				if !ok {
+					return 0, fmt.Errorf("missing header for block number %d", i)
+				}
+
+				if d.store.Has(h.StateRoot) {
+					return blockNum, nil
+				}
+			}
+
+			// No state found
+			return 0, fmt.Errorf("no accessible state found between the block numbers %d and %d", start, end)
+		},
+	)
+}
+
+// ChaindbProperty returns leveldb properties of the key-value database.
+func (d *Debug) ChaindbProperty(property string) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			return d.store.Stat(property)
+		},
+	)
+}
+
+// ChaindbCompact flattens the entire key-value database into a single level,
+// removing all unused slots and merging all keys.
+func (d *Debug) ChaindbCompact() (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			for b := byte(0); b <= 255; b++ {
+				if err := d.store.Compact([]byte{b}, []byte{b + 1}); err != nil {
+					return false, err
+				}
+			}
+
+			return true, nil
+		},
+	)
+}
+
+// Preimage is a debug API function that returns the preimage for a sha3 hash, if known.
+func (d *Debug) Preimage(codeHash types.Hash) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			return d.store.GetCodeByCodeHash(codeHash)
+		},
+	)
+}
+
+// DbGet returns the raw value of a key stored in the database.
+//
+//nolint:stylecheck
+func (d *Debug) DbGet(key string) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			return d.store.Get(key)
+		},
+	)
+}
+
+// StorageRangeAt returns the storage at the given block height and transaction index.
+func (d *Debug) StorageRangeAt(blockHash types.Hash, txIndex int, contractAddress types.Address,
+	keyStart []byte, maxResult int) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			storageRangeResult := state.StorageRangeResult{}
+
+			block, ok := d.store.GetBlockByHash(blockHash, true)
+			if !ok {
+				return nil, fmt.Errorf("block %s not found", blockHash)
+			}
+
+			err := d.store.StorageRangeAt(&storageRangeResult, block, &contractAddress, keyStart, txIndex, maxResult)
+
+			return storageRangeResult, err
+		},
+	)
+}
+
+// GetModifiedAccountsByHash returns all accounts that have changed between the
+// two blocks specified. A change is defined as a difference in nonce, balance,
+// code hash, or storage hash.
+//
+// With one parameter, returns the list of accounts modified in the specified block.
+func (d *Debug) GetModifiedAccountsByHash(startHash types.Hash, endHash *types.Hash) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			startBlock, ok := d.store.GetBlockByHash(startHash, true)
+			if !ok {
+				return nil, fmt.Errorf("start block %s not found", startHash)
+			}
+
+			var endBlock *types.Block
+			if endHash == nil {
+				endBlock = startBlock
+
+				startBlock, ok = d.store.GetBlockByHash(startBlock.Header.ParentHash, true)
+				if !ok {
+					return nil, fmt.Errorf("parent block %s not found", endBlock.Header.ParentHash.String())
+				}
+			} else {
+				endBlock, ok = d.store.GetBlockByHash(*endHash, true)
+				if !ok {
+					return nil, fmt.Errorf("end block %s not found", *endHash)
+				}
+			}
+
+			return d.store.GetModifiedAccounts(startBlock, endBlock)
+		},
+	)
+}
+
+// GetModifiedAccountsByNumber returns all accounts that have changed between the
+// two blocks specified. A change is defined as a difference in nonce, balance,
+// code hash, or storage hash.
+//
+// With one parameter, returns the list of accounts modified in the specified block.
+func (d *Debug) GetModifiedAccountsByNumber(startNum uint64, endNum *uint64) (interface{}, error) {
+	return d.throttling.AttemptRequest(
+		context.Background(),
+		func() (interface{}, error) {
+			startBlock, ok := d.store.GetBlockByNumber(startNum, true)
+			if !ok {
+				return nil, fmt.Errorf("startBlock %d not found", startNum)
+			}
+
+			var endBlock *types.Block
+			if endNum == nil {
+				endBlock = startBlock
+
+				startBlock, ok = d.store.GetBlockByHash(startBlock.Header.ParentHash, true)
+				if !ok {
+					return nil, fmt.Errorf("parent block %s not found", endBlock.Header.ParentHash)
+				}
+			} else {
+				endBlock, ok = d.store.GetBlockByNumber(*endNum, true)
+				if !ok {
+					return nil, fmt.Errorf("end block %d not found", *endNum)
+				}
+			}
+
+			return d.store.GetModifiedAccounts(startBlock, endBlock)
 		},
 	)
 }

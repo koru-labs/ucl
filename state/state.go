@@ -11,16 +11,82 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
+// State represents an interface for interacting with a state that can be
+// snapshotted, queried for data, and checked for existence of specific items.
 type State interface {
-	NewSnapshotAt(types.Hash) (Snapshot, error)
-	NewSnapshot() Snapshot
+	// NewSnapshot creates a new state snapshot based on the provided root hash.
+	// This can be useful to capture a point-in-time view of the state.
+	NewSnapshot(rootHash types.Hash) (Snapshot, error)
+	// GetCode retrieves the bytecode associated with a specific code hash.
 	GetCode(hash types.Hash) ([]byte, bool)
+	// Get retrieves the value associated with a specific key (hash).
+	Get(hash types.Hash) ([]byte, bool, error)
+	// Has checks whether a specific item exists in the state by its hash.
+	Has(hash types.Hash) bool
+	// Stat returns a particular internal stat of the database.
+	Stat(property string) (string, error)
+
+	// Compact flattens the underlying data store for the given key range. In essence,
+	// deleted and overwritten versions are discarded, and the data is rearranged to
+	// reduce the cost of operations needed to access them.
+	//
+	// A nil start is treated as a key before all keys in the data store; a nil limit
+	// is treated as a key after all keys in the data store. If both is nil then it
+	// will compact entire data store.
+	Compact(start []byte, limit []byte) error
 }
 
 type Snapshot interface {
 	readSnapshot
 
 	Commit(objs []*Object) (Snapshot, []byte, error)
+}
+
+// DumpAccount represents an account in the state.
+type DumpAccount struct {
+	Balance  string                `json:"balance"`
+	Nonce    uint64                `json:"nonce"`
+	Root     []byte                `json:"root"`
+	CodeHash []byte                `json:"codeHash"`
+	Code     []byte                `json:"code,omitempty"`
+	Storage  map[types.Hash]string `json:"storage,omitempty"`
+	Address  types.Address         `json:"address,omitempty"` // Address only present in iterative (line-by-line) mode
+	Key      []byte                `json:"key,omitempty"`     // If we don't have address, we can output the key
+}
+
+// Dump represents the full dump in a collected format, as one large map.
+type Dump struct {
+	Root     []byte                        `json:"root"`
+	Accounts map[types.Address]DumpAccount `json:"accounts"`
+}
+
+// DumpConfig is a set of options to control what portions of the state will be
+// iterated and collected.
+type DumpInfo struct {
+	SkipCode          bool
+	SkipStorage       bool
+	OnlyWithAddresses bool
+	Start             []byte
+	Max               int
+}
+
+// IteratorDump is an implementation for iterating over data.
+type IteratorDump struct {
+	Dump
+	Next []byte `json:"next,omitempty"` // nil if no more accounts
+}
+
+// StorageRangeResult is the result of a debug_storageRangeAt API call.
+type StorageRangeResult struct {
+	Storage storageMap `json:"storage"`
+	NextKey []byte     `json:"nextKey"` // nil if Storage includes the last key in the trie.
+}
+
+type storageMap map[types.Hash]storageEntry
+
+type storageEntry struct {
+	Key   []byte     `json:"key"`
+	Value types.Hash `json:"value"`
 }
 
 // Account is the account reference in the ethereum state
@@ -157,9 +223,58 @@ type Object struct {
 	Storage []*StorageObject
 }
 
+func (o *Object) Equals(other *Object) bool {
+	// Compare Address, CodeHash, Root, Nonce, Deleted, and DirtyCode directly.
+	if o.Address != other.Address ||
+		o.CodeHash != other.CodeHash ||
+		o.Root != other.Root ||
+		o.Nonce != other.Nonce ||
+		o.Deleted != other.Deleted ||
+		o.DirtyCode != other.DirtyCode {
+		return false
+	}
+
+	// Compare Balance.
+	if o.Balance.Cmp(other.Balance) != 0 {
+		return false
+	}
+
+	// Compare Code slices.
+	if !bytes.Equal(o.Code, other.Code) {
+		return false
+	}
+
+	// Compare Storage slices by length first.
+	if len(o.Storage) != len(other.Storage) {
+		return false
+	}
+
+	for i, storageObj := range o.Storage {
+		if !(storageObj.Equals(other.Storage[i])) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // StorageObject is an entry in the storage
 type StorageObject struct {
 	Deleted bool
 	Key     []byte
 	Val     []byte
+}
+
+func (s *StorageObject) Equals(other *StorageObject) bool {
+	// Compare Deleted field directly
+	if s.Deleted != other.Deleted {
+		return false
+	}
+
+	// Compare Key and Val byte slices using bytes.Equal
+	if !bytes.Equal(s.Key, other.Key) || !bytes.Equal(s.Val, other.Val) {
+		return false
+	}
+
+	return true
 }

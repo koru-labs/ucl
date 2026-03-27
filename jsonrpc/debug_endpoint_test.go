@@ -7,27 +7,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/structtracer"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
 type debugEndpointMockStore struct {
-	headerFn            func() *types.Header
-	getHeaderByNumberFn func(uint64) (*types.Header, bool)
-	getReceiptsByHashFn func(uint64, types.Hash) ([]*types.Receipt, error)
-	readTxLookupFn      func(types.Hash) (uint64, bool)
-	getPendingTxFn      func(types.Hash) (*types.Transaction, bool)
-	getBlockByHashFn    func(types.Hash, bool) (*types.Block, bool)
-	getBlockByNumberFn  func(uint64, bool) (*types.Block, bool)
-	traceBlockFn        func(*types.Block, tracer.Tracer) ([]interface{}, error)
-	traceTxnFn          func(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
-	traceCallFn         func(*types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
-	getNonceFn          func(types.Address) uint64
-	getAccountFn        func(types.Hash, types.Address) (*Account, error)
+	headerFn              func() *types.Header
+	getHeaderByNumberFn   func(uint64) (*types.Header, bool)
+	getReceiptsByHashFn   func(uint64, types.Hash) ([]*types.Receipt, error)
+	readTxLookupFn        func(types.Hash) (uint64, bool)
+	getPendingTxFn        func(types.Hash) (*types.Transaction, bool)
+	hasFn                 func(types.Hash) bool
+	statFn                func(property string) (string, error)
+	compactFn             func(start []byte, limit []byte) error
+	getFn                 func(string) ([]byte, error)
+	verbosityFn           func(int) (string, error)
+	getCodeByCodeHashFn   func(codeHash types.Hash) ([]byte, error)
+	getIteratorDumpTreeFn func(*types.Block, *state.DumpInfo) (*state.IteratorDump, error)
+	dumpTreeFn            func(*types.Block, *state.DumpInfo) (*state.Dump, error)
+	getBlockByHashFn      func(types.Hash, bool) (*types.Block, bool)
+	getModifiedAccountsFn func(*types.Block, *types.Block) ([]types.Address, error)
+	getBlockByNumberFn    func(uint64, bool) (*types.Block, bool)
+	traceBlockFn          func(*types.Block, tracer.Tracer) ([]interface{}, error)
+	intermediateRootsFn   func(*types.Block, tracer.Tracer) ([]types.Hash, error)
+	storageRangeAtFn      func(*state.StorageRangeResult, *types.Block, *types.Address, []byte, int, int) error
+	traceTxnFn            func(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
+	traceCallFn           func(*types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
+	getNonceFn            func(types.Address) uint64
+	getAccountFn          func(types.Hash, types.Address) (*Account, error)
 }
 
 func (s *debugEndpointMockStore) Header() *types.Header {
@@ -50,6 +63,42 @@ func (s *debugEndpointMockStore) GetPendingTx(txHash types.Hash) (*types.Transac
 	return s.getPendingTxFn(txHash)
 }
 
+func (s *debugEndpointMockStore) Has(hash types.Hash) bool {
+	return s.hasFn(hash)
+}
+
+func (s *debugEndpointMockStore) Stat(property string) (string, error) {
+	return s.statFn(property)
+}
+
+func (s *debugEndpointMockStore) Compact(start []byte, limit []byte) error {
+	return s.compactFn(start, limit)
+}
+
+func (s *debugEndpointMockStore) Get(key string) ([]byte, error) {
+	return s.getFn(key)
+}
+
+func (s *debugEndpointMockStore) Verbosity(level int) (string, error) {
+	return s.verbosityFn(level)
+}
+
+func (s *debugEndpointMockStore) GetCodeByCodeHash(codeHash types.Hash) ([]byte, error) {
+	return s.getCodeByCodeHashFn(codeHash)
+}
+
+func (s *debugEndpointMockStore) GetIteratorDumpTree(block *types.Block, opts *state.DumpInfo) (*state.IteratorDump, error) {
+	return s.getIteratorDumpTreeFn(block, opts)
+}
+
+func (s *debugEndpointMockStore) DumpTree(block *types.Block, opts *state.DumpInfo) (*state.Dump, error) {
+	return s.dumpTreeFn(block, opts)
+}
+
+func (s *debugEndpointMockStore) GetModifiedAccounts(startBlock, endBlock *types.Block) ([]types.Address, error) {
+	return s.getModifiedAccountsFn(startBlock, endBlock)
+}
+
 func (s *debugEndpointMockStore) GetBlockByHash(hash types.Hash, full bool) (*types.Block, bool) {
 	return s.getBlockByHashFn(hash, full)
 }
@@ -60,6 +109,14 @@ func (s *debugEndpointMockStore) GetBlockByNumber(num uint64, full bool) (*types
 
 func (s *debugEndpointMockStore) TraceBlock(block *types.Block, tracer tracer.Tracer) ([]interface{}, error) {
 	return s.traceBlockFn(block, tracer)
+}
+
+func (s *debugEndpointMockStore) IntermediateRoots(block *types.Block, tracer tracer.Tracer) ([]types.Hash, error) {
+	return s.intermediateRootsFn(block, tracer)
+}
+
+func (s *debugEndpointMockStore) StorageRangeAt(storageRangeResult *state.StorageRangeResult, block *types.Block, addr *types.Address, keyStart []byte, txIndex, maxResult int) error {
+	return s.storageRangeAtFn(storageRangeResult, block, addr, keyStart, txIndex, maxResult)
 }
 
 func (s *debugEndpointMockStore) TraceTxn(block *types.Block, targetTx types.Hash, tracer tracer.Tracer) (interface{}, error) {
@@ -303,6 +360,69 @@ func TestTraceBlockByNumber(t *testing.T) {
 
 			if test.err {
 				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPrintBlock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		number    uint64
+		store     *debugEndpointMockStore
+		returnErr string
+		result    interface{}
+		err       bool
+	}{
+		{
+			name:   "block not found",
+			number: testBlock10.Number(),
+			store: &debugEndpointMockStore{
+				getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), num)
+					require.True(t, full)
+
+					return nil, false
+				},
+			},
+			returnErr: "not found",
+			result:    nil,
+			err:       true,
+		},
+		{
+			name:   "the block is written",
+			number: testBlock10.Number(),
+			store: &debugEndpointMockStore{
+				getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testHeader10.Number, num)
+					require.True(t, full)
+
+					return testBlock10, true
+				},
+			},
+			returnErr: "",
+			result:    spew.Sdump(testBlock10),
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.PrintBlock(test.number)
+
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
 			} else {
 				require.NoError(t, err)
 			}
@@ -1153,6 +1273,726 @@ func TestGetRawReceipts(t *testing.T) {
 			endpoint := NewDebug(test.store, 100000)
 			res, err := endpoint.GetRawReceipts(test.filter)
 
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAccountRange(t *testing.T) {
+	t.Parallel()
+
+	dumpIter := &state.IteratorDump{
+		Next: addr2[:],
+	}
+
+	dumpEmpty := state.IteratorDump{}
+
+	tests := []struct {
+		name      string
+		filter    BlockNumberOrHash
+		store     *debugEndpointMockStore
+		result    interface{}
+		returnErr string
+		err       bool
+	}{
+		{
+			name:   "HeaderNotFound",
+			filter: EarliestBlockNumberOrHash,
+			store: &debugEndpointMockStore{
+				getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+					require.Equal(t, uint64(0), num)
+
+					return nil, false
+				},
+			},
+
+			returnErr: "failed to get header",
+			result:    dumpEmpty,
+			err:       true,
+		},
+		{
+			name:   "BlockNotFound",
+			filter: LatestBlockNumberOrHash,
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return nil, false
+				},
+			},
+
+			returnErr: "block not found for hash",
+			result:    dumpEmpty,
+			err:       true,
+		},
+		{
+			name:   "IteratorDumpTreeError",
+			filter: LatestBlockNumberOrHash,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+
+				getIteratorDumpTreeFn: func(block *types.Block, dump *state.DumpInfo) (*state.IteratorDump, error) {
+					require.Equal(t, testLatestBlock, block)
+
+					return nil, fmt.Errorf("IteratorDump not valid")
+				},
+			},
+
+			returnErr: "failed to get iterator dump tree",
+			result:    dumpEmpty,
+			err:       true,
+		},
+
+		{
+			name:   "IteratorDumpTreeValid",
+			filter: LatestBlockNumberOrHash,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+
+				getIteratorDumpTreeFn: func(block *types.Block, dump *state.DumpInfo) (*state.IteratorDump, error) {
+					require.Equal(t, testLatestBlock, block)
+
+					return dumpIter, nil
+				},
+			},
+
+			returnErr: "",
+			result:    dumpIter,
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+
+			res, err := endpoint.AccountRange(test.filter, []byte{}, 1, false, false, false)
+
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDumpBlock(t *testing.T) {
+	t.Parallel()
+
+	dump := &state.Dump{}
+
+	tests := []struct {
+		name        string
+		blockNumber BlockNumber
+		store       *debugEndpointMockStore
+		result      interface{}
+		returnErr   string
+		err         bool
+	}{
+		{
+			name:        "GetNumericBlockNumberNotValid",
+			blockNumber: BlockNumber(-5),
+			store:       &debugEndpointMockStore{},
+			returnErr:   "failed to get block number",
+			result:      nil,
+			err:         true,
+		},
+		{
+			name:        "BlockNotFound",
+			blockNumber: *LatestBlockNumberOrHash.BlockNumber,
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+					return nil, false
+				},
+			},
+
+			returnErr: "block not found for number ",
+			result:    nil,
+			err:       true,
+		},
+		{
+			name:        "DumpTreeError",
+			blockNumber: *LatestBlockNumberOrHash.BlockNumber,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+
+				dumpTreeFn: func(block *types.Block, dump *state.DumpInfo) (*state.Dump, error) {
+					require.Equal(t, testLatestBlock, block)
+
+					return nil, fmt.Errorf("dump not valid")
+				},
+			},
+
+			returnErr: "failed to dump tree",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:        "DumpTreeValid",
+			blockNumber: *LatestBlockNumberOrHash.BlockNumber,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+
+				dumpTreeFn: func(block *types.Block, dumpInfo *state.DumpInfo) (*state.Dump, error) {
+					require.Equal(t, testLatestBlock, block)
+
+					return dump, nil
+				},
+			},
+
+			returnErr: "",
+			result:    dump,
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+
+			res, err := endpoint.DumpBlock(test.blockNumber)
+
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetAccessibleState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		start, end BlockNumber
+		store      *debugEndpointMockStore
+		result     interface{}
+		returnErr  string
+		err        bool
+	}{
+		{
+			name:      "GetNumericBlockNumberNotValid",
+			start:     BlockNumber(-5),
+			end:       BlockNumber(-5),
+			store:     &debugEndpointMockStore{},
+			returnErr: "failed to get block number",
+			result:    0,
+			err:       true,
+		},
+		{
+			name:  "BlockNotDifferent",
+			start: *LatestBlockNumberOrHash.BlockNumber,
+			end:   *LatestBlockNumberOrHash.BlockNumber,
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+					return nil, false
+				},
+			},
+
+			returnErr: "no accessible state found in the block",
+			result:    0,
+			err:       true,
+		},
+		{
+			name:  "HeaderNotFound",
+			start: *LatestBlockNumberOrHash.BlockNumber,
+			end:   BlockNumber(testHeader10.Number),
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+					return nil, false
+				},
+			},
+
+			returnErr: "missing header for block number",
+			result:    0,
+			err:       true,
+		},
+		{
+			name:  "resultNotFound",
+			start: *LatestBlockNumberOrHash.BlockNumber,
+			end:   BlockNumber(testHeader10.Number),
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+					return testLatestBlock.Header, true
+				},
+
+				hasFn: func(hash types.Hash) bool {
+					return false
+				},
+			},
+
+			returnErr: "no accessible state found between the block numbers 100 and 10",
+			result:    0,
+			err:       true,
+		},
+
+		{
+			name:  "resultsValid",
+			start: *LatestBlockNumberOrHash.BlockNumber,
+			end:   BlockNumber(testHeader10.Number),
+
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return testLatestBlock.Header
+				},
+
+				getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+					return testLatestBlock.Header, true
+				},
+
+				hasFn: func(hash types.Hash) bool {
+					return true
+				},
+			},
+
+			returnErr: "",
+			result:    testLatestBlock.Header.Number,
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+
+			res, err := endpoint.GetAccessibleState(test.start, test.end)
+
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestIntermediateRoots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		blockHash types.Hash
+		config    *TraceConfig
+		store     *debugEndpointMockStore
+		result    interface{}
+		returnErr string
+		err       bool
+	}{
+		{
+			name:      "BlockByHashNotFound",
+			blockHash: testLatestBlock.Hash(),
+			config:    &TraceConfig{},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					require.Equal(t, testLatestBlock.Hash(), hash)
+					require.True(t, full)
+
+					return nil, false
+				},
+			},
+
+			returnErr: "not found",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:      "intermediateRootsNotValid",
+			blockHash: testLatestBlock.Hash(),
+			config:    &TraceConfig{},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+				intermediateRootsFn: func(block *types.Block, tracer tracer.Tracer) ([]types.Hash, error) {
+					require.Equal(t, block.Hash(), testLatestBlock.Hash())
+
+					return []types.Hash{}, fmt.Errorf("roots not valid")
+				},
+			},
+
+			returnErr: "roots not valid",
+			result:    []types.Hash{},
+			err:       true,
+		},
+
+		{
+			name:      "resultsValid",
+			blockHash: testLatestBlock.Hash(),
+			config:    &TraceConfig{},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+				intermediateRootsFn: func(block *types.Block, tracer tracer.Tracer) ([]types.Hash, error) {
+					require.Equal(t, block.Hash(), testLatestBlock.Hash())
+
+					return []types.Hash{block.Hash()}, nil
+				},
+			},
+
+			returnErr: "",
+			result:    []types.Hash{testLatestBlock.Hash()},
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.IntermediateRoots(test.blockHash, test.config)
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestStorageRangeAt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		blockHash          types.Hash
+		storageRangeResult state.StorageRangeResult
+		store              *debugEndpointMockStore
+		result             interface{}
+		returnErr          string
+		err                bool
+	}{
+		{
+			name:      "BlockByHashNotFound",
+			blockHash: testLatestBlock.Hash(),
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					require.Equal(t, testLatestBlock.Hash(), hash)
+					require.True(t, full)
+
+					return nil, false
+				},
+			},
+
+			returnErr: "not found",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:               "storageRangeAtNotValid",
+			blockHash:          testLatestBlock.Hash(),
+			storageRangeResult: state.StorageRangeResult{},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+				storageRangeAtFn: func(srr *state.StorageRangeResult, block *types.Block, address *types.Address, start []byte, txIndex, maxCount int) error {
+					require.Equal(t, block.Hash(), testLatestBlock.Hash())
+
+					return fmt.Errorf("storageRangeAt not valid")
+				},
+			},
+
+			returnErr: "storageRangeAt not valid",
+			result:    state.StorageRangeResult{},
+			err:       true,
+		},
+
+		{
+			name:               "resultsValid",
+			blockHash:          testLatestBlock.Hash(),
+			storageRangeResult: state.StorageRangeResult{},
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+				storageRangeAtFn: func(srr *state.StorageRangeResult, block *types.Block, address *types.Address, start []byte, txIndex, maxCount int) error {
+					require.Equal(t, block.Hash(), testLatestBlock.Hash())
+
+					return nil
+				},
+			},
+
+			returnErr: "",
+			result:    state.StorageRangeResult{},
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.StorageRangeAt(test.blockHash, 0, addr0, []byte{}, 10)
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetModifiedAccountsByHash(t *testing.T) {
+	t.Parallel()
+
+	hash := testLatestBlock.Hash()
+	tests := []struct {
+		name           string
+		startblockHash types.Hash
+		endblockHash   *types.Hash
+		store          *debugEndpointMockStore
+		result         interface{}
+		returnErr      string
+		err            bool
+	}{
+		{
+			name:           "BlockByHashNotFound",
+			startblockHash: hash,
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					require.Equal(t, hash, hash)
+					require.True(t, full)
+
+					return nil, false
+				},
+			},
+
+			returnErr: "not found",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:           "ParentBlockByHashNotFound",
+			startblockHash: hash,
+			endblockHash:   nil,
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hashBlock types.Hash, full bool) (*types.Block, bool) {
+					if hashBlock == hash {
+						return testLatestBlock, true
+					}
+
+					return nil, false
+				},
+			},
+
+			returnErr: "parent block",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:           "GetModifiedAccountsByHashValid",
+			startblockHash: hash,
+			endblockHash:   &hash,
+			store: &debugEndpointMockStore{
+				getBlockByHashFn: func(hash types.Hash, full bool) (*types.Block, bool) {
+					return testLatestBlock, true
+				},
+				getModifiedAccountsFn: func(start *types.Block, end *types.Block) ([]types.Address, error) {
+					require.Equal(t, start.Hash(), hash)
+					require.Equal(t, end.Hash(), hash)
+
+					return []types.Address{addr0, addr1}, nil
+				},
+			},
+
+			returnErr: "",
+			result:    []types.Address{addr0, addr1},
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.GetModifiedAccountsByHash(test.startblockHash, test.endblockHash)
+			require.Equal(t, test.result, res)
+
+			if test.err {
+				require.ErrorContains(t, err, test.returnErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetModifiedAccountsByNumber(t *testing.T) {
+	t.Parallel()
+
+	number := testBlock10.Number()
+	tests := []struct {
+		name             string
+		startblockNumber uint64
+		endblockNumber   *uint64
+		store            *debugEndpointMockStore
+		result           interface{}
+		returnErr        string
+		err              bool
+	}{
+		{
+			name:             "BlockByNumberNotFound",
+			startblockNumber: number,
+			store: &debugEndpointMockStore{
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return nil, false
+				},
+			},
+
+			returnErr: "not found",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:             "ParentBlockByHashNotFound",
+			startblockNumber: number,
+			endblockNumber:   nil,
+			store: &debugEndpointMockStore{
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return testBlock10, true
+				},
+				getBlockByHashFn: func(hashBlock types.Hash, full bool) (*types.Block, bool) {
+					return nil, false
+				},
+			},
+
+			returnErr: "parent block",
+			result:    nil,
+			err:       true,
+		},
+
+		{
+			name:             "GetModifiedAccountsByNumberValid",
+			startblockNumber: number,
+			endblockNumber:   &number,
+			store: &debugEndpointMockStore{
+				getBlockByNumberFn: func(number uint64, full bool) (*types.Block, bool) {
+					require.Equal(t, testBlock10.Number(), number)
+					require.True(t, full)
+
+					return testBlock10, true
+				},
+				getModifiedAccountsFn: func(start *types.Block, end *types.Block) ([]types.Address, error) {
+					require.Equal(t, start.Hash(), testBlock10.Hash())
+					require.Equal(t, end.Hash(), testBlock10.Hash())
+
+					return []types.Address{addr0, addr1}, nil
+				},
+			},
+
+			returnErr: "",
+			result:    []types.Address{addr0, addr1},
+			err:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			endpoint := NewDebug(test.store, 100000)
+			res, err := endpoint.GetModifiedAccountsByNumber(test.startblockNumber, test.endblockNumber)
 			require.Equal(t, test.result, res)
 
 			if test.err {

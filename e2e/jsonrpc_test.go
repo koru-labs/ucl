@@ -31,9 +31,6 @@ func TestJsonRPC(t *testing.T) {
 		func(i int, config *framework.TestServerConfig) {
 			config.Premine(types.Address(fund.Address()), ethgo.Ether(10))
 			config.SetBlockTime(1)
-			config.SetUseTLS(true)
-			config.SetTLSCertFile("/etc/ssl/certs/localhost.pem")
-			config.SetTLSKeyFile("/etc/ssl/private/localhost.key")
 		},
 	)
 

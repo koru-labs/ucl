@@ -30,7 +30,13 @@ type latestHeaderGetter interface {
 // GetNumericBlockNumber returns block number based on current state or specified number
 func GetNumericBlockNumber(number BlockNumber, store latestHeaderGetter) (uint64, error) {
 	switch number {
-	case LatestBlockNumber, PendingBlockNumber:
+	case SafeBlockNumber:
+		fallthrough
+	case FinalizedBlockNumber:
+		fallthrough
+	case LatestBlockNumber:
+		fallthrough
+	case PendingBlockNumber:
 		latest := store.Header()
 		if latest == nil {
 			return 0, ErrLatestNotFound
