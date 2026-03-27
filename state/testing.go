@@ -210,6 +210,7 @@ func testWriteEmptyState(t *testing.T, buildPreState buildPreState) {
 
 	snap, err = buildPreState(nil)
 	require.NoError(t, err)
+
 	txn = newTxn(snap)
 
 	// With EIP150 the empty data is removed
