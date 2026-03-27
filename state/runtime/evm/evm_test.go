@@ -33,6 +33,13 @@ type mockHost struct {
 	tracer runtime.VMTracer
 }
 
+var _ runtime.Host = (*mockHost)(nil)
+
+// GetCaller implements [runtime.Host].
+func (m *mockHost) GetCaller() types.Address {
+	panic("unimplemented")
+}
+
 func (m *mockHost) AccountExists(addr types.Address) bool {
 	panic("Not implemented in tests") //nolint:gocritic
 }

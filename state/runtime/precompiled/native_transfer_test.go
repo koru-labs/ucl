@@ -61,6 +61,31 @@ type dummyHost struct {
 	balances map[types.Address]*big.Int
 }
 
+// CallNativeToken implements [runtime.Host].
+func (d *dummyHost) CallNativeToken(caller types.Address, to types.Address, input []byte, gas uint64) ([]byte, uint64, error) {
+	panic("unimplemented")
+}
+
+// GetCaller implements [runtime.Host].
+func (d *dummyHost) GetCaller() types.Address {
+	panic("unimplemented")
+}
+
+// GetStateRaw implements [runtime.Host].
+func (d *dummyHost) GetStateRaw(addr types.Address, key types.Hash) []byte {
+	panic("unimplemented")
+}
+
+// IsNativeToken implements [runtime.Host].
+func (d *dummyHost) IsNativeToken(addr types.Address) bool {
+	panic("unimplemented")
+}
+
+// SetStateRaw implements [runtime.Host].
+func (d *dummyHost) SetStateRaw(addr types.Address, key types.Hash, value []byte) {
+	panic("unimplemented")
+}
+
 func newDummyHost(t *testing.T) *dummyHost {
 	t.Helper()
 

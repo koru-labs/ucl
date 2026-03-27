@@ -91,8 +91,9 @@ func (f *FullNode) getEdge(idx byte) Node {
 }
 
 type Trie struct {
-	root  Node
-	epoch uint32
+	root   Node
+	epoch  uint32
+	shards [256]*Trie
 }
 
 func NewTrie() *Trie {

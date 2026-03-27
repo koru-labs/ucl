@@ -66,6 +66,8 @@ type Host interface {
 	GetStorage(addr types.Address, key types.Hash) types.Hash
 	SetStorage(addr types.Address, key types.Hash, value types.Hash, config *chain.ForksInTime) StorageStatus
 	SetState(addr types.Address, key types.Hash, value types.Hash)
+	SetStateRaw(addr types.Address, key types.Hash, value []byte) // For native token raw storage
+	GetStateRaw(addr types.Address, key types.Hash) []byte        // For native token raw storage
 	SetNonPayable(nonPayable bool)
 	GetBalance(addr types.Address) *big.Int
 	GetCodeSize(addr types.Address) int
@@ -79,8 +81,13 @@ type Host interface {
 	Empty(addr types.Address) bool
 	GetNonce(addr types.Address) uint64
 	Transfer(from types.Address, to types.Address, amount *big.Int) error
+	GetCaller() types.Address // Get the current caller address (msg.sender)
 	GetTracer() VMTracer
 	GetRefund() uint64
+
+	// Native Token Support - Dynamic EVM Interception
+	IsNativeToken(addr types.Address) bool
+	CallNativeToken(caller types.Address, to types.Address, input []byte, gas uint64) ([]byte, uint64, error)
 }
 
 type VMTracer interface {
@@ -120,11 +127,11 @@ func (r *ExecutionResult) Succeeded() bool { return r.Err == nil }
 func (r *ExecutionResult) Failed() bool    { return r.Err != nil }
 func (r *ExecutionResult) Reverted() bool  { return errors.Is(r.Err, ErrExecutionReverted) }
 
-func (r *ExecutionResult) UpdateGasUsed(gasLimit uint64, refund, refundQuotient uint64) {
+func (r *ExecutionResult) UpdateGasUsed(gasLimit uint64, refund uint64) {
 	r.GasUsed = gasLimit - r.GasLeft
 
 	// Refund can go up to half the gas used
-	if maxRefund := r.GasUsed / refundQuotient; refund > maxRefund {
+	if maxRefund := r.GasUsed / 2; refund > maxRefund {
 		refund = maxRefund
 	}
 
@@ -144,7 +151,6 @@ var (
 	ErrUnauthorizedCaller       = errors.New("unauthorized caller")
 	ErrInvalidInputData         = errors.New("invalid input data")
 	ErrNotAuth                  = errors.New("not in allow list")
-	ErrInvalidCode              = errors.New("invalid code: must not begin with 0xef")
 )
 
 // StackUnderflowError wraps an evm error when the items on the stack less

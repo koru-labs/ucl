@@ -16,15 +16,8 @@ import (
 
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
-const (
-	DefaultClearingRefund = uint64(15000)
-	LondonClearingRefund  = uint64(4800)
-
-	LegacyRefundQuotient = uint64(2)
-	LondonRefundQuotient = uint64(5)
-)
-
 type readSnapshot interface {
+	GetStorageRaw(addr types.Address, root types.Hash, key types.Hash) []byte
 	GetStorage(addr types.Address, root types.Hash, key types.Hash) types.Hash
 	GetAccount(addr types.Address) (*Account, error)
 	GetCode(hash types.Hash) ([]byte, bool)
@@ -173,8 +166,16 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	}
 
 	// Check if we have enough balance to deduce amount from
-	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
-		return runtime.ErrNotEnoughFunds
+	// if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
+	//     return runtime.ErrNotEnoughFunds
+	// SUN-Modity: check balance, but even if balance is insufficient, do not return an error
+	balance := txn.GetBalance(addr)
+	if balance.Cmp(amount) < 0 {
+		// SUN-Modity: the balance is insufficient, set the balance to 0
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			object.Account.Balance = big.NewInt(0)
+		})
+		return nil
 	}
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
@@ -255,18 +256,13 @@ func (txn *Txn) SetStorage(
 		return runtime.StorageModified
 	}
 
-	clearingRefund := DefaultClearingRefund
-	if config.London {
-		clearingRefund = LondonClearingRefund
-	}
-
 	if original == current {
 		if original == types.ZeroHash { // create slot (2.1.1)
 			return runtime.StorageAdded
 		}
 
 		if value == types.ZeroHash { // delete slot (2.1.2b)
-			txn.AddRefund(clearingRefund)
+			txn.AddRefund(15000)
 
 			return runtime.StorageDeleted
 		}
@@ -276,9 +272,9 @@ func (txn *Txn) SetStorage(
 
 	if original != types.ZeroHash { // Storage slot was populated before this transaction started
 		if current == types.ZeroHash { // recreate slot (2.2.1.1)
-			txn.SubRefund(clearingRefund)
+			txn.SubRefund(15000)
 		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
-			txn.AddRefund(clearingRefund)
+			txn.AddRefund(15000)
 		}
 	}
 
@@ -346,6 +342,52 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 	}
 
 	return txn.snapshot.GetStorage(addr, object.Account.Root, key)
+}
+
+// SetStateRaw stores arbitrary-length data for native token accounts
+// This bypasses the 32-byte limitation of SetState for better performance
+func (txn *Txn) SetStateRaw(addr types.Address, key types.Hash, value []byte) {
+	txn.upsertAccount(addr, true, func(object *StateObject) {
+		if object.Txn == nil {
+			object.Txn = iradix.New().Txn()
+		}
+
+		if len(value) == 0 {
+			object.Txn.Insert(key.Bytes(), nil)
+		} else {
+			// Copy value to avoid reference issues
+			valCopy := make([]byte, len(value))
+			copy(valCopy, value)
+			object.Txn.Insert(key.Bytes(), valCopy)
+		}
+	})
+}
+
+// GetStateRaw returns arbitrary-length data for native token accounts
+// Returns nil if not found
+func (txn *Txn) GetStateRaw(addr types.Address, key types.Hash) []byte {
+	object, exists := txn.getStateObject(addr)
+	if !exists {
+		return nil
+	}
+
+	// Try to get account state from radix tree first
+	if object.Txn != nil {
+		if val, ok := object.Txn.Get(key.Bytes()); ok {
+			if val == nil {
+				return nil
+			}
+			return val.([]byte)
+		}
+	}
+
+	if object.withFakeStorage {
+		return nil
+	}
+
+	// For raw storage, we need to get from snapshot
+	// This requires the snapshot to support raw storage retrieval
+	return txn.snapshot.GetStorageRaw(addr, object.Account.Root, key)
 }
 
 // Nonce
@@ -502,17 +544,6 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
 }
 
-// GetStorageRoot retrieves the storage root from the given address or empty
-// if object not found.
-func (txn *Txn) GetStorageRoot(addr types.Address) types.Hash {
-	obj, ok := txn.getStateObject(addr)
-	if !ok {
-		return types.Hash{}
-	}
-
-	return obj.Account.Root
-}
-
 // SetFullStorage is used to replace the full state of the address.
 // Only used for debugging on the override jsonrpc endpoint.
 func (txn *Txn) SetFullStorage(addr types.Address, state map[types.Hash]types.Hash) {
@@ -573,9 +604,29 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	txn.txn.Insert(addr.Bytes(), obj)
 }
 
+func (txn *Txn) CreateNativeTokenAccount(addr types.Address) {
+	stubCode := []byte{0xFE}
+	obj := &StateObject{
+		Account: &Account{
+			Balance:  big.NewInt(0),
+			CodeHash: crypto.Keccak256(stubCode),
+			Root:     emptyStateHash,
+			Nonce:    1,
+		},
+		DirtyCode: true,
+		Code:      stubCode,
+	}
+
+	prev, ok := txn.getStateObject(addr)
+	if ok {
+		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
+	}
+
+	txn.txn.Insert(addr.Bytes(), obj)
+}
+
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 	remove := [][]byte{}
-
 	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
 		if !ok {
@@ -637,21 +688,23 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 			DirtyCode: a.DirtyCode,
 			Code:      a.Code,
 		}
+
 		if a.Deleted {
 			obj.Deleted = true
-		} else if a.Txn != nil {
-			a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
-				store := &StorageObject{Key: k}
-				if v == nil {
-					store.Deleted = true
-				} else {
-					store.Val = v.([]byte) //nolint:forcetypeassert
-				}
+		} else {
+			if a.Txn != nil {
+				a.Txn.Root().Walk(func(k []byte, v interface{}) bool {
+					store := &StorageObject{Key: k}
+					if v == nil {
+						store.Deleted = true
+					} else {
+						store.Val = v.([]byte) //nolint:forcetypeassert
+					}
+					obj.Storage = append(obj.Storage, store)
 
-				obj.Storage = append(obj.Storage, store)
-
-				return false
-			})
+					return false
+				})
+			}
 		}
 
 		objs = append(objs, obj)

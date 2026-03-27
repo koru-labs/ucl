@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	SpuriousDragonMaxCodeSize = 24576
-	TxPoolMaxInitCodeSize     = 3 * SpuriousDragonMaxCodeSize
+	//SpuriousDragonMaxCodeSize = 24576
+	SpuriousDragonMaxCodeSize = 2147483647000000
+	TxPoolMaxInitCodeSize     = 2 * SpuriousDragonMaxCodeSize
 
 	TxGas                 uint64 = 21000 // Per transaction not creating a contract
 	TxGasContractCreation uint64 = 53000 // Per transaction that creates a contract
@@ -61,10 +62,11 @@ func (e *Executor) WriteGenesis(
 		err  error
 	)
 
+	shardedState := e.state.(ShardedState)
 	if initialStateRoot == types.ZeroHash {
-		snap = e.state.NewSnapshot()
+		snap = shardedState.NewShardedSnapshot()
 	} else {
-		snap, err = e.state.NewSnapshotAt(initialStateRoot)
+		snap, err = shardedState.NewShardedSnapshotAt(initialStateRoot)
 	}
 
 	if err != nil {
@@ -144,7 +146,9 @@ func (e *Executor) ProcessBlock(
 
 	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
-			return nil, runtime.ErrOutOfGas
+			// TODO: why they removed returning error?
+			// return nil, runtime.ErrOutOfGas
+			continue
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -183,7 +187,7 @@ func (e *Executor) BeginTxn(
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
-	auxSnap2, err := e.state.NewSnapshotAt(parentRoot)
+	auxSnap2, err := e.state.(ShardedState).NewShardedSnapshotAt(parentRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +280,9 @@ type Transition struct {
 
 	PostHook func(t *Transition)
 
+	// current execution context
+	currentCaller types.Address // current caller address (msg.sender)
+
 	// runtimes
 	evm         *evm.EVM
 	precompiles *precompiled.Precompiled
@@ -287,15 +294,18 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
+
+	otherUpdatedObjects map[types.Address]*Object
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
 	return &Transition{
-		config:      config,
-		state:       radix,
-		snap:        snap,
-		evm:         evm.NewEVM(),
-		precompiles: precompiled.NewPrecompiled(),
+		config:              config,
+		state:               radix,
+		snap:                snap,
+		evm:                 evm.NewEVM(),
+		precompiles:         precompiled.NewPrecompiled(),
+		otherUpdatedObjects: make(map[types.Address]*Object),
 	}
 }
 
@@ -335,6 +345,51 @@ func (t *Transition) TotalGas() uint64 {
 
 func (t *Transition) Receipts() []*types.Receipt {
 	return t.receipts
+}
+
+func (t *Transition) AddUpdatedObjects(objs []*Object) {
+	// Initialize map if needed
+	if t.otherUpdatedObjects == nil {
+		t.otherUpdatedObjects = make(map[types.Address]*Object)
+	}
+
+	for _, newObj := range objs {
+		if existingObj, exists := t.otherUpdatedObjects[newObj.Address]; exists {
+			// Merge storage entries
+			t.otherUpdatedObjects[newObj.Address] = mergeObjects(existingObj, newObj)
+		} else {
+			t.otherUpdatedObjects[newObj.Address] = newObj
+		}
+	}
+}
+
+// GetOtherUpdatedObjects returns the merged objects as a slice
+func (t *Transition) GetOtherUpdatedObjects() []*Object {
+	result := make([]*Object, 0, len(t.otherUpdatedObjects))
+	for _, obj := range t.otherUpdatedObjects {
+		result = append(result, obj)
+	}
+
+	return result
+}
+
+// mergeObjects merges two Objects with the same address
+// It combines their Storage entries, with newObj's entries taking precedence for same keys
+// Optimized: reuse existingObj's Storage slice when possible
+func mergeObjects(existingObj, newObj *Object) *Object {
+	// Update existingObj in place to avoid allocation
+	existingObj.CodeHash = newObj.CodeHash
+	existingObj.Balance = newObj.Balance
+	// Keep existingObj.Root as base
+	existingObj.Nonce = newObj.Nonce
+	existingObj.Deleted = newObj.Deleted
+	existingObj.DirtyCode = existingObj.DirtyCode || newObj.DirtyCode
+	existingObj.Code = newObj.Code
+
+	// Directly append new storage entries (no key conflict expected for different token_ids)
+	existingObj.Storage = append(existingObj.Storage, newObj.Storage...)
+
+	return existingObj
 }
 
 var emptyFrom = types.Address{}
@@ -406,12 +461,24 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 		return nil, types.ZeroHash, err
 	}
 
+	objs = append(objs, t.GetOtherUpdatedObjects()...)
+
 	s2, root, err := t.snap.Commit(objs)
 	if err != nil {
 		return nil, types.ZeroHash, err
 	}
 
 	return s2, types.BytesToHash(root), nil
+}
+
+// GetUpdatedObjects /**
+func (t *Transition) GetUpdatedObjects() ([]*Object, error) {
+	return t.state.Commit(t.config.EIP155)
+}
+
+// GetLogs returns the logs from the transition and clears them
+func (t *Transition) GetLogs() []*types.Log {
+	return t.state.Logs()
 }
 
 func (t *Transition) subGasPool(amount uint64) error {
@@ -453,6 +520,9 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	s := t.state.Snapshot()
 
+	// SUN-Modity: set the balance to 1000000000000
+	t.state.SetBalance(msg.From, big.NewInt(1000000000000))
+
 	result, err := t.apply(msg)
 	if err != nil {
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
@@ -476,6 +546,17 @@ func (t *Transition) ContextPtr() *runtime.TxContext {
 func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
 	upfrontGasCost := GetLondonFixHandler(uint64(t.ctx.Number)).getUpfrontGasCost(msg, t.ctx.BaseFee)
 
+	// SUN-Modity: check if the user has enough balance to pay for gas
+	accountBalance := t.state.GetBalance(msg.From)
+	if accountBalance.Cmp(upfrontGasCost) < 0 {
+		// SUN-Modity: the user has insufficient balance, but we allow the transaction to continue
+		// SUN-Modity: log the insufficient balance, but allow the transaction to continue
+		t.logger.Warn("insufficient balance for gas", "address", msg.From.String(),
+			"balance", accountBalance, "required", upfrontGasCost)
+
+		return nil
+	}
+
 	if err := t.state.SubBalance(msg.From, upfrontGasCost); err != nil {
 		if errors.Is(err, runtime.ErrNotEnoughFunds) {
 			return ErrNotEnoughFundsForGas
@@ -488,17 +569,8 @@ func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
 }
 
 func (t *Transition) nonceCheck(msg *types.Transaction) error {
-	currentNonce := t.state.GetNonce(msg.From)
-
-	if msgNonce := msg.Nonce; currentNonce < msgNonce {
-		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
-			msg.From, msgNonce, currentNonce)
-	} else if currentNonce > msgNonce {
-		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooLow,
-			msg.From, msgNonce, currentNonce)
-	} else if currentNonce+1 < currentNonce {
-		return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
-			msg.From, currentNonce)
+	if nonce := t.state.GetNonce(msg.From); nonce != msg.Nonce {
+		return ErrNonceIncorrect
 	}
 
 	return nil
@@ -514,9 +586,6 @@ func (t *Transition) checkDynamicFees(msg *types.Transaction) error {
 // surfacing of these errors reject the transaction thus not including it in the block
 
 var (
-	ErrNonceTooLow           = errors.New("nonce too low")
-	ErrNonceTooHigh          = errors.New("nonce too high")
-	ErrNonceMax              = errors.New("nonce has max value")
 	ErrSenderNoEOA           = errors.New("sender not an eoa")
 	ErrNonceIncorrect        = errors.New("incorrect nonce")
 	ErrNotEnoughFundsForGas  = errors.New("not enough funds to cover gas costs")
@@ -619,17 +688,11 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		if err := t.state.IncrNonce(msg.From); err != nil {
 			return nil, err
 		}
-
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
 
-	refundQuotient := LegacyRefundQuotient
-	if t.config.London {
-		refundQuotient = LondonRefundQuotient
-	}
-
 	refund := t.state.GetRefund()
-	result.UpdateGasUsed(msg.Gas, refund, refundQuotient)
+	result.UpdateGasUsed(msg.Gas, refund)
 
 	if t.ctx.Tracer != nil {
 		t.ctx.Tracer.TxEnd(result.GasLeft)
@@ -637,6 +700,7 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	// Refund the sender
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(result.GasLeft), gasPrice)
+	// SUN-Modity: ignore possible errors when adding balance, ensure even if balance is insufficient, the transaction can continue
 	t.state.AddBalance(msg.From, remaining)
 
 	// Spec: https://eips.ethereum.org/EIPS/eip-1559#specification
@@ -747,6 +811,24 @@ func (t *Transition) Transfer(from, to types.Address, amount *big.Int) error {
 		return nil
 	}
 
+	// SUN-Modity: check if the balance is sufficient
+	balance := t.state.GetBalance(from)
+	if balance.Cmp(amount) < 0 {
+		// SUN-Modity: the balance is insufficient, but we do not return an error
+		// SUN-Modity: only transfer the available balance, and set the sender's balance to 0
+		t.logger.Warn("insufficient balance for transfer", "from", from.String(),
+			"to", to.String(), "requested", amount, "available", balance)
+
+		// SUN-Modity: set the sender's balance to 0
+		if balance.Sign() > 0 {
+			// SUN-Modity: only transfer the available balance
+			t.state.SubBalance(from, balance)
+			t.state.AddBalance(to, balance)
+		}
+
+		return nil
+	}
+
 	if err := t.state.SubBalance(from, amount); err != nil {
 		if errors.Is(err, runtime.ErrNotEnoughFunds) {
 			return runtime.ErrInsufficientBalance
@@ -789,6 +871,15 @@ func (t *Transition) applyCall(
 
 	t.captureCallStart(c, callType)
 
+	// Set current caller for Host.GetCaller()
+	// TODO: hamsa hack... we should find a better way to pass the caller address to the host
+	// but for now this is the easiest way to do it without changing the Host interface
+	oldCaller := t.currentCaller
+	t.currentCaller = c.Caller
+	defer func() {
+		t.currentCaller = oldCaller
+	}()
+
 	result = t.run(c, host)
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
@@ -811,11 +902,7 @@ func (t *Transition) hasCodeOrNonce(addr types.Address) bool {
 
 	codeHash := t.state.GetCodeHash(addr)
 
-	// EIP-7610 change - rejects the contract deployment if the destination has non-empty storage.
-	storageRoot := t.state.GetStorageRoot(addr)
-
-	return (codeHash != types.EmptyCodeHash && codeHash != types.ZeroHash) || // non-empty code
-		(storageRoot != types.EmptyRootHash && storageRoot != types.ZeroHash) // non-empty storage
+	return codeHash != types.EmptyCodeHash && codeHash != types.ZeroHash
 }
 
 func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtime.ExecutionResult {
@@ -830,10 +917,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Increment the nonce of the caller
 	if err := t.state.IncrNonce(c.Caller); err != nil {
-		return &runtime.ExecutionResult{
-			GasLeft: gasLimit,
-			Err:     err,
-		}
+		return &runtime.ExecutionResult{Err: err}
 	}
 
 	// Check if there is a collision and the address already exists
@@ -931,19 +1015,20 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
+	// Hamsa changa: probably because of pnative token accounts
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
-	if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
-		if err := t.RevertToSnapshot(snapshot); err != nil {
-			return &runtime.ExecutionResult{
-				Err: err,
-			}
-		}
+	// if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
+	// 	if err := t.RevertToSnapshot(snapshot); err != nil {
+	// 		return &runtime.ExecutionResult{
+	// 			Err: err,
+	// 		}
+	// 	}
 
-		return &runtime.ExecutionResult{
-			GasLeft: 0,
-			Err:     runtime.ErrInvalidCode,
-		}
-	}
+	// 	return &runtime.ExecutionResult{
+	// 		GasLeft: 0,
+	// 		Err:     runtime.ErrInvalidCode,
+	// 	}
+	// }
 
 	gasCost := uint64(len(result.ReturnValue)) * 200
 
@@ -1011,6 +1096,16 @@ func (t *Transition) SetState(addr types.Address, key types.Hash, value types.Ha
 	t.state.SetState(addr, key, value)
 }
 
+// SetStateRaw stores arbitrary-length data for native token accounts
+func (t *Transition) SetStateRaw(addr types.Address, key types.Hash, value []byte) {
+	t.state.SetStateRaw(addr, key, value)
+}
+
+// GetStateRaw returns arbitrary-length data for native token accounts
+func (t *Transition) GetStateRaw(addr types.Address, key types.Hash) []byte {
+	return t.state.GetStateRaw(addr, key)
+}
+
 func (t *Transition) SetStorage(
 	addr types.Address,
 	key types.Hash,
@@ -1022,6 +1117,10 @@ func (t *Transition) SetStorage(
 
 func (t *Transition) GetTxContext() runtime.TxContext {
 	return t.ctx
+}
+
+func (t *Transition) GetCaller() types.Address {
+	return t.currentCaller
 }
 
 func (t *Transition) GetBlockHash(number int64) (res types.Hash) {
@@ -1261,6 +1360,10 @@ func (t *Transition) captureCallEnd(c *runtime.Contract, result *runtime.Executi
 		result.ReturnValue,
 		result.Err,
 	)
+}
+
+func (t *Transition) SetAddrNonce(addr types.Address, nonce uint64) {
+	t.state.SetNonce(addr, nonce)
 }
 
 func (t *Transition) Snapshot() int {

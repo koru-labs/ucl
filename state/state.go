@@ -17,6 +17,13 @@ type State interface {
 	GetCode(hash types.Hash) ([]byte, bool)
 }
 
+// ShardedState extends State with PSMT parallel sharding support
+type ShardedState interface {
+	State
+	NewShardedSnapshot() Snapshot
+	NewShardedSnapshotAt(root types.Hash) (Snapshot, error)
+}
+
 type Snapshot interface {
 	readSnapshot
 
