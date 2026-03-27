@@ -17,18 +17,38 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Go environment
         uses: actions/setup-go@v6.3.0
         with:
           go-version: ${{ vars.GO_VERSION }}
 
+      - name: Set Version Variables
+        id: set_version
+        run: |
+          echo "VERSION=$(git describe --tags --always)" >> $GITHUB_OUTPUT
+          echo "COMMIT=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "BRANCH=$(git rev-parse --abbrev-ref HEAD | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Build Polygon Edge
-        run: go build -tags netgo -ldflags="-s -w -linkmode external -extldflags "-static" -X \"github.com/${GITHUB_REPOSITORY}/versioning.Version=${GITHUB_REF_NAME}\" -X \"github.com/${GITHUB_REPOSITORY}/versioning.Commit=${GITHUB_SHA}\"" && tar -czvf polygon-edge.tar.gz polygon-edge
+        run: |
+          go build \
+            -o polygon-edge \
+            -tags netgo,osusergo \
+            -ldflags "-s -w -linkmode external -extldflags '-static' \
+              -X github.com/0xPolygon/polygon-edge/versioning.Version=${{ steps.set_version.outputs.VERSION }} \
+              -X github.com/0xPolygon/polygon-edge/versioning.Commit=${{ steps.set_version.outputs.COMMIT }} \
+              -X github.com/0xPolygon/polygon-edge/versioning.Branch=${{ steps.set_version.outputs.BRANCH }} \
+              -X github.com/0xPolygon/polygon-edge/versioning.BuildTime=${{ steps.set_version.outputs.BUILD_TIME }}" \
+          main.go
         env:
           CC: gcc
           CXX: g++
-          GOARC: amd64
+          GOARCH: amd64
           GOOS: linux
 
       - name: Build Polygon Edge Failed
@@ -36,12 +56,36 @@ jobs:
         id: edge_build_failure
         run: echo "result=false" >> $GITHUB_OUTPUT
 
-      - name: Upload Artifact
+      - name: Upload Build Artifact
+        id: build_artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: polygon-edge
-          path: polygon-edge.tar.gz
-          retention-days: 3
+          path: polygon-edge
+          retention-days: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && 90 || 3 }}
+
+      - name: Generate Revision File
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+        run: |
+          cat <<EOF > revision.yml
+          ---
+          app_name: 'Polygon Edge'
+          artifact_file_name: 'polygon-edge'
+          artifact_url: '${{ steps.build_artifact.outputs.artifact-url }}'
+          git_url: '${{ github.server_url }}/${{ github.repository }}.git'
+          git_version: '${{ steps.set_version.outputs.VERSION }}'
+          git_commit: '${{ steps.set_version.outputs.COMMIT }}'
+          git_branch: '${{ steps.set_version.outputs.BRANCH }}'
+          git_build_time: '${{ steps.set_version.outputs.BUILD_TIME }}'
+          EOF
+  
+      - name: Upload Revision Artifact
+        uses: actions/upload-artifact@v7.0.0
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+        with:
+          path: revision.yml
+          retention-days: 90
+          archive: false
 
   go_build_reproducibility:
     name: Verify Build Reproducibility

@@ -41,7 +41,7 @@ jobs:
         id: short_sha
         run: echo "value=`echo ${{ github.sha }} | cut -c1-7`" >> $GITHUB_OUTPUT
       - name: Notify Slack
-        uses: slackapi/slack-github-action@v2.1.1
+        uses: slackapi/slack-github-action@v3.0.1
         env:
           succeed_bnt: "primary"
           failed_bnt: "danger"
