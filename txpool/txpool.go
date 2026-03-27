@@ -753,18 +753,15 @@ func (p *TxPool) validateTx(tx *types.Transaction) error {
 		return ErrExtractSignature
 	}
 
+	// If no address was set, update it
 	// If the from field is set, check that
 	// it matches the signer
-	if tx.From != types.ZeroAddress &&
-		tx.From != from {
+	if tx.From == types.ZeroAddress {
+		tx.From = from
+	} else if tx.From != from {
 		metrics.IncrCounter([]string{txPoolMetrics, "invalid_sender_txs"}, 1)
 
 		return ErrInvalidSender
-	}
-
-	// If no address was set, update it
-	if tx.From == types.ZeroAddress {
-		tx.From = from
 	}
 
 	// Grab current block number
