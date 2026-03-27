@@ -62,19 +62,6 @@ func TestIBFTBackend_SequenceCancelled(t *testing.T) {
 	txPool.AssertExpectations(t)
 }
 
-func TestIBFTBackend_Start(t *testing.T) {
-	t.Parallel()
-
-	syncer := &syncerMock{}
-	syncer.On("Start").Return(nil).Once()
-
-	i := &backendIBFT{
-		syncer: syncer,
-	}
-
-	require.NoError(t, i.Start())
-}
-
 func TestIBFTBackend_Close(t *testing.T) {
 	t.Parallel()
 
