@@ -5,7 +5,7 @@ on: # yamllint disable-line rule:truthy
       outputs:
         workflow_output:
           description: "Benchmark Tests output"
-          value: ${{ jobs.benchmark_test.outputs.output_failure }}
+          value: ${{ jobs.benchmark_test.outputs.test_output_failure }}
 
 jobs:
   benchmark_test:
