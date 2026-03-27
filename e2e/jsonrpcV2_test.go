@@ -35,6 +35,7 @@ func TestE2E_JsonRPCTLS(t *testing.T) {
 		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
 		frameworkV2.WithHTTPS(),
 		frameworkV2.WithTLSCertificate("/etc/ssl/certs/localhost.pem", "/etc/ssl/private/localhost.key"),
+		frameworkV2.WithBootnodeCount(1),
 	)
 	defer cluster.Stop()
 
