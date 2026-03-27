@@ -28,9 +28,9 @@ func TestState_FaultyNodes(t *testing.T) {
 	}
 }
 
-// TestNumValid checks if the quorum size is calculated
+// TestQuorumSize checks if the quorum size is calculated
 // correctly based on number of validators (network size).
-func TestNumValid(t *testing.T) {
+func TestQuorumSize(t *testing.T) {
 	cases := []struct {
 		Network, Quorum uint64
 	}{
@@ -65,4 +65,18 @@ func TestNumValid(t *testing.T) {
 			quorumSize(pool.ValidatorSet()),
 		)
 	}
+}
+
+func TestCalcProposer(t *testing.T) {
+	const validators = 4
+
+	pool := newTesterAccountPool(t, validators)
+	for i := 0; i < validators; i++ {
+		pool.add(strconv.Itoa(i))
+	}
+
+	assert.Equal(t,
+		pool.accounts[3].Address(),
+		calcProposer(pool.ValidatorSet(), 0, pool.accounts[2].Address()).Addr(),
+	)
 }

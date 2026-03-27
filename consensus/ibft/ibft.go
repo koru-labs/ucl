@@ -171,27 +171,6 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 	return p, nil
 }
 
-// RoundStarts represents round start callback
-func (i *backendIBFT) RoundStarts(view *protomsg.View) error {
-	i.logger.Info("RoundStarts", "height", view.Height, "round", view.Round)
-
-	if view.Round > 0 {
-		i.txpool.ReinsertProposed()
-	} else {
-		i.txpool.ClearProposed()
-	}
-
-	return nil
-}
-
-// SequenceCancelled represents sequence cancelled callback
-func (i *backendIBFT) SequenceCancelled(view *protomsg.View) error {
-	i.logger.Info("SequenceCancelled", "height", view.Height, "round", view.Round)
-	i.txpool.ReinsertProposed()
-
-	return nil
-}
-
 func (i *backendIBFT) Initialize() error {
 	// register the grpc operator
 	if i.Grpc != nil {
@@ -683,4 +662,25 @@ func (i *backendIBFT) ValidateExtraDataFormat(header *types.Header) error {
 	_, err = blockSigner.GetIBFTExtra(header)
 
 	return err
+}
+
+// RoundStarts represents round start callback
+func (i *backendIBFT) RoundStarts(view *protomsg.View) error {
+	i.logger.Info("RoundStarts", "height", view.Height, "round", view.Round)
+
+	if view.Round > 0 {
+		i.txpool.ReinsertProposed()
+	} else {
+		i.txpool.ClearProposed()
+	}
+
+	return nil
+}
+
+// SequenceCancelled represents sequence cancelled callback
+func (i *backendIBFT) SequenceCancelled(view *protomsg.View) error {
+	i.logger.Info("SequenceCancelled", "height", view.Height, "round", view.Round)
+	i.txpool.ReinsertProposed()
+
+	return nil
 }

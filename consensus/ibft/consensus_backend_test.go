@@ -1,10 +1,14 @@
 package ibft
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // TestIBFTBackend_CalculateHeaderTimestamp verifies that the header timestamp
@@ -59,4 +63,25 @@ func TestIBFTBackend_CalculateHeaderTimestamp(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestIBFTBackend_GetVotingPowers(t *testing.T) {
+	t.Parallel()
+
+	validators := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(types.StringToAddress("1")),
+		validators.NewECDSAValidator(types.StringToAddress("2")),
+	)
+
+	forkManagerMock := &forkManagerMock{}
+	forkManagerMock.On("GetValidators", mock.Anything).Return(validators)
+
+	i := &backendIBFT{
+		forkManager: forkManagerMock,
+	}
+
+	result, err := i.GetVotingPowers(1)
+	assert.NoError(t, err)
+	assert.Equal(t, big.NewInt(1), result[types.AddressToString(validators.At(0).Addr())])
+	assert.Equal(t, big.NewInt(1), result[types.AddressToString(validators.At(1).Addr())])
 }
