@@ -7,7 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestState_FaultyNodes(t *testing.T) {
+// TestCalcMaxFaultyNodes checks if the max faulty nodes is calculated correctly
+// based on number of validators (network size).
+func TestCalcMaxFaultyNodes(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		Network, Faulty uint64
 	}{
@@ -28,9 +32,11 @@ func TestState_FaultyNodes(t *testing.T) {
 	}
 }
 
-// TestQuorumSize checks if the quorum size is calculated
-// correctly based on number of validators (network size).
+// TestQuorumSize checks if the quorum size is calculated correctly
+// based on number of validators (network size).
 func TestQuorumSize(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		Network, Quorum uint64
 	}{
@@ -67,7 +73,11 @@ func TestQuorumSize(t *testing.T) {
 	}
 }
 
+// TestCalcProposer checks if the proposer is calculated correctly
+// based on the round number and the last proposer.
 func TestCalcProposer(t *testing.T) {
+	t.Parallel()
+
 	const validators = 4
 
 	pool := newTesterAccountPool(t, validators)
