@@ -9,8 +9,6 @@ import (
 )
 
 func TestSign_Sealer(t *testing.T) {
-	t.Parallel()
-
 	pool := newTesterAccountPool(t)
 	pool.add("A")
 

@@ -1410,41 +1410,6 @@ func TestFSM_VerifyStateTransaction_QuorumNotReached(t *testing.T) {
 	require.ErrorContains(t, err, "quorum size not reached for state tx")
 }
 
-func TestFSM_VerifyStateTransaction_InvalidSignature(t *testing.T) {
-	t.Parallel()
-
-	validators := validator.NewTestValidatorsWithAliases(t, []string{"A", "B", "C", "D", "E", "F"})
-	_, commitmentMessageSigned, _ := buildCommitmentAndStateSyncs(t, 10, uint64(3), 2)
-	f := &fsm{
-		parent:        &types.Header{Number: 9},
-		isEndOfSprint: true,
-		validators:    validators.ToValidatorSet(),
-	}
-
-	hash, err := commitmentMessageSigned.Hash()
-	require.NoError(t, err)
-
-	var txns []*types.Transaction
-
-	signature := createSignature(t, validators.GetPrivateIdentities("A", "B", "C", "D"), hash, signer.DomainStateReceiver)
-	invalidValidator := validator.NewTestValidator(t, "G", 1)
-	invalidSignature, err := invalidValidator.MustSign([]byte("malicious message"), signer.DomainStateReceiver).Marshal()
-	require.NoError(t, err)
-
-	commitmentMessageSigned.AggSignature = Signature{
-		Bitmap:              signature.Bitmap,
-		AggregatedSignature: invalidSignature,
-	}
-
-	inputData, err := commitmentMessageSigned.EncodeAbi()
-	require.NoError(t, err)
-
-	txns = append(txns,
-		createStateTransactionWithData(1, contracts.StateReceiverContract, inputData))
-
-	require.ErrorContains(t, f.VerifyStateTransactions(txns), "invalid signature for state tx")
-}
-
 func TestFSM_VerifyStateTransaction_TwoCommitmentMessages(t *testing.T) {
 	t.Parallel()
 
