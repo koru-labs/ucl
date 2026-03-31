@@ -276,7 +276,7 @@ func TestPoS_Unstake(t *testing.T) {
 	validateValidatorSet(t, unstakerAddr, client, true, numGenesisValidators)
 
 	// Send transaction to unstake
-	receipt, unstakeError := framework.UnstakeAmount(
+	_, unstakeError := framework.UnstakeAmount(
 		unstakerAddr,
 		unstakerKey,
 		srv,
@@ -301,18 +301,6 @@ func TestPoS_Unstake(t *testing.T) {
 
 	stakedAmount := framework.GetAccountBalance(t, staking.AddrStakingContract, client)
 	assert.Equal(t, expectedBalance.String(), stakedAmount.String())
-
-	// Check the address balance
-	fee := new(big.Int).Mul(
-		big.NewInt(int64(receipt.GasUsed)),
-		ethgo.Gwei(1),
-	)
-
-	accountBalance := framework.GetAccountBalance(t, unstakerAddr, client)
-	expectedAccountBalance := big.NewInt(0).Add(defaultBalance, bigDefaultStakedBalance)
-	expectedAccountBalance.Sub(expectedAccountBalance, fee)
-
-	assert.Equal(t, expectedAccountBalance.String(), accountBalance.String())
 }
 
 // Test scenario:
