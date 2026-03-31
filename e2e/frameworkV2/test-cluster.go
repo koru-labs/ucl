@@ -23,10 +23,14 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/secrets"
+	"github.com/0xPolygon/polygon-edge/secrets/helper"
+	"github.com/0xPolygon/polygon-edge/secrets/local"
 	"github.com/0xPolygon/polygon-edge/server"
 	"github.com/0xPolygon/polygon-edge/txrelayerv2"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
+	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -902,4 +906,23 @@ func (t *TestTxn) Failed() bool {
 // all the gas from the call
 func (t *TestTxn) Reverted() bool {
 	return t.Failed() && t.txn.Gas == t.receipt.GasUsed
+}
+
+// ReadValidatorBLSKey reads the BLS public key for a validator at the given dataDir
+// using the local secrets manager — same approach as the rest of the framework.
+func ReadValidatorBLSKey(dataDir string) (string, error) {
+	sm, err := local.SecretsManagerFactory(
+		nil,
+		&secrets.SecretsManagerParams{
+			Logger: hclog.NewNullLogger(),
+			Extra: map[string]interface{}{
+				secrets.Path: dataDir,
+			},
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create secrets manager for %s: %w", dataDir, err)
+	}
+
+	return helper.LoadBLSPublicKey(sm)
 }

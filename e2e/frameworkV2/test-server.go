@@ -1,6 +1,7 @@
 package frameworkV2
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/command/polybftsecrets"
+	ibftOp "github.com/0xPolygon/polygon-edge/consensus/ibft/proto"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/wallet"
 	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/server/proto"
@@ -18,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type TestServerConfig struct {
@@ -225,4 +228,60 @@ func (t *TestServer) WaitForNonZeroBalance(address types.Address, dur time.Durat
 			}
 		}
 	}
+}
+
+// IBFTPropose casts a validator vote via the polygon-edge ibft propose command.
+func (t *TestServer) IBFTPropose(addr types.Address, blsPubKey string, auth bool) error {
+	vote := "drop"
+	if auth {
+		vote = "auth"
+	}
+
+	args := []string{
+		"ibft", "propose",
+		"--grpc-address", t.GrpcAddr(),
+		"--addr", addr.String(),
+		"--vote", vote,
+	}
+
+	if blsPubKey != "" {
+		args = append(args, "--bls", blsPubKey)
+	}
+
+	return runCommand(t.clusterConfig.Binary, args, t.clusterConfig.GetStdout("ibft-propose"))
+}
+
+func (t *TestServer) Address() types.Address {
+	return t.address
+}
+
+// IBFTOperator returns a gRPC client for the IBFT operator service.
+func (t *TestServer) IBFTOperator() ibftOp.IbftOperatorClient {
+	conn, err := grpc.Dial(
+		t.GrpcAddr(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.t.Fatal(err)
+	}
+
+	return ibftOp.NewIbftOperatorClient(conn)
+}
+
+// IBFTGetValidators returns the current validator set from the IBFT snapshot
+func (t *TestServer) IBFTGetValidators() ([]types.Address, error) {
+	snapshot, err := t.IBFTOperator().GetSnapshot(
+		context.Background(),
+		&ibftOp.SnapshotReq{Latest: true},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get IBFT snapshot: %w", err)
+	}
+
+	validators := make([]types.Address, len(snapshot.Validators))
+	for i, v := range snapshot.Validators {
+		validators[i] = types.StringToAddress(v.Address)
+	}
+
+	return validators, nil
 }
