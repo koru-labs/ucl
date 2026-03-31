@@ -154,7 +154,7 @@ func TestCalculateTransactionsRoot(t *testing.T) {
 		}
 
 		blockNumber := uint64(12345)
-		expectedRoot := types.StringToHash("0x468dc6385a8b7e85dbed1764b794e03c9b70c35a6fb166ebad4099f80b6fb2d0")
+		expectedRoot := types.StringToHash("0x952361609fb9c56b6af2ad9c37818a4e19f166fbcc8efe7bee91aed4aaaa6bc2")
 
 		root := CalculateTransactionsRoot(transactions, blockNumber)
 
