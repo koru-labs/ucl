@@ -1464,7 +1464,7 @@ func TestFSM_VerifyStateTransaction_TwoCommitmentMessages(t *testing.T) {
 
 	var txns []*types.Transaction
 
-	signature := createSignature(t, validators.GetPrivateIdentities("A", "B", "C", "D"), hash, signer.DomainStateReceiver)
+	signature := createSignature(t, validators.GetPrivateIdentities("A", "B", "C", "D", "E"), hash, signer.DomainStateReceiver)
 	commitmentMessageSigned.AggSignature = *signature
 
 	inputData, err := commitmentMessageSigned.EncodeAbi()
