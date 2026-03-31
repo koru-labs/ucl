@@ -142,7 +142,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	currentBlock, err = cluster.Servers[1].JSONRPC().BlockNumber()
 	require.NoError(t, err)
 
-	//sStopping one more validator to be sure that a new validator is voting for new blocks
+	// stopping one more validator to be sure that a new validator is voting for new blocks
 	cluster.Servers[2].Stop()
 
 	require.NoError(t, cluster.WaitForBlock(currentBlock+uint64(5), time.Minute))
