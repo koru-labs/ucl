@@ -237,6 +237,72 @@ func TestPoS_Stake(t *testing.T) {
 	assert.Equal(t, expectedBalance.String(), stakedAmount.String())
 }
 
+func TestPoS_Unstake(t *testing.T) {
+	defaultBalance := framework.EthToWei(100)
+
+	// The last genesis validator will leave from validator set by unstaking
+	numGenesisValidators := IBFTMinNodes + 1
+	ibftManager := framework.NewIBFTServersManager(
+		t,
+		numGenesisValidators,
+		IBFTDirPrefix,
+		func(_ int, config *framework.TestServerConfig) {
+			// Premine to send unstake transaction
+			config.SetEpochSize(2) // Need to leave room for the endblock
+			config.PremineValidatorBalance(defaultBalance)
+			config.SetIBFTPoS(true)
+		})
+
+	t.Cleanup(func() {
+		ibftManager.StopServers()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	ibftManager.StartServers(ctx)
+	srv := ibftManager.GetServer(0)
+
+	// Get key of last node
+	unstakerSrv := ibftManager.GetServer(IBFTMinNodes)
+	unstakerKey, err := unstakerSrv.Config.PrivateKey()
+	assert.NoError(t, err)
+
+	unstakerAddr := crypto.PubKeyToAddress(&unstakerKey.PublicKey)
+
+	client := srv.JSONRPC()
+
+	// Check the validator is in validator set
+	validateValidatorSet(t, unstakerAddr, client, true, numGenesisValidators)
+
+	// Send transaction to unstake
+	_, unstakeError := framework.UnstakeAmount(
+		unstakerAddr,
+		unstakerKey,
+		srv,
+	)
+	if unstakeError != nil {
+		t.Fatalf("Unable to unstake amount, %v", unstakeError)
+	}
+
+	// Check validator set
+	validateValidatorSet(t, unstakerAddr, client, false, numGenesisValidators-1)
+
+	// Check the SC balance
+	bigDefaultStakedBalance := getBigDefaultStakedBalance(t)
+
+	scBalance := framework.GetAccountBalance(t, staking.AddrStakingContract, client)
+	expectedBalance := big.NewInt(0).Mul(
+		bigDefaultStakedBalance,
+		big.NewInt(int64(numGenesisValidators)),
+	)
+	expectedBalance.Sub(expectedBalance, bigDefaultStakedBalance)
+	assert.Equal(t, expectedBalance.String(), scBalance.String())
+
+	stakedAmount := framework.GetAccountBalance(t, staking.AddrStakingContract, client)
+	assert.Equal(t, expectedBalance.String(), stakedAmount.String())
+}
+
 // Test scenario:
 // User has 10 ETH staked and a balance of 10 ETH
 // Unstake -> Unstake -> Unstake -> Unstake...
