@@ -967,7 +967,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		return result
 	}
 
-	if t.config.EIP158 && len(result.ReturnValue) > SpuriousDragonMaxCodeSize {
+	if t.config.EIP158 && len(result.ReturnValue) > SpuriousDragonMaxCodeSize*3 {
 		// Contract size exceeds 'SpuriousDragon' size limit
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{

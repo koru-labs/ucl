@@ -151,6 +151,7 @@ func runCommand(cmd *cobra.Command, _ []string) error {
 		envPrefix + "RPC_URL=" + params.jsonRPC,
 		envPrefix + "CHAIN_ID=" + chainIDStr,
 		envPrefix + "PRIVATE_KEY=" + privateKeyHex,
+		"DEPLOYER_PRIVATE_KEY=" + privateKeyHex,
 		"npm",
 		"run",
 		"deploy_token",
@@ -164,7 +165,12 @@ func runCommand(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create deployments directory: %w", err)
 	}
 
-	accJSON, err := json.MarshalIndent(newAccount(), "", "  ")
+	accounts, err := newAccountsWithOwnerWallet(adminAccount.Ecdsa)
+	if err != nil {
+		return fmt.Errorf("failed to create accounts: %w", err)
+	}
+
+	accJSON, err := json.MarshalIndent(accounts, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize account: %w", err)
 	}

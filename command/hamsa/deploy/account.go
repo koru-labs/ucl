@@ -2,11 +2,12 @@ package hamsadeploy
 
 import (
 	"encoding/hex"
+	"fmt"
 
 	"github.com/Ethernal-Tech/ethgo/wallet"
 )
 
-type account struct {
+type accounts struct {
 	Owner    string `json:"Owner"`
 	OwnerKey string `json:"OwnerKey"`
 
@@ -40,36 +41,45 @@ type account struct {
 	To2PrivateKey string `json:"To2PrivateKey"`
 }
 
-func newAccount() *account {
-	accounts := make([]struct{ key, addr string }, 11)
-
-	for i := range accounts {
-		key, addr := getData()
-		accounts[i] = struct{ key, addr string }{key, addr}
+func newAccountsWithOwnerWallet(w *wallet.Key) (*accounts, error) {
+	pkStr, err := w.MarshallPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal private key: %w", err)
 	}
 
-	return &account{
-		Owner:           accounts[0].addr,
-		OwnerKey:        accounts[0].key,
-		MasterMinter:    accounts[1].addr,
-		MasterMinterKey: accounts[1].key,
-		Pauser:          accounts[2].addr,
-		PauserKey:       accounts[2].key,
-		BlackLister:     accounts[3].addr,
-		BlackListerKey:  accounts[3].key,
-		Minter:          accounts[4].addr,
-		MinterKey:       accounts[4].key,
-		Minter2:         accounts[5].addr,
-		Minter2Key:      accounts[5].key,
-		Minter3:         accounts[6].addr,
-		Minter3Key:      accounts[6].key,
-		BlockedAccount:  accounts[7].addr,
-		Spender1:        accounts[8].addr,
-		Spender1Key:     accounts[8].key,
-		To1:             accounts[9].addr,
-		To1PrivateKey:   accounts[9].key,
-		To2:             accounts[10].addr,
-		To2PrivateKey:   accounts[10].key,
+	return newAccountsWithOwner(hex.EncodeToString(pkStr), w.Address().String()), nil
+}
+
+func newAccountsWithOwner(ownerKey, ownerAddr string) *accounts {
+	wallets := make([]struct{ key, addr string }, 10)
+
+	for i := range wallets {
+		key, addr := getData()
+		wallets[i] = struct{ key, addr string }{key, addr}
+	}
+
+	return &accounts{
+		Owner:           ownerAddr,
+		OwnerKey:        ownerKey,
+		MasterMinter:    wallets[0].addr,
+		MasterMinterKey: wallets[0].key,
+		Pauser:          wallets[1].addr,
+		PauserKey:       wallets[1].key,
+		BlackLister:     wallets[2].addr,
+		BlackListerKey:  wallets[2].key,
+		Minter:          wallets[3].addr,
+		MinterKey:       wallets[3].key,
+		Minter2:         wallets[4].addr,
+		Minter2Key:      wallets[4].key,
+		Minter3:         wallets[5].addr,
+		Minter3Key:      wallets[5].key,
+		BlockedAccount:  wallets[6].addr,
+		Spender1:        wallets[7].addr,
+		Spender1Key:     wallets[7].key,
+		To1:             wallets[8].addr,
+		To1PrivateKey:   wallets[8].key,
+		To2:             wallets[9].addr,
+		To2PrivateKey:   wallets[9].key,
 	}
 }
 
