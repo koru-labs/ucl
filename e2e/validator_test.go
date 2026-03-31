@@ -68,6 +68,14 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 		return false
 	}))
 
+	// wait for the current epoch to finish before proceeding
+	currentBlock, err := cluster.Servers[0].JSONRPC().BlockNumber()
+	require.NoError(t, err)
+
+	nextEpochBlock := (currentBlock/epochSize + 1) * epochSize
+	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, time.Minute),
+		"timed out waiting for end of epoch at block %d", nextEpochBlock)
+
 	validators, err := cluster.Servers[0].IBFTGetValidators()
 	require.NoError(t, err)
 
@@ -131,7 +139,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	t.Logf("newly added validator proved voting rights by removing %s — final set size: %d",
 		targetAddr, len(finalValidators))
 
-	currentBlock, err := cluster.Servers[1].JSONRPC().BlockNumber()
+	currentBlock, err = cluster.Servers[1].JSONRPC().BlockNumber()
 	require.NoError(t, err)
 
 	//sStopping one more validator to be sure that a new validator is voting for new blocks
@@ -281,6 +289,14 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 		return firstFound && secondFound
 	}))
 
+	// wait for the current epoch to finish before proceeding
+	currentBlock, err := cluster.Servers[0].JSONRPC().BlockNumber()
+	require.NoError(t, err)
+
+	nextEpochBlock := (currentBlock/epochSize + 1) * epochSize
+	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, time.Minute),
+		"timed out waiting for end of epoch at block %d", nextEpochBlock)
+
 	validators, err := cluster.Servers[0].IBFTGetValidators()
 	require.NoError(t, err)
 
@@ -363,7 +379,7 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 		firstTargetAddr, len(finalValidators))
 }
 
-func TestIBFT_AddRemoveValidatorSimultaneous(t *testing.T) {
+func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 	const (
 		initialValidators = 4
 		epochSize         = 10
