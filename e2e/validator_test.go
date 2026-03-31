@@ -53,7 +53,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 
 	cluster.InitTestServer(t, firstValidatorDataDir, frameworkV2.Validator)
 
-	require.NoError(t, cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+	require.NoError(t, cluster.WaitUntil(30*time.Second, 2*time.Second, func() bool {
 		validators, snapshotErr := cluster.Servers[0].IBFTGetValidators()
 		if snapshotErr != nil {
 			return false
@@ -73,7 +73,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	require.NoError(t, err)
 
 	nextEpochBlock := (currentBlock/epochSize + 1) * epochSize
-	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, time.Minute),
+	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, 30*time.Second),
 		"timed out waiting for end of epoch at block %d", nextEpochBlock)
 
 	validators, err := cluster.Servers[0].IBFTGetValidators()
@@ -102,7 +102,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	}
 
 	// wait until target disappears from the snapshot
-	err = cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+	err = cluster.WaitUntil(30*time.Second, 2*time.Second, func() bool {
 		current, snapshotErr := cluster.Servers[1].IBFTGetValidators()
 		if snapshotErr != nil {
 			return false
@@ -145,7 +145,7 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	// stopping one more validator to be sure that a new validator is voting for new blocks
 	cluster.Servers[2].Stop()
 
-	require.NoError(t, cluster.WaitForBlock(currentBlock+uint64(5), time.Minute))
+	require.NoError(t, cluster.WaitForBlock(currentBlock+uint64(5), 30*time.Second))
 }
 
 // TestIBFT_NotEnoughVotes verifies that a candidate is not admitted when only 1 out of 4
@@ -191,7 +191,7 @@ func TestIBFT_NotEnoughVotes(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t,
-		cluster.WaitForBlock(currentBlock+uint64(epochSize*2), waitDuration+time.Minute),
+		cluster.WaitForBlock(currentBlock+uint64(epochSize*2), time.Minute),
 		"chain stopped producing blocks unexpectedly",
 	)
 
@@ -268,7 +268,7 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 
 	cluster.InitTestServer(t, secondValidatorDataDir, frameworkV2.Validator)
 
-	require.NoError(t, cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+	require.NoError(t, cluster.WaitUntil(30*time.Second, 2*time.Second, func() bool {
 		validators, snapshotErr := cluster.Servers[0].IBFTGetValidators()
 		if snapshotErr != nil {
 			return false
@@ -294,7 +294,7 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 	require.NoError(t, err)
 
 	nextEpochBlock := (currentBlock/epochSize + 1) * epochSize
-	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, time.Minute),
+	require.NoError(t, cluster.WaitForBlock(nextEpochBlock, 30*time.Second),
 		"timed out waiting for end of epoch at block %d", nextEpochBlock)
 
 	validators, err := cluster.Servers[0].IBFTGetValidators()
@@ -337,7 +337,7 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 	}
 
 	// wait until target disappears from the snapshot
-	err = cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+	err = cluster.WaitUntil(30*time.Second, 2*time.Second, func() bool {
 		current, snapshotErr := cluster.Servers[2].IBFTGetValidators()
 		if snapshotErr != nil {
 			return false
@@ -446,7 +446,7 @@ func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 	cluster.InitTestServer(t, newValidatorDataDir, frameworkV2.Validator)
 
 	//  wait until candidate is added AND target is removed
-	err = cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+	err = cluster.WaitUntil(30*time.Minute, 2*time.Second, func() bool {
 		current, snapshotErr := cluster.Servers[1].IBFTGetValidators()
 		if snapshotErr != nil {
 			return false
@@ -493,5 +493,5 @@ func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 
 	cluster.Servers[2].Stop()
 
-	require.NoError(t, cluster.WaitForBlock(currentBlock+uint64(5), time.Minute))
+	require.NoError(t, cluster.WaitForBlock(currentBlock+uint64(5), 30*time.Second))
 }
