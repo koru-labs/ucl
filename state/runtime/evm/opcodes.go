@@ -86,6 +86,9 @@ const (
 	// SAR performs an arithmetic shift right
 	SAR = 0x1D
 
+	// CLZ counts the number of leading zeros
+	CLZ = 0x1E
+
 	// SHA3 performs the keccak256 hash function
 	SHA3 = 0x20
 

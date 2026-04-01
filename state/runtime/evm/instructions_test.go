@@ -625,6 +625,67 @@ func TestSar(t *testing.T) {
 	}
 }
 
+func TestClz(t *testing.T) {
+	convertFn := func(hex string) uint256.Int {
+		val, err := uint256.FromHex(hex)
+
+		require.NoError(t, err)
+
+		return *val
+	}
+
+	// Test cases taken from EIP: https://eips.ethereum.org/EIPS/eip-7939
+	cases := []struct {
+		name   string
+		input  uint256.Int
+		output uint256.Int
+	}{
+		{
+			"zero (none bit set)",
+			convertFn("0x0"),
+			convertFn("0x100"),
+		},
+		{
+			"only highest bit set",
+			convertFn("0x8000000000000000000000000000000000000000000000000000000000000000"),
+			convertFn("0x0"),
+		},
+		{
+			"all bits set",
+			convertFn("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+			convertFn("0x0"),
+		},
+		{
+			"only second highest bit set",
+			convertFn("0x4000000000000000000000000000000000000000000000000000000000000000"),
+			convertFn("0x1"),
+		},
+		{
+			"all bits set except highest one",
+			convertFn("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+			convertFn("0x1"),
+		},
+		{
+			"one (only lowest bit set)",
+			convertFn("0x1"),
+			convertFn("0xff"),
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, closeFn := getState(&allEnabledForks)
+			defer closeFn()
+
+			s.push(c.input)
+
+			opClz(s)
+
+			require.Equal(t, c.output, s.pop())
+		})
+	}
+}
+
 func TestGt(t *testing.T) {
 	s, closeFn := getState(&chain.ForksInTime{})
 	defer closeFn()

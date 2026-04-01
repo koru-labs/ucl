@@ -91,6 +91,7 @@ const (
 	EIP3607        = "EIP3607"
 	EIP3855        = "EIP3855"
 	EIP5656        = "EIP5656" // MCOPY (cancun fork)
+	EIP7939        = "EIP7939" // CLZ (osaka fork)
 )
 
 // Forks is map which contains all forks and their starting blocks from genesis
@@ -130,6 +131,7 @@ func (f *Forks) At(block uint64) ForksInTime {
 		EIP3607:        f.IsActive(EIP3607, block),
 		EIP3855:        f.IsActive(EIP3855, block),
 		EIP5656:        f.IsActive(EIP5656, block),
+		EIP7939:        f.IsActive(EIP7939, block),
 	}
 }
 
@@ -183,7 +185,8 @@ type ForksInTime struct {
 	EIP155,
 	EIP3607,
 	EIP3855,
-	EIP5656 bool
+	EIP5656,
+	EIP7939 bool
 }
 
 // AllForksEnabled should contain all supported forks by current edge version
@@ -201,4 +204,5 @@ var AllForksEnabled = &Forks{
 	EIP3607:        NewFork(0),
 	EIP3855:        NewFork(0),
 	EIP5656:        NewFork(0),
+	EIP7939:        NewFork(0),
 }

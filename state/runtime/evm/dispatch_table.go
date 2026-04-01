@@ -67,6 +67,7 @@ func init() {
 	register(SHL, handler{inst: opShl, stack: 2, gas: 3})
 	register(SHR, handler{inst: opShr, stack: 2, gas: 3})
 	register(SAR, handler{inst: opSar, stack: 2, gas: 3})
+	register(CLZ, handler{inst: opClz, stack: 1, gas: 5})
 
 	register(CREATE, handler{inst: opCreate(CREATE), stack: 3, gas: 32000})
 	register(CREATE2, handler{inst: opCreate(CREATE2), stack: 4, gas: 32000})
