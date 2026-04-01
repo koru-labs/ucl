@@ -931,6 +931,65 @@ func opJumpi(c *state) {
 func opJumpDest(c *state) {
 }
 
+func opMCopy(c *state) {
+	if !c.config.EIP5656 {
+		c.exit(errOpCodeNotFound)
+
+		return
+	}
+
+	// The operation proceeds as follows:
+	// 1. if `size` overflows uint64, return error
+	// 2. if `size` is zero, return immediately without any further action or gas cost
+	// 3. if `mStart` (the larger of `dest` and `src`) or `mStart` + `size` overflows uint64,
+	//    return error
+	// 5. call `allocateMemory` to check whether additional memory needs to be allocated and
+	//    whether there is enough gas to do so
+	// 6. check whether there is enough gas to perform copy
+	// 7. copy the data
+
+	dest := c.pop()
+	src := c.pop()
+	size := c.pop()
+
+	sizeU64, overflow := size.Uint64WithOverflow()
+	if overflow {
+		c.exit(errGasUintOverflow)
+
+		return
+	}
+
+	if sizeU64 == 0 {
+		return
+	}
+
+	mStart := dest
+
+	if src.Gt(&dest) {
+		mStart = src
+	}
+
+	if !mStart.IsUint64() || !uint256.NewInt(0).Add(&mStart, &size).IsUint64() {
+		c.exit(errGasUintOverflow)
+
+		return
+	}
+
+	if !c.allocateMemory(mStart, size) {
+		if !errors.Is(c.err, errOutOfGas) {
+			c.exit(errGasUintOverflow)
+		}
+
+		return
+	}
+
+	if !c.consumeGas(((sizeU64 + 31) / 32) * copyGas) {
+		return
+	}
+
+	copy(c.memory[dest.Uint64():], c.memory[src.Uint64():src.Uint64()+sizeU64])
+}
+
 func opPush0(c *state) {
 	if !c.config.EIP3855 {
 		c.exit(errOpCodeNotFound)

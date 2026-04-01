@@ -2,6 +2,7 @@ package evm
 
 import (
 	"errors"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -123,6 +124,221 @@ func TestSub(t *testing.T) {
 	for _, testOperand := range testOperands {
 		testArithmeticOperation(t, opSub, testOperand, s)
 	}
+}
+
+func TestMCopy(t *testing.T) {
+	t.Run("size overflows uint64", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{1, 1, 0, 0}) // size
+		s.push(uint256.Int{1, 0, 0, 0}) // src
+		s.push(uint256.Int{1, 0, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, errGasUintOverflow, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("dest and src overflows uint64, but size is zero", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{0, 0, 0, 0}) // size
+		s.push(uint256.Int{1, 1, 0, 0}) // src
+		s.push(uint256.Int{1, 1, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, nil, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("dest overflows uint64", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{1, 0, 0, 0}) // size
+		s.push(uint256.Int{1, 0, 0, 0}) // src
+		s.push(uint256.Int{1, 1, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, errGasUintOverflow, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("src overflows uint64", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{1, 0, 0, 0}) // size
+		s.push(uint256.Int{1, 1, 0, 0}) // src
+		s.push(uint256.Int{1, 0, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, errGasUintOverflow, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("dest plus size overflows uint64", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{1, 0, 0, 0})              // size
+		s.push(uint256.Int{1, 0, 0, 0})              // src
+		s.push(uint256.Int{math.MaxUint64, 0, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, errGasUintOverflow, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("src plus size overflows uint64", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		s.push(uint256.Int{1, 0, 0, 0})              // size
+		s.push(uint256.Int{1, 0, 0, 0})              // src
+		s.push(uint256.Int{math.MaxUint64, 0, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.Equal(t, errGasUintOverflow, s.err)
+		require.Equal(t, 0, len(s.memory))
+		require.Equal(t, defaultInitialGas, s.gas)
+	})
+
+	t.Run("correct case", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		// We first store something in the memory so we have data to work with.
+		s.push(uint256.Int{0, 6, 7, 0})
+		s.push(uint256.Int{})
+
+		opMStore(s)
+
+		require.Equal(t, 32, len(s.memory))
+		require.Equal(t, 0, len(s.stack))
+		require.Equal(t, uint64(997), s.gas)
+
+		// Since MSTORE stores data in the memory in the same way it was on the stack,
+		// we have the following in the memory:
+		// [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 7 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0 0]
+
+		require.Equal(t, uint8(0), s.memory[7])
+		require.Equal(t, uint8(7), s.memory[15])
+		require.Equal(t, uint8(6), s.memory[23])
+		require.Equal(t, uint8(0), s.memory[31])
+
+		// We can use MCOPY to make it correct (67), that is:
+		// [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 6 0 0 0 0 0 0 0 7 0 0 0 0 0 0 0 0]
+		// Also, note that we won't have any new allocation.
+
+		steps := []struct {
+			src, dest, remGas uint64
+			vals              []uint8
+		}{
+			{8, 24, 994, []uint8{0, 7, 6, 7}},
+			{16, 8, 991, []uint8{0, 6, 6, 7}},
+			{24, 16, 988, []uint8{0, 6, 7, 7}},
+			{0, 24, 985, []uint8{0, 6, 7, 0}},
+		}
+
+		for _, step := range steps {
+			s.push(uint256.Int{8, 0, 0, 0})         // size
+			s.push(uint256.Int{step.src, 0, 0, 0})  // src
+			s.push(uint256.Int{step.dest, 0, 0, 0}) // dest
+
+			opMCopy(s)
+
+			require.NoError(t, s.err)
+
+			require.Equal(t, 32, len(s.memory))
+			require.Equal(t, 0, len(s.stack))
+			require.Equal(t, step.remGas, s.gas)
+
+			require.Equal(t, step.vals[0], s.memory[7])
+			require.Equal(t, step.vals[1], s.memory[15])
+			require.Equal(t, step.vals[2], s.memory[23])
+			require.Equal(t, step.vals[3], s.memory[31])
+		}
+
+		// Now, let's copy 67 somewhere deeper in the memory so we need to allocate
+		// additional memory.
+
+		s.push(uint256.Int{16, 0, 0, 0}) // size
+		s.push(uint256.Int{8, 0, 0, 0})  // src
+		s.push(uint256.Int{64, 0, 0, 0}) // dest
+
+		opMCopy(s)
+
+		require.NoError(t, s.err)
+
+		require.Equal(t, 96, len(s.memory))
+		require.Equal(t, 0, len(s.stack))
+		require.Equal(t, uint64(976), s.gas)
+
+		require.Equal(t, uint8(6), s.memory[71])
+		require.Equal(t, uint8(7), s.memory[79])
+	})
+
+	t.Run("unallocated memory", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		steps := []struct {
+			name                       string
+			src, dest, memSize, remGas uint64
+		}{
+			{
+				"copy from unallocated to unallocated memory",
+				44,
+				3,
+				64,
+				991,
+			},
+			{
+				"copy from unallocated to allocated memory",
+				112,
+				3,
+				128,
+				982,
+			},
+			{
+				"copy from allocated to unallocated memory",
+				112,
+				214,
+				224,
+				970,
+			},
+		}
+
+		for _, step := range steps {
+			t.Run(step.name, func(t *testing.T) {
+				s.push(uint256.Int{4, 0, 0, 0})         // size
+				s.push(uint256.Int{step.src, 0, 0, 0})  // src
+				s.push(uint256.Int{step.dest, 0, 0, 0}) // dest
+
+				opMCopy(s)
+
+				require.Equal(t, nil, s.err)
+
+				require.Equal(t, 0, len(s.stack))
+				require.Equal(t, int(step.memSize), len(s.memory))
+				require.Equal(t, step.remGas, s.gas)
+			})
+		}
+	})
 }
 
 func TestPush0(t *testing.T) {

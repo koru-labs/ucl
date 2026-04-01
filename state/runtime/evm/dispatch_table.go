@@ -83,6 +83,7 @@ func init() {
 	register(MLOAD, handler{inst: opMload, stack: 1, gas: 3})
 	register(MSTORE, handler{inst: opMStore, stack: 2, gas: 3})
 	register(MSTORE8, handler{inst: opMStore8, stack: 2, gas: 3})
+	register(MCOPY, handler{inst: opMCopy, stack: 3, gas: 3})
 
 	// store
 	register(SLOAD, handler{inst: opSload, stack: 1, gas: 0})
