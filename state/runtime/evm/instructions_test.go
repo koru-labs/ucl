@@ -261,6 +261,8 @@ func TestMCopy(t *testing.T) {
 
 			opMCopy(s)
 
+			require.NoError(t, s.err)
+
 			require.Equal(t, 32, len(s.memory))
 			require.Equal(t, 0, len(s.stack))
 			require.Equal(t, step.remGas, s.gas)
@@ -280,12 +282,62 @@ func TestMCopy(t *testing.T) {
 
 		opMCopy(s)
 
+		require.NoError(t, s.err)
+
 		require.Equal(t, 96, len(s.memory))
 		require.Equal(t, 0, len(s.stack))
 		require.Equal(t, uint64(976), s.gas)
 
 		require.Equal(t, uint8(6), s.memory[71])
 		require.Equal(t, uint8(7), s.memory[79])
+	})
+
+	t.Run("unallocated memory", func(t *testing.T) {
+		s, closeFn := getState(&allEnabledForks)
+		defer closeFn()
+
+		steps := []struct {
+			name                       string
+			src, dest, memSize, remGas uint64
+		}{
+			{
+				"copy from unallocated to unallocated memory",
+				44,
+				3,
+				64,
+				991,
+			},
+			{
+				"copy from unallocated to allocated memory",
+				112,
+				3,
+				128,
+				982,
+			},
+			{
+				"copy from allocated to unallocated memory",
+				112,
+				214,
+				224,
+				970,
+			},
+		}
+
+		for _, step := range steps {
+			t.Run(step.name, func(t *testing.T) {
+				s.push(uint256.Int{4, 0, 0, 0})         // size
+				s.push(uint256.Int{step.src, 0, 0, 0})  // src
+				s.push(uint256.Int{step.dest, 0, 0, 0}) // dest
+
+				opMCopy(s)
+
+				require.Equal(t, nil, s.err)
+
+				require.Equal(t, 0, len(s.stack))
+				require.Equal(t, int(step.memSize), len(s.memory))
+				require.Equal(t, step.remGas, s.gas)
+			})
+		}
 	})
 }
 
