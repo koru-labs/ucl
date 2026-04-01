@@ -3020,6 +3020,7 @@ func TestExecutablesOrder(t *testing.T) {
 					oldTime := tx.TxPoolTime
 					// send all txs
 					assert.NoError(t, pool.addTx(local, tx))
+					assert.NotZero(t, tx.TxPoolTime)
 
 					tx.TxPoolTime = oldTime // preserve original time for time queue test
 				}
