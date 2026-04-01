@@ -200,6 +200,9 @@ const (
 	// JUMPDEST corresponds to a possible jump destination
 	JUMPDEST = 0x5B
 
+	// MCOPY copies one segment of memory to another
+	MCOPY = 0x5E
+
 	// PUSH0 pushes a 0 constant onto the stack
 	PUSH0 = 0x5F
 
