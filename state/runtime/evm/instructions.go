@@ -327,6 +327,11 @@ func opSar(c *state) {
 	}
 }
 
+func opClz(c *state) {
+	x, _ := c.stack.top()
+	x.SetUint64(256 - uint64(x.BitLen()))
+}
+
 func opMload(c *state) {
 	v := c.top()
 
