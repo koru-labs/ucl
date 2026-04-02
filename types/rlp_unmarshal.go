@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -555,4 +556,15 @@ func (t *Transaction) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) erro
 	}
 
 	return nil
+}
+
+func (t *Transaction) UnmarshalJournal(input []byte) error {
+	if len(input) < 9 {
+		return fmt.Errorf("input too short to unmarshal transaction for journal%d", len(input))
+	}
+	// TxPoolTime (int64, little endian) - 8 bytes
+	t.TxPoolTime = int64(binary.LittleEndian.Uint64(input))
+
+	// The rest is the RLP-encoded transaction
+	return t.UnmarshalRLP(input[8:])
 }

@@ -13,14 +13,16 @@ func Test_maxPriceQueue(t *testing.T) {
 	t.Parallel()
 
 	testTable := []struct {
-		name     string
-		baseFee  uint64
-		unsorted []*types.Transaction
-		sorted   []*types.Transaction
+		cmpGasPrice bool
+		name        string
+		baseFee     uint64
+		unsorted    []*types.Transaction
+		sorted      []*types.Transaction
 	}{
 		{
-			name:    "sort txs by tips with base fee",
-			baseFee: 1000,
+			cmpGasPrice: true,
+			name:        "sort txs by tips with base fee",
+			baseFee:     1000,
 			unsorted: []*types.Transaction{
 				// Highest tx fee
 				{
@@ -65,8 +67,9 @@ func Test_maxPriceQueue(t *testing.T) {
 			},
 		},
 		{
-			name:    "sort txs by nonce with base fee",
-			baseFee: 1000,
+			cmpGasPrice: true,
+			name:        "sort txs by nonce with base fee",
+			baseFee:     1000,
 			unsorted: []*types.Transaction{
 				// Highest tx fee
 				{
@@ -115,8 +118,9 @@ func Test_maxPriceQueue(t *testing.T) {
 			},
 		},
 		{
-			name:    "sort txs without base fee by fee cap",
-			baseFee: 0,
+			cmpGasPrice: true,
+			name:        "sort txs without base fee by fee cap",
+			baseFee:     0,
 			unsorted: []*types.Transaction{
 				// Highest tx fee
 				{
@@ -153,8 +157,9 @@ func Test_maxPriceQueue(t *testing.T) {
 			},
 		},
 		{
-			name:    "sort txs without base fee by tip cap",
-			baseFee: 0,
+			cmpGasPrice: true,
+			name:        "sort txs without base fee by tip cap",
+			baseFee:     0,
 			unsorted: []*types.Transaction{
 				// Highest tx fee
 				{
@@ -191,8 +196,9 @@ func Test_maxPriceQueue(t *testing.T) {
 			},
 		},
 		{
-			name:    "sort txs without base fee by gas price",
-			baseFee: 0,
+			cmpGasPrice: true,
+			name:        "sort txs without base fee by gas price",
+			baseFee:     0,
 			unsorted: []*types.Transaction{
 				// Highest tx fee
 				{
@@ -223,20 +229,74 @@ func Test_maxPriceQueue(t *testing.T) {
 			},
 		},
 		{
-			name:     "empty",
-			baseFee:  0,
-			unsorted: nil,
-			sorted:   []*types.Transaction{},
+			cmpGasPrice: true,
+			name:        "empty",
+			baseFee:     0,
+			unsorted:    nil,
+			sorted:      []*types.Transaction{},
+		},
+		{
+			cmpGasPrice: false,
+			name:        "sort txs by time",
+			baseFee:     0,
+			unsorted: []*types.Transaction{
+				{
+					TxPoolTime: 5,
+				},
+				{
+					TxPoolTime: 3,
+				},
+				{
+					TxPoolTime: 2,
+					Nonce:      3,
+				},
+				{
+					TxPoolTime: 6,
+				},
+				{
+					TxPoolTime: 1,
+				},
+				{
+					TxPoolTime: 4,
+				},
+				{
+					TxPoolTime: 2,
+					Nonce:      2,
+				},
+			},
+			sorted: []*types.Transaction{
+				{
+					TxPoolTime: 1,
+				},
+				{
+					TxPoolTime: 2,
+					Nonce:      2,
+				},
+				{
+					TxPoolTime: 2,
+					Nonce:      3,
+				},
+				{
+					TxPoolTime: 3,
+				},
+				{
+					TxPoolTime: 4,
+				},
+				{
+					TxPoolTime: 5,
+				},
+				{
+					TxPoolTime: 6,
+				},
+			},
 		},
 	}
 
 	for _, tt := range testTable {
-		tt := tt
-
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			queue := newPricesQueue(tt.baseFee, tt.unsorted)
+			queue := newPricesQueue(tt.cmpGasPrice, tt.baseFee, tt.unsorted)
 
 			if len(tt.unsorted) > 0 {
 				tx := queue.queue.Peek()
@@ -273,7 +333,7 @@ func Benchmark_pricedQueue(t *testing.B) {
 	for _, tt := range testTable {
 		t.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < t.N; i++ {
-				q := newPricesQueue(uint64(100), tt.unsortedTxs)
+				q := newPricesQueue(true, uint64(100), tt.unsortedTxs)
 
 				for q.length() > 0 {
 					_ = q.pop()

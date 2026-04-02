@@ -58,13 +58,13 @@ func (j *journal) load(add func(*types.Transaction) error) error {
 	// decode txs
 	for len(data) > 0 {
 		tx := &types.Transaction{}
-		if err := tx.UnmarshalRLP(data); err != nil {
+		if err := tx.UnmarshalJournal(data); err != nil {
 			j.logger.Error("failed to decode journaled tx", "err", err)
 
 			return err
 		}
 
-		data = data[tx.Size():]
+		data = data[tx.JournalSize():]
 		txs = append(txs, tx)
 	}
 
@@ -97,7 +97,7 @@ func (j *journal) insert(tx *types.Transaction) error {
 		return errors.New("no active journal")
 	}
 
-	_, err := j.writer.Write(tx.MarshalRLP())
+	_, err := j.writer.Write(tx.MarshalJournal())
 	if err == nil {
 		j.count++
 		if j.count == j.rotateSize {
@@ -132,7 +132,7 @@ func (j *journal) rotate(local []*types.Transaction) error {
 
 	// fill a new journal with txs from the pool
 	for _, tx := range local {
-		_, err := replacement.Write(tx.MarshalRLP())
+		_, err := replacement.Write(tx.MarshalJournal())
 		if err != nil {
 			_ = replacement.Close()
 

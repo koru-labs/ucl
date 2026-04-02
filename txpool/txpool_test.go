@@ -92,6 +92,7 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 			PriceLimit:         defaultPriceLimit,
 			MaxSlots:           maxSlots,
 			MaxAccountEnqueued: defaultMaxAccountEnqueued,
+			IsGasPriceQueue:    true,
 		},
 	)
 }
@@ -2825,13 +2826,26 @@ func TestExecutablesOrder(t *testing.T) {
 		return tx
 	}
 
+	newTimeTx := func(
+		addr types.Address, nonce, value uint64, time int64) *types.Transaction {
+		tx := newTx(addr, nonce, 1)
+		tx.Type = types.LegacyTx
+		tx.GasPrice = new(big.Int).SetUint64(100_000)
+		tx.TxPoolTime = time
+		tx.Value = new(big.Int).SetUint64(value)
+
+		return tx
+	}
+
 	testCases := []struct {
+		isGasPriceQueue    bool
 		name               string
 		allTxs             map[types.Address][]*types.Transaction
 		expectedPriceOrder [][2]uint64
 	}{
 		{
-			name: "case #1",
+			isGasPriceQueue: true,
+			name:            "case #1",
 			allTxs: map[types.Address][]*types.Transaction{
 				addr1: {
 					newPricedTx(addr1, 0, 1, 0, 400),
@@ -2858,7 +2872,8 @@ func TestExecutablesOrder(t *testing.T) {
 			},
 		},
 		{
-			name: "case #2",
+			isGasPriceQueue: true,
+			name:            "case #2",
 			allTxs: map[types.Address][]*types.Transaction{
 				addr1: {
 					newPricedTx(addr1, 1, 3, 0, 200),
@@ -2889,7 +2904,8 @@ func TestExecutablesOrder(t *testing.T) {
 			},
 		},
 		{
-			name: "case #3",
+			isGasPriceQueue: true,
+			name:            "case #3",
 			allTxs: map[types.Address][]*types.Transaction{
 				addr1: {
 					newPricedTx(addr1, 1, 5, 0, 100),
@@ -2912,7 +2928,8 @@ func TestExecutablesOrder(t *testing.T) {
 			},
 		},
 		{
-			name: "case #4",
+			isGasPriceQueue: true,
+			name:            "case #4",
 			allTxs: map[types.Address][]*types.Transaction{
 				addr1: {
 					newPricedTx(addr1, 0, 0, 70, 1),
@@ -2942,15 +2959,48 @@ func TestExecutablesOrder(t *testing.T) {
 				{0, 6},
 			},
 		},
+		{
+			isGasPriceQueue: false,
+			name:            "case #5 time queue",
+			allTxs: map[types.Address][]*types.Transaction{
+				addr1: {
+					newTimeTx(addr1, 0, 70, 100),
+					newTimeTx(addr1, 1, 170, 600),
+					newTimeTx(addr1, 2, 270, 1000),
+				},
+				addr2: {
+					newTimeTx(addr2, 0, 1070, 50),
+					newTimeTx(addr2, 1, 2070, 200),
+					newTimeTx(addr2, 2, 3070, 2000),
+				},
+				addr3: {
+					newTimeTx(addr3, 0, 7, 300),
+					newTimeTx(addr3, 1, 17, 400),
+					newTimeTx(addr3, 2, 27, 500),
+				},
+			},
+			expectedPriceOrder: [][2]uint64{
+				{100_000, 1070},
+				{100_000, 70},
+				{100_000, 2070},
+				{100_000, 7},
+				{100_000, 17},
+				{100_000, 27},
+				{100_000, 170},
+				{100_000, 270},
+				{100_000, 3070},
+			},
+		},
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			pool, err := newTestPool()
 			assert.NoError(t, err)
+
+			pool.isGasPriceQueue = test.isGasPriceQueue
 
 			pool.baseFee = defaultBaseFee
 			pool.SetSigner(&mockSigner{})
@@ -2967,8 +3017,12 @@ func TestExecutablesOrder(t *testing.T) {
 			for _, txs := range test.allTxs {
 				for _, tx := range txs {
 					expectedPromotedTx++
+					oldTime := tx.TxPoolTime
 					// send all txs
 					assert.NoError(t, pool.addTx(local, tx))
+					assert.NotZero(t, tx.TxPoolTime)
+
+					tx.TxPoolTime = oldTime // preserve original time for time queue test
 				}
 			}
 
@@ -2993,13 +3047,13 @@ func TestExecutablesOrder(t *testing.T) {
 				successful = append(successful, tx)
 			}
 
-			require.Len(t, successful, expectedPromotedTx)
+			assert.Len(t, successful, expectedPromotedTx)
 
 			// verify the highest priced transactions
 			// were processed first
 			for i, tx := range successful {
-				require.Equal(t, test.expectedPriceOrder[i][0], tx.GasPrice.Uint64())
-				require.Equal(t, test.expectedPriceOrder[i][1], tx.Value.Uint64())
+				assert.Equal(t, test.expectedPriceOrder[i][0], tx.GasPrice.Uint64())
+				assert.Equal(t, test.expectedPriceOrder[i][1], tx.Value.Uint64())
 			}
 		})
 	}

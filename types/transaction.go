@@ -71,6 +71,8 @@ type Transaction struct {
 
 	// IsLocal
 	IsLocal bool
+	// TxPoolTime is the timestamp when the transaction was added to the pool
+	TxPoolTime int64
 }
 
 type Transactions []*Transaction
@@ -258,4 +260,8 @@ func FindTxByHash(txs []*Transaction, hash Hash) (*Transaction, int) {
 	}
 
 	return nil, -1
+}
+
+func (t *Transaction) JournalSize() uint64 {
+	return t.Size() + 8 // TxPoolTime (8 bytes) + RLP encoded transaction
 }

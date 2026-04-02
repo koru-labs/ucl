@@ -7,17 +7,25 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
+type lessFunc func(tx1, tx2 *types.Transaction, baseFee *big.Int) bool
+
 type pricedQueue struct {
 	queue *maxPriceQueue
 }
 
 // newPricesQueue creates the priced queue with initial transactions and base fee
-func newPricesQueue(baseFee uint64, initialTxs []*types.Transaction) *pricedQueue {
+func newPricesQueue(gasPriceCompare bool, baseFee uint64, initialTxs []*types.Transaction) *pricedQueue {
 	q := &pricedQueue{
 		queue: &maxPriceQueue{
 			baseFee: new(big.Int).SetUint64(baseFee),
 			txs:     initialTxs,
 		},
+	}
+
+	if gasPriceCompare {
+		q.queue.lessHandler = gasPriceLessFunc
+	} else {
+		q.queue.lessHandler = timeLessFunc
 	}
 
 	heap.Init(q.queue)
@@ -52,8 +60,9 @@ func (q *pricedQueue) length() int {
 
 // transactions sorted by gas price (descending)
 type maxPriceQueue struct {
-	baseFee *big.Int
-	txs     []*types.Transaction
+	baseFee     *big.Int
+	txs         []*types.Transaction
+	lessHandler lessFunc
 }
 
 /* Queue methods required by the heap interface */
@@ -92,16 +101,29 @@ func (q *maxPriceQueue) Pop() interface{} {
 	return x
 }
 
+func (q *maxPriceQueue) Less(i, j int) bool {
+	return q.lessHandler(q.txs[i], q.txs[j], q.baseFee)
+}
+
+// timeLessFunc compares transactions first by tx pool time and then by nonce if times are equal
+func timeLessFunc(tx1, tx2 *types.Transaction, baseFee *big.Int) bool {
+	if tx1.TxPoolTime == tx2.TxPoolTime {
+		return tx1.Nonce < tx2.Nonce
+	}
+
+	return tx1.TxPoolTime < tx2.TxPoolTime
+}
+
 // @see https://github.com/etclabscore/core-geth/blob/4e2b0e37f89515a4e7b6bafaa40910a296cb38c0/core/txpool/list.go#L458
 // for details why is something implemented like it is
-func (q *maxPriceQueue) Less(i, j int) bool {
-	switch cmp(q.txs[i], q.txs[j], q.baseFee) {
+func gasPriceLessFunc(tx1, tx2 *types.Transaction, baseFee *big.Int) bool {
+	switch cmp(tx1, tx2, baseFee) {
 	case -1:
 		return false
 	case 1:
 		return true
 	default:
-		return q.txs[i].Nonce < q.txs[j].Nonce
+		return tx1.Nonce < tx2.Nonce
 	}
 }
 

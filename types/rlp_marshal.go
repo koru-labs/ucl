@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/binary"
+
 	"github.com/umbracle/fastrlp"
 )
 
@@ -261,4 +263,16 @@ func (t *Transactions) MarshalRLPWith(a *fastrlp.Arena) *fastrlp.Value {
 	}
 
 	return vv
+}
+
+func (t *Transaction) MarshalJournal() []byte {
+	rlpBytes := t.MarshalRLP()
+	result := make([]byte, 8+len(rlpBytes))
+	// IsLocal is not need to be stored in journal, so it is not included in the result
+	// TxPoolTime (int64, little endian) - 8 bytes
+	binary.LittleEndian.PutUint64(result, uint64(t.TxPoolTime))
+	// Remaining bytes - RLP-encoded transaction
+	copy(result[8:], rlpBytes)
+
+	return result
 }

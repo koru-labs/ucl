@@ -25,44 +25,47 @@ func TestJournalLoad(t *testing.T) {
 
 	originalTxs := []*types.Transaction{
 		{
-			Type:     types.StateTx,
-			GasPrice: big.NewInt(11),
-			Nonce:    1,
-			Gas:      11,
-			To:       &addrTo,
-			From:     types.StringToAddress("1"),
-			Value:    big.NewInt(1),
-			Input:    []byte{1, 2},
-			V:        big.NewInt(25),
-			S:        big.NewInt(26),
-			R:        big.NewInt(27),
+			Type:       types.StateTx,
+			GasPrice:   big.NewInt(11),
+			Nonce:      1,
+			Gas:        11,
+			To:         &addrTo,
+			From:       types.StringToAddress("1"),
+			Value:      big.NewInt(1),
+			Input:      []byte{1, 2},
+			V:          big.NewInt(25),
+			S:          big.NewInt(26),
+			R:          big.NewInt(27),
+			TxPoolTime: 10,
 		},
 		{
-			Type:     types.LegacyTx,
-			GasPrice: big.NewInt(11),
-			Nonce:    2,
-			Gas:      11,
-			To:       &addrTo,
-			From:     types.StringToAddress("2"),
-			Value:    big.NewInt(2),
-			Input:    []byte{1, 2},
-			V:        big.NewInt(25),
-			S:        big.NewInt(26),
-			R:        big.NewInt(27),
+			Type:       types.LegacyTx,
+			GasPrice:   big.NewInt(11),
+			Nonce:      2,
+			Gas:        11,
+			To:         &addrTo,
+			From:       types.StringToAddress("2"),
+			Value:      big.NewInt(2),
+			Input:      []byte{1, 2},
+			V:          big.NewInt(25),
+			S:          big.NewInt(26),
+			R:          big.NewInt(27),
+			TxPoolTime: 100,
 		},
 		{
-			Type:      types.DynamicFeeTx,
-			GasFeeCap: big.NewInt(12),
-			GasTipCap: big.NewInt(13),
-			Nonce:     3,
-			Gas:       11,
-			To:        &addrTo,
-			From:      types.StringToAddress("3"),
-			Value:     big.NewInt(3),
-			Input:     []byte{1, 2},
-			V:         big.NewInt(25),
-			S:         big.NewInt(26),
-			R:         big.NewInt(27),
+			Type:       types.DynamicFeeTx,
+			GasFeeCap:  big.NewInt(12),
+			GasTipCap:  big.NewInt(13),
+			Nonce:      3,
+			Gas:        11,
+			To:         &addrTo,
+			From:       types.StringToAddress("3"),
+			Value:      big.NewInt(3),
+			Input:      []byte{1, 2},
+			V:          big.NewInt(25),
+			S:          big.NewInt(26),
+			R:          big.NewInt(27),
+			TxPoolTime: 1000,
 		},
 	}
 
@@ -90,6 +93,7 @@ func TestJournalLoad(t *testing.T) {
 	for i, tx := range originalTxs {
 		require.Equal(t, tx.Hash, resultTxs[i].Hash)
 		require.Equal(t, tx.Hash, resultTxs[len(originalTxs)+i].Hash)
+		require.Equal(t, tx.TxPoolTime, resultTxs[i].TxPoolTime)
 	}
 
 	require.NoError(t, journal.close())
@@ -113,8 +117,6 @@ func TestJournalRotate(t *testing.T) {
 	// start routine
 	go func() {
 		<-rotateCh
-
-		return
 	}()
 
 	// add txs into journal until rotate event is fired

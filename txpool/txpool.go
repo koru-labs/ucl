@@ -111,6 +111,7 @@ type Config struct {
 	ChainID            *big.Int
 	DataDir            string
 	PeerID             peer.ID
+	IsGasPriceQueue    bool
 }
 
 // A promoteRequest is created each time some account
@@ -213,6 +214,9 @@ type TxPool struct {
 
 	// data dir
 	dataDir string
+
+	// should compare transactions by gas price when IsGasPriceQueue is true, otherwise compare by arrival time
+	isGasPriceQueue bool
 }
 
 const batchersNum = 1
@@ -230,7 +234,7 @@ func NewTxPool(
 		logger:            logger.Named("txpool"),
 		forks:             forks,
 		store:             store,
-		executables:       newPricesQueue(0, nil),
+		executables:       newPricesQueue(config.IsGasPriceQueue, 0, nil),
 		accounts:          accountsMap{maxEnqueuedLimit: config.MaxAccountEnqueued},
 		index:             lookupMap{all: make(map[types.Hash]*types.Transaction)},
 		gauge:             slotGauge{height: 0, max: config.MaxSlots},
@@ -239,6 +243,7 @@ func NewTxPool(
 		dataDir:           config.DataDir,
 		txGossipBatchSize: int(config.TxGossipBatchSize),
 		journalRotateSize: config.JournalRotateSize,
+		isGasPriceQueue:   config.IsGasPriceQueue,
 
 		//	main loop channels
 		promoteReqCh: make(chan promoteRequest),
@@ -495,7 +500,7 @@ func (p *TxPool) Prepare() {
 	primaries := p.accounts.getPrimaries()
 
 	// create new executables queue with base fee and initial transactions (primaries)
-	p.executables = newPricesQueue(p.GetBaseFee(), primaries)
+	p.executables = newPricesQueue(p.isGasPriceQueue, p.GetBaseFee(), primaries)
 }
 
 // Peek returns the best-price selected
@@ -927,7 +932,8 @@ func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
 		p.logger.Debug("add tx", "origin", origin.String(), "hash", tx.Hash.String())
 	}
 
-	// set IsLocal
+	// set IsLocal and TxPoolTime fields for the transaction
+	tx.TxPoolTime = time.Now().UTC().Unix()
 	tx.IsLocal = origin == local
 
 	// validate incoming tx
