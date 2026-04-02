@@ -263,5 +263,5 @@ func FindTxByHash(txs []*Transaction, hash Hash) (*Transaction, int) {
 }
 
 func (t *Transaction) JournalSize() uint64 {
-	return t.Size() + 9 // IsLocal (1 byte) + TxPoolTime (8 bytes) + RLP encoded transaction
+	return t.Size() + 8 // TxPoolTime (8 bytes) + RLP encoded transaction
 }

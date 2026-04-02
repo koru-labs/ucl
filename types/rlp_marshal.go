@@ -267,15 +267,12 @@ func (t *Transactions) MarshalRLPWith(a *fastrlp.Arena) *fastrlp.Value {
 
 func (t *Transaction) MarshalJournal() []byte {
 	rlpBytes := t.MarshalRLP()
-	result := make([]byte, 9+len(rlpBytes))
-	// First byte: IsLocal (default 0)
-	if t.IsLocal {
-		result[0] = 1
-	}
-	// Next 8 bytes: TxPoolTime (int64, little endian)
-	binary.LittleEndian.PutUint64(result[1:], uint64(t.TxPoolTime))
-	// Remaining bytes: RLP-encoded transaction
-	copy(result[9:], rlpBytes)
+	result := make([]byte, 8+len(rlpBytes))
+	// IsLocal is not need to be stored in journal, so it is not included in the result
+	// TxPoolTime (int64, little endian) - 8 bytes
+	binary.LittleEndian.PutUint64(result, uint64(t.TxPoolTime))
+	// Remaining bytes - RLP-encoded transaction
+	copy(result[8:], rlpBytes)
 
 	return result
 }

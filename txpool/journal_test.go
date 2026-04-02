@@ -51,7 +51,6 @@ func TestJournalLoad(t *testing.T) {
 			S:          big.NewInt(26),
 			R:          big.NewInt(27),
 			TxPoolTime: 100,
-			IsLocal:    true,
 		},
 		{
 			Type:       types.DynamicFeeTx,
@@ -95,7 +94,6 @@ func TestJournalLoad(t *testing.T) {
 		require.Equal(t, tx.Hash, resultTxs[i].Hash)
 		require.Equal(t, tx.Hash, resultTxs[len(originalTxs)+i].Hash)
 		require.Equal(t, tx.TxPoolTime, resultTxs[i].TxPoolTime)
-		require.Equal(t, tx.IsLocal, resultTxs[i].IsLocal)
 	}
 
 	require.NoError(t, journal.close())
