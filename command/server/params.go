@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -46,6 +47,8 @@ const (
 	tlsKeyFileLocationFlag  = "tls-key-file"
 	blockCacheTTLFlag       = "block-cache-ttl"
 	blockCacheCapacityFlag  = "block-cache-capacity"
+	MaxRequestBodySizeFlag  = "max-request-body-size"
+	JSONRPCTimeoutFlag      = "json-rpc-timeout"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -54,6 +57,8 @@ const (
 	webSocketReadLimitFlag      = "websocket-read-limit"
 
 	metricsIntervalFlag = "metrics-interval"
+
+	DisableTxPoolEndpointsFlag = "disable-tx-pool-endpoints"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -158,6 +163,14 @@ func (p *serverParams) setJSONLogFormat(jsonLogFormat bool) {
 	p.rawConfig.JSONLogFormat = jsonLogFormat
 }
 
+func (p *serverParams) validateFlags() error {
+	if p.rawConfig.MaxRequestBodySize <= 0 {
+		return fmt.Errorf("max-request-body-size must be greater than zero")
+	}
+
+	return nil
+}
+
 func (p *serverParams) generateConfig() *server.Config {
 	return &server.Config{
 		Chain: p.genesisConfig,
@@ -199,12 +212,16 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONLogFormat:      p.rawConfig.JSONLogFormat,
 		LogFilePath:        p.logFileLocation,
 
-		Relayer:               p.relayer,
-		NumBlockConfirmations: p.rawConfig.NumBlockConfirmations,
-		MetricsInterval:       p.rawConfig.MetricsInterval,
-		UseTLS:                p.rawConfig.UseTLS,
-		TLSCertFile:           p.rawConfig.TLSCertFile,
-		TLSKeyFile:            p.rawConfig.TLSKeyFile,
-		BlockCacheTTL:         p.rawConfig.BlockCacheTTL,
-		BlockCacheCapacity:    p.rawConfig.BlockCacheCapacity}
+		Relayer:                p.relayer,
+		NumBlockConfirmations:  p.rawConfig.NumBlockConfirmations,
+		MetricsInterval:        p.rawConfig.MetricsInterval,
+		UseTLS:                 p.rawConfig.UseTLS,
+		TLSCertFile:            p.rawConfig.TLSCertFile,
+		TLSKeyFile:             p.rawConfig.TLSKeyFile,
+		BlockCacheTTL:          p.rawConfig.BlockCacheTTL,
+		BlockCacheCapacity:     p.rawConfig.BlockCacheCapacity,
+		MaxRequestBodySize:     p.rawConfig.MaxRequestBodySize,
+		JSONRPCTimeout:         p.rawConfig.JSONRPCTimeout,
+		DisableTxPoolEndpoints: p.rawConfig.DisableTxPoolEndpoints,
+	}
 }

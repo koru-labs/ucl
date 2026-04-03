@@ -49,6 +49,8 @@ type Config struct {
 	PriceLimit               uint64
 	BatchLengthLimit         uint64
 	BlockRangeLimit          uint64
+	MaxRequestBodySize       int64
+	JSONRPCTimeout           time.Duration
 
 	ConcurrentRequestsDebug uint64
 	WebSocketReadLimit      uint64
@@ -59,6 +61,8 @@ type Config struct {
 
 	BlockCacheTTL      time.Duration
 	BlockCacheCapacity uint64
+
+	DisableTxPoolEndpoints bool
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -75,6 +79,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
 			blockCacheTTL:           config.BlockCacheTTL,
 			blockCacheCapacity:      config.BlockCacheCapacity,
+			disableTxPoolEndpoints:  config.DisableTxPoolEndpoints,
 		},
 	)
 	if err != nil {
@@ -115,6 +120,8 @@ func (j *JSONRPC) setupHTTP() error {
 	srv := http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 60 * time.Second,
+		ReadTimeout:       j.config.JSONRPCTimeout,
+		WriteTimeout:      j.config.JSONRPCTimeout,
 	}
 
 	if j.config.UseTLS {
@@ -327,6 +334,8 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 }
 
 func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request) {
+	req.Body = http.MaxBytesReader(w, req.Body, j.config.MaxRequestBodySize)
+
 	data, err := io.ReadAll(req.Body)
 	if err != nil {
 		_, _ = w.Write([]byte(err.Error()))

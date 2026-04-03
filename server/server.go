@@ -1080,6 +1080,9 @@ func (s *Server) setupJSONRPC() error {
 		BlockCacheTTL:            s.config.BlockCacheTTL,
 		BlockCacheCapacity:       s.config.BlockCacheCapacity,
 		SecretsManager:           s.secretsManager,
+		MaxRequestBodySize:       s.config.MaxRequestBodySize,
+		JSONRPCTimeout:           s.config.JSONRPCTimeout,
+		DisableTxPoolEndpoints:   s.config.DisableTxPoolEndpoints,
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)
