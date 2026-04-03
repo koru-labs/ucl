@@ -54,10 +54,16 @@ type Config struct {
 
 	BlockCacheCapacity uint64
 
+	MaxRequestBodySize int64
+
+	JSONRPCTimeout time.Duration
+
 	Relayer bool
 
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
+
+	DisableTxPoolEndpoints bool
 }
 
 // Telemetry holds the config details for metric services

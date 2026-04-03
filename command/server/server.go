@@ -305,6 +305,27 @@ func setFlags(cmd *cobra.Command) {
 		defaultConfig.BlockCacheCapacity,
 		"maximum number of block cache items to be kept in the cache",
 	)
+
+	cmd.Flags().Int64Var(
+		&params.rawConfig.MaxRequestBodySize,
+		MaxRequestBodySizeFlag,
+		defaultConfig.MaxRequestBodySize,
+		"the maximum size of the JSON-RPC HTTP request body in bytes (default 5MB)",
+	)
+
+	cmd.Flags().DurationVar(
+		&params.rawConfig.JSONRPCTimeout,
+		JSONRPCTimeoutFlag,
+		defaultConfig.JSONRPCTimeout,
+		"the timeout for JSON-RPC HTTP request processing (e.g. 30s, 1m, 1m30s)",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.DisableTxPoolEndpoints,
+		DisableTxPoolEndpointsFlag,
+		false,
+		"disable all txpool JSON-RPC endpoints",
+	)
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)
@@ -360,6 +381,10 @@ func runPreRun(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := params.initRawParams(); err != nil {
+		return err
+	}
+
+	if err := params.validateFlags(); err != nil {
 		return err
 	}
 

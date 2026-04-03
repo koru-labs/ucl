@@ -38,6 +38,8 @@ type Config struct {
 	TLSKeyFile               string        `json:"tls_key_file" yaml:"tls_key_file"`
 	BlockCacheTTL            time.Duration `json:"block_cache_ttl" yaml:"block_cache_ttl"`
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
+	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
+	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -46,6 +48,8 @@ type Config struct {
 	WebSocketReadLimit      uint64 `json:"web_socket_read_limit" yaml:"web_socket_read_limit"`
 
 	MetricsInterval time.Duration `json:"metrics_interval" yaml:"metrics_interval"`
+
+	DisableTxPoolEndpoints bool `json:"disable_tx_pool_endpoints" yaml:"disable_tx_pool_endpoints"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -106,6 +110,10 @@ const (
 	// DefaultMetricsInterval specifies the time interval after which Prometheus metrics will be generated.
 	// A value of 0 means the metrics are disabled.
 	DefaultMetricsInterval time.Duration = time.Second * 8
+
+	DefaultRequestBodySize = 5 << 20 // 5 MiB
+
+	DefaultJSONRPCTimeout = 30 * time.Second
 )
 
 // DefaultConfig returns the default server configuration
@@ -154,6 +162,8 @@ func DefaultConfig() *Config {
 		TLSKeyFile:               "",
 		BlockCacheTTL:            3 * time.Minute,
 		BlockCacheCapacity:       50,
+		MaxRequestBodySize:       DefaultRequestBodySize,
+		JSONRPCTimeout:           DefaultJSONRPCTimeout,
 	}
 }
 

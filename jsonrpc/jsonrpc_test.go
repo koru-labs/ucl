@@ -77,6 +77,11 @@ func TestJSONRPC_handleJSONRPCRequest(t *testing.T) {
 			request:          `{"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":["latest",false]}`,
 			expectedResponse: `{"jsonrpc":"2.0","id":0,"result":{`,
 		},
+		{
+			name:             "request body too large",
+			request:          `{"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":["` + strings.Repeat("a", 1024) + `",false]}`,
+			expectedResponse: `http: request body too large`,
+		},
 	}
 
 	for _, c := range cases {
@@ -107,8 +112,9 @@ func newTestJSONRPC(t *testing.T) (*JSONRPC, error) {
 	require.NoError(t, err, "Unable to fetch free port, %v", err)
 
 	config := &Config{
-		Store: store,
-		Addr:  &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: port},
+		Store:              store,
+		Addr:               &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: port},
+		MaxRequestBodySize: 256, // bytes
 	}
 
 	return NewJSONRPC(hclog.NewNullLogger(), config)

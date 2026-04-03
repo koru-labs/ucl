@@ -69,6 +69,8 @@ type dispatcherParams struct {
 
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
+
+	disableTxPoolEndpoints bool
 }
 
 func (dp dispatcherParams) isExceedingBatchLengthLimit(value uint64) bool {
@@ -135,8 +137,11 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 		return err
 	}
 
-	if err = d.registerService("txpool", d.endpoints.TxPool); err != nil {
-		return err
+	// skip txpool endpoint registration if disabled
+	if !d.params.disableTxPoolEndpoints {
+		if err = d.registerService("txpool", d.endpoints.TxPool); err != nil {
+			return err
+		}
 	}
 
 	if err = d.registerService("bridge", d.endpoints.Bridge); err != nil {
