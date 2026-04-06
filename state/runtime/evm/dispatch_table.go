@@ -96,6 +96,10 @@ func init() {
 
 	register(EXTCODEHASH, handler{inst: opExtCodeHash, stack: 1, gas: 0})
 
+	// transient storage
+	register(TLOAD, handler{inst: opTLoad, stack: 1, gas: 100})
+	register(TSTORE, handler{inst: opTStore, stack: 2, gas: 100})
+
 	// context operations
 	register(ADDRESS, handler{inst: opAddress, stack: 0, gas: 2})
 	register(BALANCE, handler{inst: opBalance, stack: 1, gas: 0})

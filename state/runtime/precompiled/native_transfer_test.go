@@ -197,3 +197,9 @@ func (d dummyHost) GetTracer() runtime.VMTracer {
 func (d dummyHost) GetRefund() uint64 {
 	return 0
 }
+
+func (d dummyHost) GetTransientState(addr types.Address, key types.Hash) types.Hash {
+	return types.Hash{}
+}
+
+func (d dummyHost) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {}

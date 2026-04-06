@@ -136,6 +136,16 @@ func (m *mockHost) GetRefund() uint64 {
 	panic("Not implemented in tests") //nolint:gocritic
 }
 
+func (m *mockHost) GetTransientState(addr types.Address, key types.Hash) types.Hash {
+	args := m.Called(addr, key)
+
+	return args.Get(0).(types.Hash)
+}
+
+func (m *mockHost) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {
+	m.Called(addr, key, value)
+}
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 

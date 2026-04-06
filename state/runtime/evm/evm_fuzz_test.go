@@ -142,6 +142,12 @@ func (m *mockHostF) GetRefund() uint64 {
 	return m.refund
 }
 
+func (m *mockHostF) GetTransientState(addr types.Address, key types.Hash) types.Hash {
+	return types.Hash{}
+}
+
+func (m *mockHostF) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {}
+
 func FuzzTestEVM(f *testing.F) {
 	seed := []byte{
 		PUSH1, 0x01, PUSH1, 0x02, ADD,

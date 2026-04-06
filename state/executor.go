@@ -307,6 +307,16 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 	}
 }
 
+// GetTransientState gets a value from transient storage for the given address and slot.
+func (t *Transition) GetTransientState(addr types.Address, slot types.Hash) types.Hash {
+	return t.state.GetTransientState(addr, slot)
+}
+
+// SetTransientState sets a value to transient storage for the given address and slot.
+func (t *Transition) SetTransientState(addr types.Address, slot types.Hash, value types.Hash) {
+	t.state.SetTransientState(addr, slot, value)
+}
+
 // StorageRangeAt returns the storage at the given block height and transaction index.
 func (t *Transition) StorageRangeAt(storageRangeResult *StorageRangeResult,
 	addr *types.Address, keyStart []byte, maxResult int) error {
@@ -464,6 +474,8 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		return nil, fmt.Errorf("%w: address %s, codehash: %v", ErrSenderNoEOA, sender.String(),
 			t.state.GetCodeHash(sender).String())
 	}
+
+	t.state.ClearTransientStorage()
 
 	s := t.state.Snapshot()
 

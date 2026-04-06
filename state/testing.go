@@ -17,6 +17,11 @@ var (
 	hash0 = types.StringToHash("0")
 	hash1 = types.StringToHash("1")
 	hash2 = types.StringToHash("2")
+	hash3 = types.StringToHash("3")
+
+	slot0 = types.StringToHash("0")
+	slot1 = types.StringToHash("1")
+	slot2 = types.StringToHash("2")
 
 	defaultPreState = map[types.Address]*PreState{
 		addr1: {

@@ -70,6 +70,68 @@ func newTxn(snapshot readSnapshot) *Txn {
 	}
 }
 
+var transientStorageKeyPrefix = byte(0x04)
+
+func calculateTransientStorageSlotIradixKey(addr types.Address, slot types.Hash) []byte {
+	// Transient storage slot iradix key represents concatenation of the following:
+	// 	1. prefix 0x04 (1 byte)
+	//	2. account address (20 bytes)
+	//	3. storage slot (32 bytes)
+	// Total length of 53 bytes guarantees no collision with any other key type in the tree.
+	k := make([]byte, 1+types.AddressLength+types.HashLength)
+
+	k[0] = transientStorageKeyPrefix
+
+	copy(k[1:], addr.Bytes())
+
+	copy(k[21:], slot.Bytes())
+
+	// k = 0x04 || <20-bytes-address> || <32-bytes-slot>
+	return k
+}
+
+// SetTransientState writes a value into transient storage for the given address and slot.
+func (txn *Txn) SetTransientState(addr types.Address, slot types.Hash, value types.Hash) {
+	key := calculateTransientStorageSlotIradixKey(addr, slot)
+
+	if (value == types.Hash{}) {
+		txn.txn.Delete(key)
+	} else {
+		txn.txn.Insert(key, value.Bytes())
+	}
+}
+
+// GetTransientState reads a value from transient storage for the given address and slot.
+func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Hash {
+	key := calculateTransientStorageSlotIradixKey(addr, slot)
+
+	val, exists := txn.txn.Get(key)
+
+	if !exists {
+		return types.Hash{}
+	}
+
+	return types.BytesToHash(val.([]byte)) //nolint:forcetypeassert
+}
+
+// ClearTransientStorage removes all transient storage entries. Must be called at the start
+// of every tx because EIP-1153 requires transient storage to be empty at tx boundaries.
+func (txn *Txn) ClearTransientStorage() {
+	var toDelete [][]byte
+
+	txn.txn.Root().Walk(func(key []byte, value interface{}) bool {
+		if bytes.HasPrefix(key, []byte{transientStorageKeyPrefix}) && len(key) == 53 {
+			toDelete = append(toDelete, key)
+		}
+
+		return false
+	})
+
+	for _, k := range toDelete {
+		txn.txn.Delete(k)
+	}
+}
+
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
 	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {

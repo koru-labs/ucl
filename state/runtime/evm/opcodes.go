@@ -203,6 +203,12 @@ const (
 	// JUMPDEST corresponds to a possible jump destination
 	JUMPDEST = 0x5B
 
+	// TLOAD reads a (u)int256 from transient storage
+	TLOAD = 0x5C
+
+	// TSTORE writes a (u)int256 to transient storage
+	TSTORE = 0x5D
+
 	// MCOPY copies one segment of memory to another
 	MCOPY = 0x5E
 
