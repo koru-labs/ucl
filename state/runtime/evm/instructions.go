@@ -955,6 +955,8 @@ func opTStore(c *state) {
 		return
 	}
 
+	c.host.TouchTransientStorage()
+
 	loc := c.popHash()
 	val := c.popHash()
 

@@ -295,6 +295,9 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
+
+	// transient storage
+	transientStorageTouched bool
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -305,6 +308,10 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 	}
+}
+
+func (t *Transition) TouchTransientStorage() {
+	t.transientStorageTouched = true
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -475,9 +482,11 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	if t.config.EIP1153 {
+	if t.transientStorageTouched {
 		t.state.ClearTransientStorage()
 	}
+
+	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
 
