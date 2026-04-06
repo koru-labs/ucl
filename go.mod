@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/cockroachdb/pebble v1.1.5
-	github.com/consensys/gnark-crypto v0.19.2
+	github.com/consensys/gnark-crypto v0.20.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.6.0
@@ -94,7 +94,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
