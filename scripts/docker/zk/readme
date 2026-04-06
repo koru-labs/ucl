@@ -1,0 +1,7 @@
+to run it locally
+1. sudo docker compose up
+
+volume clean up:
+1. sudo docker volume ls
+2. sudo docker rm zkevm-ucl-db
+3. sudo docker volume rm <volume_name_obtained_in_1st_step>
