@@ -475,7 +475,9 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	t.state.ClearTransientStorage()
+	if t.config.EIP1153 {
+		t.state.ClearTransientStorage()
+	}
 
 	s := t.state.Snapshot()
 
