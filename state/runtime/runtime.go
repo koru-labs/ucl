@@ -81,6 +81,9 @@ type Host interface {
 	Transfer(from types.Address, to types.Address, amount *big.Int) error
 	GetTracer() VMTracer
 	GetRefund() uint64
+	GetTransientState(addr types.Address, key types.Hash) types.Hash        // transient storage (TLOAD)
+	SetTransientState(addr types.Address, key types.Hash, value types.Hash) // transient storage (TSTORE)
+	TouchTransientStorage()                                                 // transient storage
 }
 
 type VMTracer interface {

@@ -1019,6 +1019,109 @@ func TestSStore(t *testing.T) {
 	})
 }
 
+func TestOpTLoad(t *testing.T) {
+	t.Run("EIP1153 not active", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		mHost := &mockHost{}
+		s.host = mHost
+		s.push(uint256.Int{})
+
+		opTLoad(s)
+
+		require.Equal(t, errOpCodeNotFound, s.err)
+		require.False(t, mHost.transientStorageTouched)
+	})
+
+	t.Run("get value from transient storage", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{EIP1153: true})
+		defer closeFn()
+
+		addr := types.StringToAddress("0x1")
+		slot := bigToHash(one)
+		value := bigToHash(two)
+
+		mHost := &mockHost{}
+		s.host = mHost
+		s.msg.Address = addr
+
+		mHost.On("GetTransientState", addr, slot).Return(value).Once()
+
+		slotInt, _ := uint256.FromBig(one)
+
+		s.push(*slotInt)
+
+		opTLoad(s)
+
+		require.Equal(t, value, types.Hash(s.top().Bytes32()))
+		require.False(t, mHost.transientStorageTouched)
+	})
+}
+
+func TestOpTStore(t *testing.T) {
+	t.Run("EIP1153 not active", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		mHost := &mockHost{}
+		s.host = mHost
+
+		s.push(uint256.Int{})
+		s.push(uint256.Int{})
+
+		opTStore(s)
+
+		require.Equal(t, errOpCodeNotFound, s.err)
+		require.False(t, mHost.transientStorageTouched)
+	})
+
+	t.Run("static call", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{EIP1153: true})
+		defer closeFn()
+
+		// Mark this call as static.
+		s.msg.Static = true
+		mHost := &mockHost{}
+		s.host = mHost
+
+		s.push(uint256.Int{})
+		s.push(uint256.Int{})
+
+		opTStore(s)
+
+		require.Equal(t, errWriteProtection, s.err)
+		require.False(t, mHost.transientStorageTouched)
+	})
+
+	t.Run("write value to transient storage", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{EIP1153: true})
+		defer closeFn()
+
+		addr := types.StringToAddress("0x1")
+		slot := bigToHash(one)
+		value := bigToHash(two)
+
+		mHost := &mockHost{}
+		s.host = mHost
+		s.msg.Address = addr
+
+		mHost.On("SetTransientState", addr, slot, value).Once()
+
+		valInt, _ := uint256.FromBig(two)
+		slotInt, _ := uint256.FromBig(one)
+
+		s.push(*valInt)
+		s.push(*slotInt)
+
+		opTStore(s)
+
+		require.NoError(t, s.err)
+		require.Equal(t, 0, s.stackSize())
+		require.True(t, mHost.transientStorageTouched)
+	})
+}
+
 func TestBalance(t *testing.T) {
 	balance := big.NewInt(100)
 

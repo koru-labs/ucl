@@ -63,18 +63,80 @@ func newTestTxn(p map[types.Address]*PreState) *Txn {
 	return newTxn(newStateWithPreState(p))
 }
 
+func TestTransientStorage(t *testing.T) {
+	t.Run("set and get value", func(t *testing.T) {
+		txn := newTestTxn(defaultPreState)
+
+		// Set value hash2 for addr1 at slot1 in transient storage.
+		txn.SetTransientState(addr1, slot1, hash2)
+
+		// Retrieving a value must not remove it, so we read it twice to confirm.
+		for range 2 {
+			require.Equal(t, hash2, txn.GetTransientState(addr1, slot1))
+		}
+
+		// Other slots for the same address must remain zero.
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr1, slot0))
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr1, slot2))
+
+		// The same slot on a different address must also remain zero.
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr2, slot0))
+	})
+
+	t.Run("clear transient storage", func(t *testing.T) {
+		txn := newTestTxn(defaultPreState)
+
+		// Populate both ordinary storage and transient storage.
+		txn.SetState(addr1, slot0, hash1)
+		txn.SetTransientState(addr1, slot0, hash1)
+		txn.SetTransientState(addr2, slot0, hash2)
+		txn.SetTransientState(addr2, slot1, hash1)
+
+		require.Equal(t, hash1, txn.GetState(addr1, slot0))
+		require.Equal(t, hash1, txn.GetTransientState(addr1, slot0))
+		require.Equal(t, hash2, txn.GetTransientState(addr2, slot0))
+		require.Equal(t, hash1, txn.GetTransientState(addr2, slot1))
+
+		txn.ClearTransientStorage()
+
+		// After clearing, all transient slots must be zero.
+		// Ordinary storage must remain untouched.
+		require.Equal(t, hash1, txn.GetState(addr1, slot0))
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr1, slot0))
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr2, slot0))
+		require.Equal(t, types.Hash{}, txn.GetTransientState(addr2, slot1))
+	})
+}
+
 func TestSnapshotUpdateData(t *testing.T) {
 	txn := newTestTxn(defaultPreState)
 
-	txn.SetState(addr1, hash1, hash1)
-	assert.Equal(t, hash1, txn.GetState(addr1, hash1))
+	txn.SetState(addr1, slot1, hash1)
+	assert.Equal(t, hash1, txn.GetState(addr1, slot1))
+
+	txn.SetTransientState(addr1, slot1, hash2)
+	assert.Equal(t, hash2, txn.GetTransientState(addr1, slot1))
+	txn.SetTransientState(addr2, slot2, hash1)
+	assert.Equal(t, hash1, txn.GetTransientState(addr2, slot2))
 
 	ss := txn.Snapshot()
-	txn.SetState(addr1, hash1, hash2)
-	assert.Equal(t, hash2, txn.GetState(addr1, hash1))
+
+	txn.SetState(addr1, slot1, hash2)
+	assert.Equal(t, hash2, txn.GetState(addr1, slot1))
+
+	txn.SetTransientState(addr1, slot1, hash3)
+	assert.Equal(t, hash3, txn.GetTransientState(addr1, slot1))
+	txn.SetTransientState(addr2, slot2, hash2)
+	assert.Equal(t, hash2, txn.GetTransientState(addr2, slot2))
+	txn.SetTransientState(addr2, slot1, hash1)
+	assert.Equal(t, hash1, txn.GetTransientState(addr2, slot1))
 
 	assert.NoError(t, txn.RevertToSnapshot(ss))
-	assert.Equal(t, hash1, txn.GetState(addr1, hash1))
+
+	assert.Equal(t, hash1, txn.GetState(addr1, slot1))
+	assert.Equal(t, hash2, txn.GetTransientState(addr1, slot1))
+	assert.Equal(t, hash1, txn.GetTransientState(addr2, slot2))
+	assert.Equal(t, types.Hash{}, txn.GetTransientState(addr2, slot1))
 }
 
 func TestGetDumpTree(t *testing.T) {

@@ -942,6 +942,40 @@ func opJumpi(c *state) {
 func opJumpDest(c *state) {
 }
 
+func opTStore(c *state) {
+	if !c.config.EIP1153 {
+		c.exit(errOpCodeNotFound)
+
+		return
+	}
+
+	if c.inStaticCall() {
+		c.exit(errWriteProtection)
+
+		return
+	}
+
+	c.host.TouchTransientStorage()
+
+	loc := c.popHash()
+	val := c.popHash()
+
+	c.host.SetTransientState(c.msg.Address, loc, val)
+}
+
+func opTLoad(c *state) {
+	if !c.config.EIP1153 {
+		c.exit(errOpCodeNotFound)
+
+		return
+	}
+
+	loc := c.top()
+	val := c.host.GetTransientState(c.msg.Address, uint256ToHash(loc))
+
+	loc.SetBytes(val.Bytes())
+}
+
 func opMCopy(c *state) {
 	if !c.config.EIP5656 {
 		c.exit(errOpCodeNotFound)
