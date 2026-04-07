@@ -1,4 +1,5 @@
-FROM golang:1.20-alpine AS builder
+# Keep in sync with the `go` directive in the repo root go.mod
+FROM golang:1.26-alpine AS builder
 
 RUN apk add make git
 
