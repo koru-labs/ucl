@@ -1,4 +1,6 @@
-project_name: polygon-edge
+project_name: ucl
+
+version: 2
 
 release:
   disable: false
@@ -8,7 +10,7 @@ release:
 builds:
   - id: darwin-amd64
     main: ./main.go
-    binary: polygon-edge
+    binary: ucl
     goos:
       - darwin
     goarch:
@@ -17,11 +19,15 @@ builds:
       - CC=o64-clang
       - CXX=o64-clang++
     ldflags:
-      -s -w -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -s -w
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Commit={{ .Commit }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Branch={{ .Branch }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.BuildTime={{ .Date }}'
 
   - id: darwin-arm64
     main: ./main.go
-    binary: polygon-edge
+    binary: ucl
     goos:
       - darwin
     goarch:
@@ -30,11 +36,15 @@ builds:
       - CC=oa64-clang
       - CXX=oa64-clang++
     ldflags:
-      -s -w -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -s -w
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Commit={{ .Commit }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.Branch={{ .Branch }}'
+      -X 'github.com/0xPolygon/polygon-edge/versioning.BuildTime={{ .Date }}'
 
   - id: linux-amd64
     main: ./main.go
-    binary: polygon-edge
+    binary: ucl
     goos:
       - linux
     goarch:
@@ -44,14 +54,18 @@ builds:
       - CXX=g++
     ldflags:
       # We need to build a static binary because we are building in a glibc based system and running in a musl container
-      -s -w -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -s -w 
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Commit={{ .Commit }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Branch={{ .Branch }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.BuildTime={{ .Date }}'   
     tags:
       - netgo
       - osusergo
 
   - id: linux-arm64
     main: ./main.go
-    binary: polygon-edge
+    binary: ucl
     goos:
       - linux
     goarch:
@@ -61,7 +75,11 @@ builds:
       - CXX=aarch64-linux-gnu-g++
     ldflags:
       # We need to build a static binary because we are building in a glibc based system and running in a musl container
-      -s -w -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -s -w
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Version=v{{ .Version }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Commit={{ .Commit }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.Branch={{ .Branch }}'
+      -linkmode external -extldflags "-static" -X 'github.com/0xPolygon/polygon-edge/versioning.BuildTime={{ .Date }}'
     tags:
       - netgo
       - osusergo
@@ -72,34 +90,12 @@ archives:
       - LICENSE
       - README.md
 
-#nfpms:
-#  - vendor: 0xPolygon
-#    homepage: https://polygon.technology
-#    maintainer: Polygon Edge Team <edge@polygon.technology>
-#    description:  A Framework for Building Ethereum-compatible Blockchain Networks
-#    license: GPLv3 LGPLv3
-#
-#    formats:
-#      - apk
-#      - deb
-#      - rpm
-#
-#    contents:
-#      - src: polygon-edge.service
-#        dst: /lib/systemd/system/polygon-edge.service
-#        type: config
-#
-#    overrides:
-#      rpm:
-#        replacements:
-#          amd64: x86_64
-
 snapshot:
-  name_template: "{{ .Tag }}.next"
+  name_template: '{{ .Tag }}.next'
 
 dockers:
   - image_templates:
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-amd64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-amd64
     dockerfile: Dockerfile.release
     use: buildx
     goarch: amd64
@@ -110,7 +106,7 @@ dockers:
     skip_push: false
 
   - image_templates:
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-arm64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-arm64
     dockerfile: Dockerfile.release
     use: buildx
     goarch: arm64
@@ -121,14 +117,14 @@ dockers:
     skip_push: false
 
 docker_manifests:
-  - name_template: 0xpolygon/{{ .ProjectName }}:{{ .Version }}
+  - name_template: DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}
     image_templates:
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-amd64
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-arm64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-amd64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-arm64
     skip_push: false
 
-  - name_template: 0xpolygon/{{ .ProjectName }}:latest
+  - name_template: DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:latest
     image_templates:
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-amd64
-      - 0xpolygon/{{ .ProjectName }}:{{ .Version }}-arm64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-amd64
+      - DOCKERHUB_ORGANIZATION/{{ .ProjectName }}:{{ .Version }}-arm64
     skip_push: auto
