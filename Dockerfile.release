@@ -4,13 +4,13 @@ RUN set -x \
     && apk add --update --no-cache \
        ca-certificates \
     && rm -rf /var/cache/apk/*
-COPY polygon-edge /usr/local/bin/
+COPY ucl /usr/local/bin/
 
 EXPOSE 8545 9632 1478
 
-RUN addgroup -S edge \
-    && adduser -S edge -G edge
+RUN addgroup -S ucl-group \
+    && adduser -S -u 1001 ucl-user -G ucl-group -h /home/ucl
 
-USER edge
+USER ucl-user
 
-ENTRYPOINT ["polygon-edge"]
+ENTRYPOINT ["ucl"]
