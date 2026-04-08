@@ -2,8 +2,10 @@ package signer
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -33,6 +35,51 @@ type IstanbulExtra struct {
 	CommittedSeals       Seals
 	ParentCommittedSeals Seals
 	RoundNumber          *uint64
+}
+
+func (ie *IstanbulExtra) String() string {
+	var (
+		validatorsStr           strings.Builder
+		commitedSealsStr        strings.Builder
+		parentCommittedSealsStr strings.Builder
+	)
+
+	for i := range ie.Validators.Len() {
+		if i != 0 {
+			validatorsStr.WriteString(", ")
+		}
+
+		valid := ie.Validators.At(uint64(i))
+
+		validatorsStr.WriteRune('(')
+		validatorsStr.WriteString(valid.String())
+		validatorsStr.WriteRune(')')
+	}
+
+	aseal := ie.CommittedSeals.(*AggregatedSeal)
+	commitedSealsStr.WriteRune('(')
+	commitedSealsStr.WriteString(hex.EncodeToString(aseal.Signature))
+	commitedSealsStr.WriteRune(',')
+	commitedSealsStr.WriteString(fmt.Sprintf("%d", aseal.Bitmap))
+	commitedSealsStr.WriteRune(')')
+
+	if ie.ParentCommittedSeals != nil {
+		aseal := ie.ParentCommittedSeals.(*AggregatedSeal)
+		parentCommittedSealsStr.WriteRune('(')
+		parentCommittedSealsStr.WriteString(hex.EncodeToString(aseal.Signature))
+		parentCommittedSealsStr.WriteRune(',')
+		parentCommittedSealsStr.WriteString(fmt.Sprintf("%d", aseal.Bitmap))
+		parentCommittedSealsStr.WriteRune(')')
+	}
+
+	return fmt.Sprintf(
+		"Validators: %s, ProposerSeal: %s, CommittedSeals: %s, ParentCommittedSeals: %s, RoundNumber: %d",
+		validatorsStr.String(),
+		hex.EncodeToString(ie.ProposerSeal),
+		commitedSealsStr.String(),
+		parentCommittedSealsStr.String(),
+		*ie.RoundNumber,
+	)
 }
 
 type Seals interface {
