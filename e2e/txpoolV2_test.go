@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	signerpkg "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/crypto"
@@ -360,4 +362,103 @@ func txCost(t *types.Transaction) *big.Int {
 	}
 
 	return new(big.Int).Mul(factor, new(big.Int).SetUint64(t.Gas))
+}
+
+func TestE2E_LargeNumberOfNodes(t *testing.T) {
+	var (
+		sendAmount = ethgo.Ether(1)
+	)
+
+	const (
+		txNum    = 10
+		nodesCnt = 20
+	)
+
+	// Create recipient key
+	key, err := wallet.GenerateKey()
+	assert.NoError(t, err)
+
+	recipient := key.Address()
+	toAddr := types.Address(recipient)
+
+	t.Logf("Recipient %s\n", recipient)
+
+	// Create pre-mined balance for sender
+	sender, err := wallet.GenerateKey()
+	require.NoError(t, err)
+
+	// First account should have some matics premined
+	cluster := frameworkV2.NewTestCluster(t, nodesCnt,
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(sender.Address()): ethgo.Ether(1),
+		}),
+		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
+		frameworkV2.WithBootnodeCount(1),
+	)
+	defer cluster.Stop()
+
+	// Wait until the cluster is up and running
+	cluster.WaitForReady(t)
+
+	client := cluster.Servers[0].JSONRPC()
+
+	sentAmount := new(big.Int)
+	nonce := uint64(0)
+
+	txn := &types.Transaction{
+		Value: sendAmount,
+		To:    &toAddr,
+		Gas:   21000,
+	}
+
+	for i := 0; i < txNum; i++ {
+		if i%2 == 0 {
+			txn.Type = types.DynamicFeeTx
+			txn.GasFeeCap = big.NewInt(1000000000)
+			txn.GasTipCap = big.NewInt(100000000)
+		} else {
+			txn.Type = types.LegacyTx
+			txn.GasPrice = ethgo.Gwei(2)
+		}
+
+		txn.Nonce = nonce
+
+		sendTransaction(t, client, sender, txn)
+		sentAmount = sentAmount.Add(sentAmount, txn.Value)
+		nonce++
+	}
+
+	// Wait until the balance has changed on all nodes in the cluster
+	err = cluster.WaitUntil(time.Minute, time.Second*3, func() bool {
+		for _, srv := range cluster.Servers {
+			balance, err := srv.WaitForNonZeroBalance(types.Address(recipient), time.Second*10)
+			assert.NoError(t, err)
+
+			if balance != nil && balance.BitLen() > 0 {
+				assert.Equal(t, sentAmount, balance)
+			} else {
+				return false
+			}
+		}
+
+		return true
+	})
+	assert.NoError(t, err)
+
+	jsonRPC := cluster.Servers[0].JSONRPC()
+	km := &signerpkg.BLSKeyManager{}
+	sign := signerpkg.NewSigner(km, km)
+
+	latestBlock, err := jsonRPC.GetBlockByNumber(jsonrpc.LatestBlockNumber, false)
+	require.NoError(t, err)
+
+	for i := uint64(1); i <= latestBlock.Number(); i++ {
+		block, err := jsonRPC.GetBlockByNumber(jsonrpc.BlockNumber(i), true)
+		require.NoError(t, err)
+
+		extra, err := sign.GetIBFTExtra(block.Header)
+		require.NoError(t, err)
+
+		fmt.Println(extra)
+	}
 }
