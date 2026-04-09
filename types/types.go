@@ -179,6 +179,7 @@ func ComputeEffectiveGasPrice(tx *Transaction, baseFee uint64) *big.Int {
 		if res.Cmp(tx.GasFeeCap) > 0 {
 			res.Set(tx.GasFeeCap)
 		}
+
 		return res
 	}
 
