@@ -8,8 +8,10 @@ import (
 	"math/big"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
+	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
+	"github.com/Ethernal-Tech/kryptology/pkg/signatures/bls/bls_sig"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -30,18 +32,30 @@ type kmsClient interface {
 	GetPublicKey(ctx context.Context, params *kms.GetPublicKeyInput, optFns ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error)
 }
 
-// KMSKeyManager is a KeyManager that signs via AWS KMS.
-// The private key never leaves KMS — only the public key is cached locally.
+// KMSKeyManager is a KeyManager that signs via AWS KMS for ECDSA
+// and AWS SSM for BLS committed seals.
+//
+// Signing split — mirrors BLSKeyManager exactly:
+//
+//	SignProposerSeal  → ECDSA via AWS KMS  (private key never leaves KMS)
+//	SignIBFTMessage   → ECDSA via AWS KMS  (private key never leaves KMS)
+//	SignCommittedSeal → BLS   via AWS SSM  (key loaded into memory at startup,
+//	                                        encrypted at rest as SSM SecureString)
 type KMSKeyManager struct {
+	// ECDSA — AWS KMS
 	client    kmsClient
 	keyID     string
 	publicKey *ecdsa.PublicKey
 	address   types.Address
+
+	// BLS — loaded from AWS SSM at startup
+	blsKey *bls_sig.SecretKey
 }
 
 // NewKMSKeyManager creates a KMSKeyManager, fetching and caching the
-// public key from KMS at startup. No private key material is ever stored locally.
-func NewKMSKeyManager(cfg KMSConfig) (KeyManager, error) {
+// public key from KMS and loading the BLS key from SSM at startup.
+// No private key material is ever stored locally.
+func NewKMSKeyManager(cfg KMSConfig, ssmMgr secrets.SecretsManager) (KeyManager, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(
 		context.Background(),
 		awsconfig.WithRegion(cfg.Region),
@@ -52,15 +66,26 @@ func NewKMSKeyManager(cfg KMSConfig) (KeyManager, error) {
 
 	client := kms.NewFromConfig(awsCfg)
 
-	return newKMSKeyManagerFromClient(client, cfg.KeyID)
+	return newKMSKeyManagerFromClient(client, cfg.KeyID, ssmMgr)
 }
 
 // newKMSKeyManagerFromClient constructs a KMSKeyManager from an existing client.
 // Used internally and in tests to inject a mock client.
-func newKMSKeyManagerFromClient(client kmsClient, keyID string) (KeyManager, error) {
+func newKMSKeyManagerFromClient(
+	client kmsClient,
+	keyID string,
+	ssmMgr secrets.SecretsManager,
+) (KeyManager, error) {
+	// ── 1. ECDSA public key from KMS ─────────────────────────────────────
 	pubKey, err := fetchKMSPublicKey(client, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch KMS public key: %w", err)
+	}
+
+	// ── 2. BLS secret key from SSM ───────────────────────────────────────
+	blsKey, err := blsKeyFromSSM(ssmMgr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load BLS key from SSM: %w", err)
 	}
 
 	return &KMSKeyManager{
@@ -68,12 +93,16 @@ func newKMSKeyManagerFromClient(client kmsClient, keyID string) (KeyManager, err
 		keyID:     keyID,
 		publicKey: pubKey,
 		address:   crypto.PubKeyToAddress(pubKey),
+		blsKey:    blsKey,
 	}, nil
 }
 
-// Type returns ECDSAValidatorType — KMS uses secp256k1 ECDSA
+// ── Identity ──────────────────────────────────────────────────────────────────
+
+// Type returns BLSValidatorType because committed seals use BLS aggregation.
+// Mirrors BLSKeyManager.Type() — must match so IBFT uses AggregatedSeal.
 func (k *KMSKeyManager) Type() validators.ValidatorType {
-	return validators.ECDSAValidatorType
+	return validators.BLSValidatorType
 }
 
 // Address returns the validator address derived from the KMS public key
@@ -81,87 +110,112 @@ func (k *KMSKeyManager) Address() types.Address {
 	return k.address
 }
 
-// NewEmptyValidators returns empty ECDSA validator set
+// NewEmptyValidators returns empty BLS validator set
 func (k *KMSKeyManager) NewEmptyValidators() validators.Validators {
-	return validators.NewECDSAValidatorSet()
+	return validators.NewBLSValidatorSet()
 }
 
-// NewEmptyCommittedSeals returns empty SerializedSeal
+// NewEmptyCommittedSeals returns empty AggregatedSeal for BLS
 func (k *KMSKeyManager) NewEmptyCommittedSeals() Seals {
-	return &SerializedSeal{}
+	return &AggregatedSeal{}
 }
 
-// SignProposerSeal signs the given digest via KMS for use as a proposer seal
+// ── Signing ───────────────────────────────────────────────────────────────────
+
+// SignProposerSeal signs the given digest via KMS.
+// Mirrors BLSKeyManager.SignProposerSeal → crypto.Sign(ecdsaKey, data)
 func (k *KMSKeyManager) SignProposerSeal(digest []byte) ([]byte, error) {
 	return k.signDigest(digest)
 }
 
-// SignCommittedSeal signs the given digest via KMS for use as a committed seal
-func (k *KMSKeyManager) SignCommittedSeal(digest []byte) ([]byte, error) {
-	return k.signDigest(digest)
-}
-
-// SignIBFTMessage signs an arbitrary IBFT message digest via KMS
+// SignIBFTMessage signs an arbitrary IBFT message digest via KMS.
+// Mirrors BLSKeyManager.SignIBFTMessage → crypto.Sign(ecdsaKey, msg)
 func (k *KMSKeyManager) SignIBFTMessage(digest []byte) ([]byte, error) {
 	return k.signDigest(digest)
 }
 
-// VerifyCommittedSeal verifies a single committed seal — pure crypto, no KMS call needed
+// SignCommittedSeal signs the committed seal hash via BLS using the SSM-loaded key.
+// Mirrors BLSKeyManager.SignCommittedSeal → crypto.SignByBLS(blsKey, data)
+func (k *KMSKeyManager) SignCommittedSeal(hash []byte) ([]byte, error) {
+	return crypto.SignByBLS(k.blsKey, hash)
+}
+
+// ── Verification — all in-process, no KMS or SSM call ────────────────────────
+
+// Ecrecover recovers the address that produced the given signature over digest.
+// Pure local crypto — no KMS call needed.
+func (k *KMSKeyManager) Ecrecover(sig, digest []byte) (types.Address, error) {
+	return ecrecover(sig, digest)
+}
+
+// VerifyCommittedSeal verifies a single BLS committed seal.
+// Mirrors BLSKeyManager.VerifyCommittedSeal exactly.
 func (k *KMSKeyManager) VerifyCommittedSeal(
-	vals validators.Validators,
-	address types.Address,
-	signature []byte,
-	digest []byte,
+	set validators.Validators,
+	addr types.Address,
+	rawSignature []byte,
+	hash []byte,
 ) error {
-	if vals.Type() != k.Type() {
+	if set.Type() != k.Type() {
 		return ErrInvalidValidators
 	}
 
-	signer, err := k.Ecrecover(signature, digest)
-	if err != nil {
-		return ErrInvalidSignature
+	validatorIndex := set.Index(addr)
+	if validatorIndex == -1 {
+		return ErrValidatorNotFound
 	}
 
-	if address != signer {
-		return ErrSignerMismatch
+	validator, ok := set.At(uint64(validatorIndex)).(*validators.BLSValidator)
+	if !ok {
+		return ErrInvalidValidators
 	}
 
-	if !vals.Includes(address) {
-		return ErrNonValidatorCommittedSeal
-	}
-
-	return nil
+	return crypto.VerifyBLSSignatureFromBytes(
+		validator.BLSPublicKey,
+		rawSignature,
+		hash,
+	)
 }
 
-// GenerateCommittedSeals builds a SerializedSeal from the seal map.
-// Mirrors ECDSAKeyManager.GenerateCommittedSeals exactly.
+// GenerateCommittedSeals aggregates BLS signatures into an AggregatedSeal.
+// Mirrors BLSKeyManager.GenerateCommittedSeals exactly.
 func (k *KMSKeyManager) GenerateCommittedSeals(
 	sealMap map[types.Address][]byte,
-	_ validators.Validators,
+	set validators.Validators,
 ) (Seals, error) {
-	seals := [][]byte{}
-
-	for _, seal := range sealMap {
-		if len(seal) != IstanbulExtraSeal {
-			return nil, ErrInvalidCommittedSealLength
-		}
-
-		seals = append(seals, seal)
+	if set.Type() != k.Type() {
+		return nil, ErrInvalidValidators
 	}
 
-	serializedSeal := SerializedSeal(seals)
+	blsSignatures, bitMap, err := getBLSSignatures(sealMap, set)
+	if err != nil {
+		return nil, err
+	}
 
-	return &serializedSeal, nil
+	multiSig, err := bls_sig.NewSigPop().AggregateSignatures(blsSignatures...)
+	if err != nil {
+		return nil, err
+	}
+
+	multiSigBytes, err := multiSig.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	return &AggregatedSeal{
+		Bitmap:    bitMap,
+		Signature: multiSigBytes,
+	}, nil
 }
 
-// VerifyCommittedSeals verifies all committed seals in the set.
-// Mirrors ECDSAKeyManager.VerifyCommittedSeals exactly.
+// VerifyCommittedSeals verifies the aggregated BLS seal set.
+// Mirrors BLSKeyManager.VerifyCommittedSeals exactly.
 func (k *KMSKeyManager) VerifyCommittedSeals(
 	rawCommittedSeal Seals,
-	digest []byte,
+	message []byte,
 	vals validators.Validators,
 ) (int, error) {
-	committedSeal, ok := rawCommittedSeal.(*SerializedSeal)
+	committedSeal, ok := rawCommittedSeal.(*AggregatedSeal)
 	if !ok {
 		return 0, ErrInvalidCommittedSealType
 	}
@@ -170,16 +224,14 @@ func (k *KMSKeyManager) VerifyCommittedSeals(
 		return 0, ErrInvalidValidators
 	}
 
-	return k.verifyCommittedSealsImpl(committedSeal, digest, vals)
+	return verifyBLSCommittedSealsImpl(committedSeal, message, vals)
 }
 
-// Ecrecover recovers the address that produced the given signature over digest.
-// Pure local crypto — no KMS call needed.
-func (k *KMSKeyManager) Ecrecover(sig, digest []byte) (types.Address, error) {
-	return ecrecover(sig, digest)
-}
+// ── compile-time check ────────────────────────────────────────────────────────
 
-// ── internal ─────────────────────────────────────────────────────────────────
+var _ KeyManager = (*KMSKeyManager)(nil)
+
+// ── internal ──────────────────────────────────────────────────────────────────
 
 // signDigest calls KMS Sign and converts the DER response to
 // the 65-byte Ethereum [R || S || V] format the rest of the signer expects.
@@ -197,38 +249,6 @@ func (k *KMSKeyManager) signDigest(digest []byte) ([]byte, error) {
 	return derSigToEthSig(resp.Signature, k.publicKey, digest)
 }
 
-func (k *KMSKeyManager) verifyCommittedSealsImpl(
-	committedSeal *SerializedSeal,
-	msg []byte,
-	vals validators.Validators,
-) (int, error) {
-	numSeals := committedSeal.Num()
-	if numSeals == 0 {
-		return 0, ErrEmptyCommittedSeals
-	}
-
-	visited := make(map[types.Address]bool)
-
-	for _, seal := range *committedSeal {
-		addr, err := k.Ecrecover(seal, msg)
-		if err != nil {
-			return 0, err
-		}
-
-		if visited[addr] {
-			return 0, ErrRepeatedCommittedSeal
-		}
-
-		if !vals.Includes(addr) {
-			return 0, ErrNonValidatorCommittedSeal
-		}
-
-		visited[addr] = true
-	}
-
-	return numSeals, nil
-}
-
 // fetchKMSPublicKey retrieves and parses the public key from KMS.
 // Called once at startup — result is cached in KMSKeyManager.
 func fetchKMSPublicKey(client kmsClient, keyID string) (*ecdsa.PublicKey, error) {
@@ -243,19 +263,43 @@ func fetchKMSPublicKey(client kmsClient, keyID string) (*ecdsa.PublicKey, error)
 
 	// expect 65-byte uncompressed point: 04 || X (32 bytes) || Y (32 bytes)
 	if len(pubKeyBytes) != 65 || pubKeyBytes[0] != 0x04 {
-		return nil, fmt.Errorf("unexpected public key format: length=%d prefix=%x", len(pubKeyBytes), pubKeyBytes[0])
+		return nil, fmt.Errorf(
+			"unexpected public key format: length=%d prefix=%x",
+			len(pubKeyBytes), pubKeyBytes[0],
+		)
 	}
 
 	x := new(big.Int).SetBytes(pubKeyBytes[1:33])
 	y := new(big.Int).SetBytes(pubKeyBytes[33:65])
 
-	curve := crypto.S256 // polygon-edge secp256k1 curve
+	curve := crypto.S256
 
 	if !curve.IsOnCurve(x, y) {
 		return nil, fmt.Errorf("public key point is not on secp256k1 curve")
 	}
 
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+}
+
+// blsKeyFromSSM loads the BLS secret key bytes from SSM and deserialises them.
+// SSM SecureString parameters are decrypted transparently by the AWS SDK.
+// Uses the same deserialisation path as getOrCreateBLSKey in bls_key_manager.go.
+func blsKeyFromSSM(ssmMgr secrets.SecretsManager) (*bls_sig.SecretKey, error) {
+	raw, err := ssmMgr.GetSecret(secrets.ValidatorBLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("GetSecret(%q): %w", secrets.ValidatorBLSKey, err)
+	}
+
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty BLS key in SSM — run `secrets init` first")
+	}
+
+	key := &bls_sig.SecretKey{}
+	if err := key.UnmarshalBinary(raw); err != nil {
+		return nil, fmt.Errorf("UnmarshalBinary BLS key: %w", err)
+	}
+
+	return key, nil
 }
 
 // ecdsaDERSignature decodes the ASN.1 DER signature KMS returns
@@ -313,6 +357,3 @@ func normaliseS(s, n *big.Int) *big.Int {
 
 	return s
 }
-
-// compile-time check
-var _ KeyManager = (*KMSKeyManager)(nil)
