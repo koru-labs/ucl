@@ -49,7 +49,7 @@ function showhelp() {
 
 function initIbftConsensus() {
   echo "Running with ibft consensus"
-  ./polygon-edge secrets init --insecure --data-dir test-chain- --num 4
+  ./polygon-edge secrets init --insecure --data-dir test-chain- --num 2
 
   node1_id=$(./polygon-edge secrets output --data-dir test-chain-1 | grep Node | head -n 1 | awk -F ' ' '{print $4}')
   node2_id=$(./polygon-edge secrets output --data-dir test-chain-2 | grep Node | head -n 1 | awk -F ' ' '{print $4}')
@@ -72,8 +72,8 @@ function initPolybftConsensus() {
 function createGenesis() {
   ./polygon-edge genesis $genesis_params \
     --block-gas-limit 10000000 \
-    --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6 \
-    --premine 0x0000000000000000000000000000000000000000 \
+    --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6:1000000000000000000000 \
+    --premine 0x1FC1411A3Bd09E63d4A306FD1EB838bA457ddA13:1000000000000000000000 \
     --epoch-size 10 \
     --reward-wallet 0xDEADBEEF:1000000 \
     --native-token-config "Polygon:MATIC:18:true:$address1" \
@@ -160,11 +160,13 @@ function initRootchain() {
 }
 
 function startNodes() {
+  local num_validators="${3:-4}"
+
   if [ "$2" == "write-logs" ]; then
     echo "Writing validators logs to the files..."
   fi
 
-  for i in {1..4}; do
+  for i in $(seq 1 "$num_validators"); do
     data_dir="./test-chain-$i"
     grpc_port=$((10000 * $i))
     libp2p_port=$((30300 + $i))
@@ -264,7 +266,7 @@ case "$2" in
     initIbftConsensus
     # Create genesis file and start the server from binary
     createGenesis
-    startNodes $1 $2
+    startNodes $1 $2 2
     exit 0
   elif [ "$1" == "polybft" ]; then
     # Initialize polybft consensus

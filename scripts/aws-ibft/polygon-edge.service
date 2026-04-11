@@ -1,0 +1,33 @@
+# Example systemd unit — copy to /etc/systemd/system/polygon-edge.service and adjust
+# --data-dir if this host is validator-2 or a full node (see comment on ExecStart).
+#
+# Binary: `go build -o polygon-edge .` at /home/ubuntu/ucl-src after rsync.
+#
+# This example is for a full node: data-dir matches aws-ibft-out/fullnode-1 from init-secrets.
+# On validator hosts, point WorkingDirectory, --data-dir (and paths below) to
+# aws-ibft-out/validator-1 or validator-2 instead.
+#
+#   sudo chown -R ubuntu:ubuntu /home/ubuntu/ucl-src
+
+[Unit]
+Description=Polygon Edge
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ucl-src/aws-ibft-out/validator-2
+ExecStart=/home/ubuntu/ucl-src/polygon-edge server \
+  --data-dir /home/ubuntu/ucl-src/aws-ibft-out/validator-2 \
+  --chain /home/ubuntu/ucl-src/aws-ibft-out/genesis.json \
+  --libp2p 0.0.0.0:10002 \
+  --grpc-address 127.0.0.1:9632 \
+  --jsonrpc 127.0.0.1:8545 \
+  --num-block-confirmations 2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
