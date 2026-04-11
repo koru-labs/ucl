@@ -1,7 +1,8 @@
 # Used by genesis-from-manifest.sh (default --manifest). Copy to customize.
 #
-# Bootnodes: either set BOOTNODE_1 / BOOTNODE_2 below (full multiaddrs), OR omit them
-# and pass --ip1/--ip2 or --dns1/--dns2 to genesis-from-manifest.sh (Node IDs from fullnode-*).
+# Bootnodes: either set BOOTNODE_1 .. BOOTNODE_N below (full multiaddrs), OR omit them
+# and pass repeated --bootnode-ip / --bootnode-dns flags to genesis-from-manifest.sh
+# (Node IDs come from fullnode-* dirs in numeric order).
 
 CHAIN_ID=51001
 CHAIN_NAME=aws-ibft-dev
@@ -14,14 +15,15 @@ BLOCK_GAS_LIMIT=10000000
 # IBFT PoA (omit --pos)
 IBFT_VALIDATOR_TYPE=bls
 
-# At least two bootnodes recommended (one per full node)
+# At least two bootnodes are recommended. Keep these on fullnode-*,
+# not on rpc-* hosts. Add BOOTNODE_3, BOOTNODE_4, ... as needed.
 BOOTNODE_1=/dns4/fullnode-1.example.internal/tcp/10002/p2p/REPLACE_WITH_FULLNODE1_NODE_ID
 BOOTNODE_2=/dns4/fullnode-2.example.internal/tcp/10002/p2p/REPLACE_WITH_FULLNODE2_NODE_ID
 
-# Premines: PREMINE_0 .. PREMINE_32 (optional). Validator ECDSA addresses are premined automatically
+# Premines: PREMINE_0 .. PREMINE_N (optional). Validator ECDSA addresses are premined automatically
 # with PREMINE_VALIDATOR_WEI unless already listed below (or set INCLUDE_VALIDATOR_PREMINE=0).
 PREMINE_0=0x0000000000000000000000000000000000000000:1000000000000000000000
-# Optional: explicit validator premines (same as auto-include); use auto:validator-1 / auto:validator-2
+# Optional: explicit validator premines (same as auto-include); use auto:validator-N
 # PREMINE_1=auto:validator-1
 # PREMINE_2=auto:validator-2
 

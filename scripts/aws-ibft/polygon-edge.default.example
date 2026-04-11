@@ -1,0 +1,12 @@
+# Copy to /etc/default/polygon-edge on the host (same basename as the unit expects).
+#   sudo cp scripts/aws-ibft/polygon-edge.default.example /etc/default/polygon-edge
+#   sudo nano /etc/default/polygon-edge
+#
+# ROLE: data directory name under aws-ibft-out (validator-N, fullnode-N, rpc-N)
+ROLE=validator-1
+#
+# JSON-RPC bind address. Validators and relay full nodes: keep localhost.
+# RPC-only nodes: expose on all interfaces so NLB/ALB or clients can reach the host.
+JSONRPC_BIND=127.0.0.1
+# For rpc-* hosts:
+# JSONRPC_BIND=0.0.0.0

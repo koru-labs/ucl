@@ -8,11 +8,12 @@ set -euo pipefail
 #     [--manifest scripts/aws-ibft/manifest.example]
 #
 # Bootnodes (choose one):
-#   A) Set BOOTNODE_1 and BOOTNODE_2 in the manifest (full multiaddrs), or
-#   B) Pass --ip1 and --ip2 (IPv4 for fullnode-1 and fullnode-2 hosts), or
-#   C) Pass --dns1 and --dns2 (hostnames for /dns4/... multiaddrs).
+#   A) Set BOOTNODE_1 .. BOOTNODE_N in the manifest (full multiaddrs), or
+#   B) Pass --bootnode-ip once per bootnode host, or
+#   C) Pass --bootnode-dns once per bootnode host.
 #
-# Options B/C read Node IDs from OUTPUT/fullnode-1 and OUTPUT/fullnode-2.
+# Options B/C read Node IDs from fullnode-* dirs under --output in numeric order.
+# Extra rpc-* dirs under OUTPUT are ignored by genesis generation.
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(dirname "$0")"
@@ -22,21 +23,27 @@ source "${SCRIPT_DIR}/lib.sh"
 DEFAULT_MANIFEST="${SCRIPT_DIR}/manifest.example"
 OUTPUT="${ROOT}/aws-ibft-out"
 MANIFEST=""
-IP1=""
-IP2=""
-DNS1=""
-DNS2=""
+BOOTNODE_IPS=()
+BOOTNODE_DNS=()
+LEGACY_IP1=""
+LEGACY_IP2=""
+LEGACY_DNS1=""
+LEGACY_DNS2=""
 
 usage() {
   echo "Usage: $0 --output DIR [options]"
   echo ""
-  echo "  --manifest FILE   Manifest with KEY=value (default: scripts/aws-ibft/manifest.example)"
-  echo "  --output DIR      Contains validator-1, validator-2, and for IP/DNS bootnodes: fullnode-1, fullnode-2"
+  echo "  --manifest FILE     Manifest with KEY=value (default: scripts/aws-ibft/manifest.example)"
+  echo "  --output DIR        Contains validator-* dirs and optionally fullnode-* / rpc-*"
   echo ""
-  echo "  Bootnodes — pick one:"
-  echo "    (default) Values BOOTNODE_1, BOOTNODE_2 in the manifest"
-  echo "    --ip1 A --ip2 B     Build /ip4/A/tcp/10002/p2p/<id> using fullnode-1 / fullnode-2 Node IDs"
-  echo "    --dns1 H --dns2 H   Build /dns4/H/tcp/10002/p2p/<id>"
+  echo "  Bootnodes - pick one:"
+  echo "    (default) BOOTNODE_1 .. BOOTNODE_N in the manifest"
+  echo "    --bootnode-ip A   Repeat to build /ip4/A/tcp/10002/p2p/<id> from fullnode-* Node IDs"
+  echo "    --bootnode-dns H  Repeat to build /dns4/H/tcp/10002/p2p/<id> from fullnode-* Node IDs"
+  echo ""
+  echo "  Compatibility aliases:"
+  echo "    --ip1 A --ip2 B"
+  echo "    --dns1 H --dns2 H"
   echo ""
   exit 1
 }
@@ -45,10 +52,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --manifest) MANIFEST="$2"; shift 2 ;;
     --output) OUTPUT="$2"; shift 2 ;;
-    --ip1) IP1="$2"; shift 2 ;;
-    --ip2) IP2="$2"; shift 2 ;;
-    --dns1) DNS1="$2"; shift 2 ;;
-    --dns2) DNS2="$2"; shift 2 ;;
+    --bootnode-ip) BOOTNODE_IPS+=( "$2" ); shift 2 ;;
+    --bootnode-dns) BOOTNODE_DNS+=( "$2" ); shift 2 ;;
+    --ip1) LEGACY_IP1="$2"; shift 2 ;;
+    --ip2) LEGACY_IP2="$2"; shift 2 ;;
+    --dns1) LEGACY_DNS1="$2"; shift 2 ;;
+    --dns2) LEGACY_DNS2="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -56,18 +65,42 @@ done
 
 [[ -z "$MANIFEST" ]] && MANIFEST="$DEFAULT_MANIFEST"
 [[ -f "$MANIFEST" ]] || aws_ibft_die "manifest not found: $MANIFEST"
-[[ -d "${OUTPUT}/validator-1" && -d "${OUTPUT}/validator-2" ]] || aws_ibft_die "run init-secrets.sh first (missing validators under ${OUTPUT})"
+
+validator_dirs=()
+while IFS= read -r dir; do
+  [[ -n "$dir" ]] || continue
+  validator_dirs+=( "$dir" )
+done < <(aws_ibft_list_role_dirs "$OUTPUT" validator)
+[[ ${#validator_dirs[@]} -gt 0 ]] || aws_ibft_die "run init-secrets.sh first (missing validator-* dirs under ${OUTPUT})"
+
+fullnode_dirs=()
+while IFS= read -r dir; do
+  [[ -n "$dir" ]] || continue
+  fullnode_dirs+=( "$dir" )
+done < <(aws_ibft_list_role_dirs "$OUTPUT" fullnode)
+
+if [[ -n "$LEGACY_IP1" || -n "$LEGACY_IP2" || -n "$LEGACY_DNS1" || -n "$LEGACY_DNS2" ]]; then
+  if [[ ${#BOOTNODE_IPS[@]} -gt 0 || ${#BOOTNODE_DNS[@]} -gt 0 ]]; then
+    aws_ibft_die "do not mix --ip1/--ip2 or --dns1/--dns2 with --bootnode-ip/--bootnode-dns"
+  fi
+  if [[ -n "$LEGACY_IP1" || -n "$LEGACY_IP2" ]]; then
+    [[ -n "$LEGACY_IP1" && -n "$LEGACY_IP2" && -z "$LEGACY_DNS1" && -z "$LEGACY_DNS2" ]] || \
+      aws_ibft_die "use both --ip1 and --ip2 (not mixed with DNS flags)"
+    BOOTNODE_IPS+=( "$LEGACY_IP1" "$LEGACY_IP2" )
+  else
+    [[ -n "$LEGACY_DNS1" && -n "$LEGACY_DNS2" && -z "$LEGACY_IP1" && -z "$LEGACY_IP2" ]] || \
+      aws_ibft_die "use both --dns1 and --dns2 (not mixed with IP flags)"
+    BOOTNODE_DNS+=( "$LEGACY_DNS1" "$LEGACY_DNS2" )
+  fi
+fi
 
 boot_mode=manifest
-if [[ -n "$IP1" || -n "$IP2" || -n "$DNS1" || -n "$DNS2" ]]; then
-  if [[ -n "$IP1" && -n "$IP2" && -z "$DNS1" && -z "$DNS2" ]]; then
-    boot_mode=ip
-  elif [[ -n "$DNS1" && -n "$DNS2" && -z "$IP1" && -z "$IP2" ]]; then
-    boot_mode=dns
-  else
-    aws_ibft_die "use both --ip1 and --ip2, or both --dns1 and --dns2 (not mixed)"
-  fi
-  [[ -d "${OUTPUT}/fullnode-1" && -d "${OUTPUT}/fullnode-2" ]] || aws_ibft_die "fullnode-1 and fullnode-2 required for --ip/--dns (run init-secrets.sh)"
+if [[ ${#BOOTNODE_IPS[@]} -gt 0 && ${#BOOTNODE_DNS[@]} -gt 0 ]]; then
+  aws_ibft_die "use either --bootnode-ip or --bootnode-dns (not both)"
+elif [[ ${#BOOTNODE_IPS[@]} -gt 0 ]]; then
+  boot_mode=ip
+elif [[ ${#BOOTNODE_DNS[@]} -gt 0 ]]; then
+  boot_mode=dns
 fi
 
 # shellcheck source=/dev/null
@@ -76,22 +109,33 @@ set -a
 source "$MANIFEST"
 set +a
 
+BOOTNODES=()
 case "$boot_mode" in
   ip)
-    FN1="$(aws_ibft_secrets_node_id "${OUTPUT}/fullnode-1")"
-    FN2="$(aws_ibft_secrets_node_id "${OUTPUT}/fullnode-2")"
-    BOOTNODE_1="/ip4/${IP1}/tcp/10002/p2p/${FN1}"
-    BOOTNODE_2="/ip4/${IP2}/tcp/10002/p2p/${FN2}"
+    [[ ${#fullnode_dirs[@]} -ge ${#BOOTNODE_IPS[@]} ]] || \
+      aws_ibft_die "need at least ${#BOOTNODE_IPS[@]} fullnode-* dirs under ${OUTPUT} for --bootnode-ip"
+    for i in "${!BOOTNODE_IPS[@]}"; do
+      node_id="$(aws_ibft_secrets_node_id "${fullnode_dirs[$i]}")"
+      BOOTNODES+=( "/ip4/${BOOTNODE_IPS[$i]}/tcp/10002/p2p/${node_id}" )
+    done
     ;;
   dns)
-    FN1="$(aws_ibft_secrets_node_id "${OUTPUT}/fullnode-1")"
-    FN2="$(aws_ibft_secrets_node_id "${OUTPUT}/fullnode-2")"
-    BOOTNODE_1="/dns4/${DNS1}/tcp/10002/p2p/${FN1}"
-    BOOTNODE_2="/dns4/${DNS2}/tcp/10002/p2p/${FN2}"
+    [[ ${#fullnode_dirs[@]} -ge ${#BOOTNODE_DNS[@]} ]] || \
+      aws_ibft_die "need at least ${#BOOTNODE_DNS[@]} fullnode-* dirs under ${OUTPUT} for --bootnode-dns"
+    for i in "${!BOOTNODE_DNS[@]}"; do
+      node_id="$(aws_ibft_secrets_node_id "${fullnode_dirs[$i]}")"
+      BOOTNODES+=( "/dns4/${BOOTNODE_DNS[$i]}/tcp/10002/p2p/${node_id}" )
+    done
     ;;
   manifest)
-    : "${BOOTNODE_1:?Set BOOTNODE_1 in manifest or use --ip1/--ip2 or --dns1/--dns2}"
-    : "${BOOTNODE_2:?Set BOOTNODE_2 in manifest or use --ip1/--ip2 or --dns1/--dns2}"
+    while IFS= read -r var_name; do
+      [[ -n "$var_name" ]] || continue
+      value="${!var_name:-}"
+      [[ -n "$value" ]] || aws_ibft_die "${var_name} is empty in ${MANIFEST}"
+      BOOTNODES+=( "$value" )
+    done < <(aws_ibft_list_indexed_vars "BOOTNODE_")
+    [[ ${#BOOTNODES[@]} -gt 0 ]] || \
+      aws_ibft_die "set BOOTNODE_1..N in manifest or use --bootnode-ip/--bootnode-dns"
     ;;
 esac
 
@@ -105,14 +149,20 @@ IBFT_VALIDATOR_TYPE="${IBFT_VALIDATOR_TYPE:-bls}"
 BURN_CONTRACT="${BURN_CONTRACT:-0:0x0000000000000000000000000000000000000000}"
 GENESIS_PATH="${OUTPUT}/genesis.json"
 
-V1_DIR="${OUTPUT}/validator-1"
-V2_DIR="${OUTPUT}/validator-2"
-ADDR1="$(aws_ibft_secrets_address "$V1_DIR")"
-BLS1="$(aws_ibft_secrets_bls "$V1_DIR")"
-ADDR2="$(aws_ibft_secrets_address "$V2_DIR")"
-BLS2="$(aws_ibft_secrets_bls "$V2_DIR")"
-VAL_LINE1="${ADDR1}:${BLS1}"
-VAL_LINE2="${ADDR2}:${BLS2}"
+VALIDATOR_LABELS=()
+VALIDATOR_ADDRS=()
+VALIDATOR_LINES=()
+HAVE_VALIDATOR_PREMINE=()
+
+for dir in "${validator_dirs[@]}"; do
+  label="${dir##*/}"
+  addr="$(aws_ibft_secrets_address "$dir")"
+  bls="$(aws_ibft_secrets_bls "$dir")"
+  VALIDATOR_LABELS+=( "$label" )
+  VALIDATOR_ADDRS+=( "$addr" )
+  VALIDATOR_LINES+=( "${addr}:${bls}" )
+  HAVE_VALIDATOR_PREMINE+=( 0 )
+done
 
 # Case-insensitive 0x address compare (hex body only).
 aws_ibft_addr_same() {
@@ -120,6 +170,38 @@ aws_ibft_addr_same() {
   a="$(echo "$1" | sed 's/^0[xX]//' | tr '[:upper:]' '[:lower:]')"
   b="$(echo "$2" | sed 's/^0[xX]//' | tr '[:upper:]' '[:lower:]')"
   [[ "$a" == "$b" ]]
+}
+
+validator_index_by_label() {
+  local target="$1" i
+  for i in "${!VALIDATOR_LABELS[@]}"; do
+    if [[ "${VALIDATOR_LABELS[$i]}" == "$target" ]]; then
+      echo "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+validator_address_by_label() {
+  local idx
+  idx="$(validator_index_by_label "$1")" || return 1
+  echo "${VALIDATOR_ADDRS[$idx]}"
+}
+
+mark_validator_premine_by_label() {
+  local idx
+  idx="$(validator_index_by_label "$1")" || return 1
+  HAVE_VALIDATOR_PREMINE[$idx]=1
+}
+
+mark_validator_premine_by_addr() {
+  local target="$1" i
+  for i in "${!VALIDATOR_ADDRS[@]}"; do
+    if aws_ibft_addr_same "$target" "${VALIDATOR_ADDRS[$i]}"; then
+      HAVE_VALIDATOR_PREMINE[$i]=1
+    fi
+  done
 }
 
 BIN="$(aws_ibft_edge_bin)"
@@ -144,45 +226,50 @@ cleanup() {
 trap cleanup EXIT
 
 PREMINE_ARGS=()
-HAVE_PREMINE_V1=0
-HAVE_PREMINE_V2=0
-for i in $(seq 0 32); do
-  k="PREMINE_${i}"
-  v="${!k:-}"
-  [[ -z "$v" ]] && continue
-  case "$v" in
-    auto:validator-1)
-      w="${PREMINE_VALIDATOR_WEI:-1000000000000000000000000}"
-      PREMINE_ARGS+=( --premine "${ADDR1}:${w}" )
-      HAVE_PREMINE_V1=1
-      ;;
-    auto:validator-2)
-      w="${PREMINE_VALIDATOR_WEI:-1000000000000000000000000}"
-      PREMINE_ARGS+=( --premine "${ADDR2}:${w}" )
-      HAVE_PREMINE_V2=1
+while IFS= read -r var_name; do
+  [[ -n "$var_name" ]] || continue
+  value="${!var_name:-}"
+  [[ -n "$value" ]] || continue
+  case "$value" in
+    auto:validator-*)
+      validator_label="${value#auto:}"
+      validator_addr="$(validator_address_by_label "$validator_label")" || \
+        aws_ibft_die "unknown validator label in ${var_name}: ${validator_label}"
+      weight="${PREMINE_VALIDATOR_WEI:-1000000000000000000000000}"
+      PREMINE_ARGS+=( --premine "${validator_addr}:${weight}" )
+      mark_validator_premine_by_label "$validator_label"
       ;;
     *)
-      addr="${v%%:*}"
-      aws_ibft_addr_same "$addr" "$ADDR1" && HAVE_PREMINE_V1=1
-      aws_ibft_addr_same "$addr" "$ADDR2" && HAVE_PREMINE_V2=1
-      PREMINE_ARGS+=( --premine "$v" )
+      premine_addr="${value%%:*}"
+      mark_validator_premine_by_addr "$premine_addr"
+      PREMINE_ARGS+=( --premine "$value" )
       ;;
   esac
-done
+done < <(aws_ibft_list_indexed_vars "PREMINE_")
 
 # Add default premine for any validator not already listed in PREMINE_* (genesis last flag wins for dupes).
 INCLUDE_VALIDATOR_PREMINE="${INCLUDE_VALIDATOR_PREMINE:-1}"
-VAL_WEI="${PREMINE_VALIDATOR_WEI:-1000000000000000000000000}"
+VALIDATOR_WEI="${PREMINE_VALIDATOR_WEI:-1000000000000000000000000}"
 if [[ "$INCLUDE_VALIDATOR_PREMINE" != "0" ]]; then
-  [[ "$HAVE_PREMINE_V1" -eq 0 ]] && PREMINE_ARGS+=( --premine "${ADDR1}:${VAL_WEI}" )
-  [[ "$HAVE_PREMINE_V2" -eq 0 ]] && PREMINE_ARGS+=( --premine "${ADDR2}:${VAL_WEI}" )
+  for i in "${!VALIDATOR_LABELS[@]}"; do
+    if [[ "${HAVE_VALIDATOR_PREMINE[$i]}" -eq 0 ]]; then
+      PREMINE_ARGS+=( --premine "${VALIDATOR_ADDRS[$i]}:${VALIDATOR_WEI}" )
+    fi
+  done
 fi
 
 EPOCH_REWARD="${EPOCH_REWARD:-0}"
 
-echo "Bootnodes:"
-echo "  $BOOTNODE_1"
-echo "  $BOOTNODE_2"
+echo "Validators (${#VALIDATOR_LINES[@]}):"
+for i in "${!VALIDATOR_LABELS[@]}"; do
+  echo "  ${VALIDATOR_LABELS[$i]} => ${VALIDATOR_LINES[$i]}"
+done
+echo
+
+echo "Bootnodes (${#BOOTNODES[@]}):"
+for bootnode in "${BOOTNODES[@]}"; do
+  echo "  ${bootnode}"
+done
 echo
 
 CMD=(
@@ -197,11 +284,15 @@ CMD=(
   --block-time "$BLOCK_TIME"
   --block-gas-limit "$BLOCK_GAS_LIMIT"
   --burn-contract "$BURN_CONTRACT"
-  --bootnode "$BOOTNODE_1"
-  --bootnode "$BOOTNODE_2"
-  --validators "$VAL_LINE1"
-  --validators "$VAL_LINE2"
 )
+
+for bootnode in "${BOOTNODES[@]}"; do
+  CMD+=( --bootnode "$bootnode" )
+done
+
+for validator_line in "${VALIDATOR_LINES[@]}"; do
+  CMD+=( --validators "$validator_line" )
+done
 
 if [[ -n "${REWARD_WALLET:-}" ]]; then
   CMD+=( --reward-wallet "$REWARD_WALLET" )

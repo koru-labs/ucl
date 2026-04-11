@@ -40,9 +40,11 @@ done
 [[ -f "$GENESIS" ]] || aws_ibft_die "genesis not found: $GENESIS"
 command -v python3 >/dev/null 2>&1 || aws_ibft_die "python3 not found"
 
-shopt -s nullglob
-validator_dirs=( "${OUTPUT}"/validator-* )
-shopt -u nullglob
+validator_dirs=()
+while IFS= read -r dir; do
+  [[ -n "$dir" ]] || continue
+  validator_dirs+=( "$dir" )
+done < <(aws_ibft_list_role_dirs "$OUTPUT" validator)
 [[ ${#validator_dirs[@]} -gt 0 ]] || aws_ibft_die "no validator-* dirs found under ${OUTPUT}"
 
 expected_pairs=()

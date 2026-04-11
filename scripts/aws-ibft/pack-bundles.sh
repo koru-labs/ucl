@@ -2,12 +2,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCRIPT_DIR="$(dirname "$0")"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/lib.sh"
 
 OUTPUT="${ROOT}/aws-ibft-out"
 
 usage() {
   echo "Usage: $0 [--output DIR]"
   echo "  Writes ${OUTPUT}/bundle-*.tar.gz with genesis.json + one data dir each."
+  echo "  Includes validator-*, fullnode-*, and rpc-* dirs that exist under OUTPUT."
   exit 1
 }
 
@@ -32,9 +36,11 @@ pack() {
   tar -czf "$out" genesis.json "$name"
 }
 
-pack validator-1
-pack validator-2
-pack fullnode-1
-pack fullnode-2
+for prefix in validator fullnode rpc; do
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    pack "${dir##*/}"
+  done < <(aws_ibft_list_role_dirs "$OUTPUT" "$prefix")
+done
 
 echo "done."
