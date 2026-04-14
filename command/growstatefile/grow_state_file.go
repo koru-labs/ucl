@@ -256,7 +256,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 			return nil, newRootErr
 		}
 
-		genesisHeader, err = writeFakeBlock(params.blockchainDirPath, chainConfig, newRootHash, logger)
+		genesisHeader, err = writeGenesisBlock(params.blockchainDirPath, chainConfig, newRootHash, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -295,7 +295,7 @@ func readLatestBlockHeader(blockchainPath string, logger hclog.Logger) (*types.H
 	return blockHeader, nil
 }
 
-func writeFakeBlock(
+func writeGenesisBlock(
 	blockchainPath string,
 	chainConfig *chain.Chain,
 	stateRoot types.Hash,
