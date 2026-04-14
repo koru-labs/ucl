@@ -164,6 +164,33 @@ func IsValidAddress(address string) error {
 	return nil
 }
 
+// ComputeEffectiveGasPrice calculates the price per gas unit actually paid by the user.
+// For EIP-1559: min(gasFeeCap, gasTipCap + baseFee)
+// For Legacy: gasPrice
+func ComputeEffectiveGasPrice(tx *Transaction, baseFee uint64) *big.Int {
+	if tx.Type == DynamicFeeTx {
+		// Convert baseFee to big.Int
+		base := new(big.Int).SetUint64(baseFee)
+
+		// effective = baseFee + gasTipCap
+		res := new(big.Int).Add(base, tx.GasTipCap)
+
+		// if (baseFee + gasTipCap) > gasFeeCap, cap it at gasFeeCap
+		if res.Cmp(tx.GasFeeCap) > 0 {
+			res.Set(tx.GasFeeCap)
+		}
+
+		return res
+	}
+
+	// Fallback for Legacy (0x0) and AccessList (0x1)
+	if tx.GasPrice != nil {
+		return new(big.Int).Set(tx.GasPrice)
+	}
+
+	return new(big.Int)
+}
+
 // UnmarshalText parses a hash in hex syntax.
 func (h *Hash) UnmarshalText(input []byte) error {
 	*h = BytesToHash(StringToBytes(string(input)))
