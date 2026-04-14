@@ -106,9 +106,9 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		addr := types.StringToAddress(fmt.Sprintf(contractAddrPrefix, i+1))
 		contractAddrs[i] = addr
 
-		existingAcc, getErr := snap.GetAccount(addr)
-		if getErr != nil {
-			return nil, getErr
+		existingAcc, err := snap.GetAccount(addr)
+		if err != nil {
+			return nil, err
 		}
 
 		if existingAcc != nil {
@@ -149,6 +149,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	objects := make([]*state.Object, params.contractsCounts)
 	countVal := make([]byte, 32)
 	preimage := make([]byte, 64)
+	rndVal := make([]byte, 32)
 	countEntriesSlot := make([]byte, 32)
 	// using slot 1
 	countEntriesSlot[31] = 1
@@ -166,8 +167,6 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		for ci, addr := range contractAddrs {
 			account := accounts[ci]
 			cntEntries := contractCountEntries[ci]
-
-			rndVal := make([]byte, 32)
 			_, _ = rand.Read(rndVal)
 
 			cntEntries.Add(cntEntries, bigOne)
@@ -212,9 +211,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	err = filepath.Walk(params.trieDirPath, func(_ string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
-		}
-
-		if !info.IsDir() {
+		} else if !info.IsDir() {
 			totalSize += info.Size()
 		}
 
@@ -225,9 +222,9 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	}
 
 	for _, addr := range contractAddrs {
-		finalAcct, getErr := snap.GetAccount(addr)
-		if getErr != nil {
-			return nil, getErr
+		finalAcct, err := snap.GetAccount(addr)
+		if err != nil {
+			return nil, err
 		} else if finalAcct == nil {
 			return nil, fmt.Errorf("final account is nil: %s", addr)
 		}
@@ -238,22 +235,22 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 			km := &signer.BLSKeyManager{}
 			sgn := signer.NewSigner(km, km)
 
-			hash, calcErr := sgn.CalculateHeaderHash(h)
-			if calcErr != nil {
+			hash, err := sgn.CalculateHeaderHash(h)
+			if err != nil {
 				return types.ZeroHash
 			}
 
 			return hash
 		}
 
-		chainConfig, importErr := chain.ImportFromFile(params.genesisPath)
-		if importErr != nil {
-			return nil, fmt.Errorf("failed to load genesis.json: %w", importErr)
+		chainConfig, err := chain.ImportFromFile(params.genesisPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load genesis.json: %w", err)
 		}
 
-		newRootHash, newRootErr := writeNewGenesis(chainConfig, chainState, types.BytesToHash(rootHash))
-		if newRootErr != nil {
-			return nil, newRootErr
+		newRootHash, err := writeNewGenesis(chainConfig, chainState, types.BytesToHash(rootHash))
+		if err != nil {
+			return nil, err
 		}
 
 		genesisHeader, err = writeGenesisBlock(params.blockchainDirPath, chainConfig, newRootHash, logger)
@@ -368,7 +365,7 @@ func writeNewGenesis(
 		}
 	}
 
-	objs, err := txn.Commit(false)
+	objs, err := txn.Commit(true)
 	if err != nil {
 		return types.ZeroHash, err
 	}
