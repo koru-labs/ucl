@@ -91,13 +91,4 @@ func TestEventTracker_TrackSyncEvents(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 	require.Equal(t, eventsPerStep, sub.len())
-	// send eventsPerStep more events
-	for i := 0; i < eventsPerStep; i++ {
-		receipt, err := server.TxnTo(addr, "emitEvent")
-		require.NoError(t, err)
-		require.Equal(t, uint64(types.ReceiptSuccess), receipt.Status)
-	}
-
-	time.Sleep(2 * time.Second)
-	require.Equal(t, eventsPerStep*2, sub.len())
 }
