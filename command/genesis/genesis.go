@@ -162,8 +162,8 @@ func setFlags(cmd *cobra.Command) {
 			"validators defined by user (polybft format: <P2P multi address>:<ECDSA address>:<public BLS key>)",
 		)
 
-		cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorRootFlag)
-		cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorPrefixFlag)
+		// cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorRootFlag)
+		// cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorPrefixFlag)
 	}
 
 	// IBFT Validators

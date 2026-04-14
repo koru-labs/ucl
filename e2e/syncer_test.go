@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"os"
 	"path"
-	"sync"
 	"testing"
 	"time"
 
@@ -107,27 +106,18 @@ func TestClusterTxPoolSync(t *testing.T) {
 
 	errs := make([]error, numOfTxs)
 
-	wg := sync.WaitGroup{}
-	wg.Add(numOfTxs)
-
 	// send transactions to the first node
 	for i := range numOfTxs {
-		go func(j int) {
-			defer wg.Done()
-
-			_, errs[j] = txRelayer.SendTransaction(&ethgo.Transaction{
-				Nonce:    uint64(j),
-				GasPrice: framework.DefaultGasPrice,
-				Value:    big.NewInt(int64(j)),
-				Gas:      21000,
-				From:     ethgoSenderKey.Address(),
-				To:       &to,
-				Type:     ethgo.TransactionLegacy,
-			}, ethgoSenderKey)
-		}(i)
+		_, errs[i] = txRelayer.SendTransaction(&ethgo.Transaction{
+			Nonce:    uint64(i),
+			GasPrice: framework.DefaultGasPrice,
+			Value:    big.NewInt(int64(i)),
+			Gas:      21000,
+			From:     ethgoSenderKey.Address(),
+			To:       &to,
+			Type:     ethgo.TransactionLegacy,
+		}, ethgoSenderKey)
 	}
-
-	wg.Wait()
 
 	require.NoError(t, errors.Join(errs...))
 
