@@ -231,10 +231,8 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	}
 
 	if params.createGenesisBlock {
+		sgn := getSigner(params.useBlsValidators)
 		types.HeaderHash = func(h *types.Header) types.Hash {
-			km := &signer.BLSKeyManager{}
-			sgn := signer.NewSigner(km, km)
-
 			hash, err := sgn.CalculateHeaderHash(h)
 			if err != nil {
 				return types.ZeroHash
@@ -376,4 +374,15 @@ func writeNewGenesis(
 	}
 
 	return types.BytesToHash(root), nil
+}
+
+func getSigner(useBlsValidators bool) signer.Signer {
+	var km signer.KeyManager
+	if useBlsValidators {
+		km = &signer.BLSKeyManager{}
+	} else {
+		km = &signer.ECDSAKeyManager{}
+	}
+
+	return signer.NewSigner(km, km)
 }

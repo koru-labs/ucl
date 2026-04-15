@@ -31,6 +31,7 @@ type growStateParams struct {
 	hashChangesPerContract int
 	createGenesisBlock     bool
 	rootHash               string
+	useBlsValidators       bool
 }
 
 var params growStateParams
@@ -95,4 +96,9 @@ func setFlags(cmd *cobra.Command) {
 		rootHashFlag,
 		"",
 		"snapshot root hash string, use 0x to read from current head")
+	cmd.Flags().BoolVar(
+		&params.useBlsValidators,
+		"use-bls",
+		true,
+		"use BLS validators instead of ECDSA validators for signature verification (only for genesis block creation)")
 }
