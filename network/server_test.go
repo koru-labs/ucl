@@ -149,7 +149,9 @@ func TestPeerEvent_EmitAndSubscribe(t *testing.T) {
 	receiver := make(chan *peerEvent.PeerEvent)
 
 	err := server.Subscribe(context.Background(), func(evnt *peerEvent.PeerEvent) {
-		receiver <- evnt
+		if evnt != nil {
+			receiver <- evnt
+		}
 	})
 	assert.NoError(t, err)
 
@@ -729,12 +731,13 @@ func TestSubscribe(t *testing.T) {
 
 		eventCh := make(chan *peerEvent.PeerEvent)
 
-		t.Cleanup(func() {
-			close(eventCh)
-		})
-
 		err := server.Subscribe(ctx, func(e *peerEvent.PeerEvent) {
-			eventCh <- e
+			if e != nil {
+				eventCh <- e
+			} else if eventCh != nil {
+				close(eventCh)
+				eventCh = nil
+			}
 		})
 
 		assert.NoError(t, err)
@@ -751,7 +754,7 @@ func TestSubscribe(t *testing.T) {
 
 		select {
 		case received := <-eventCh:
-			return received, true
+			return received, received != nil
 		case <-time.After(timeout):
 			return nil, false
 		}

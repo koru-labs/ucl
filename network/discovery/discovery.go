@@ -133,6 +133,10 @@ func (d *DiscoveryService) RoutingTablePeers() []peer.ID {
 
 // HandleNetworkEvent handles base network events for the DiscoveryService
 func (d *DiscoveryService) HandleNetworkEvent(peerEvent *event.PeerEvent) {
+	if peerEvent == nil {
+		return
+	}
+
 	peerID := peerEvent.PeerID
 
 	switch peerEvent.Type {
