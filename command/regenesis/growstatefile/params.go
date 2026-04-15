@@ -31,7 +31,7 @@ const (
 
 	defaultContractsCount   = 2
 	defaultIterationsCnt    = 100
-	defaultUseBlsValidators = true
+	defaultUseBlsValidators = false
 	outputIterationsModuo   = 50
 )
 
