@@ -12,7 +12,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/command"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state"
@@ -221,22 +220,11 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		return nil, err
 	}
 
-	for _, addr := range contractAddrs {
-		finalAcct, err := snap.GetAccount(addr)
-		if err != nil {
-			return nil, err
-		} else if finalAcct == nil {
-			return nil, fmt.Errorf("final account is nil: %s", addr)
-		}
-	}
-
 	if params.createGenesisBlock {
-		sgn := getSigner(params.useBlsValidators)
+		sgn := params.getSigner()
+		// set global header hash function - like ibft does - to be able to write genesis block with correct hash
 		types.HeaderHash = func(h *types.Header) types.Hash {
-			hash, err := sgn.CalculateHeaderHash(h)
-			if err != nil {
-				return types.ZeroHash
-			}
+			hash, _ := sgn.CalculateHeaderHash(h)
 
 			return hash
 		}
@@ -374,15 +362,4 @@ func writeNewGenesis(
 	}
 
 	return types.BytesToHash(root), nil
-}
-
-func getSigner(useBlsValidators bool) signer.Signer {
-	var km signer.KeyManager
-	if useBlsValidators {
-		km = &signer.BLSKeyManager{}
-	} else {
-		km = &signer.ECDSAKeyManager{}
-	}
-
-	return signer.NewSigner(km, km)
 }
