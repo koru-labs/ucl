@@ -1,11 +1,12 @@
 package signer
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"fmt"
-	"math/big"
+	"io"
 
-	"github.com/0xPolygon/polygon-edge/crypto"
+	polygoncrypto "github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -13,8 +14,15 @@ import (
 	"github.com/ThalesGroup/crypto11"
 )
 
+// hsmSigner abstracts the crypto.Signer returned by crypto11.
+// Allows mock injection in tests without a real HSM.
+type hsmSigner interface {
+	Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
+	Public() crypto.PublicKey
+}
+
 // HSMKeyManager implements KeyManager with a split backend:
-//   - ECDSA key: lives in AWS CloudHSM, private key never exported
+//   - ECDSA key: lives in AWS CloudHSM via PKCS#11, private key never exported
 //   - BLS key:   loaded from AWS SSM Parameter Store SecureString at startup
 //
 // This mirrors BLSKeyManager's signing split exactly:
@@ -23,10 +31,10 @@ import (
 //	SignIBFTMessage   → ECDSA (HSM)
 //	SignCommittedSeal → BLS   (SSM → memory)
 type HSMKeyManager struct {
-	// ECDSA — backed by CloudHSM
-	hsmSigner crypto11.Signer
-	pubKey    *ecdsa.PublicKey
-	address   types.Address
+	// ECDSA — backed by CloudHSM via PKCS#11
+	signer  hsmSigner
+	pubKey  *ecdsa.PublicKey
+	address types.Address
 
 	// BLS — loaded from SSM into memory at startup
 	blsKey *bls_sig.SecretKey
@@ -45,103 +53,120 @@ func NewHSMKeyManager(
 	keyLabel string,
 	ssmMgr secrets.SecretsManager,
 ) (KeyManager, error) {
-	// ── 1. ECDSA key from CloudHSM ──────────────────────────────────────
-	hsmSigner, err := hsmCtx.FindKeyPair(nil, []byte(keyLabel))
+	signer, err := hsmCtx.FindKeyPair(nil, []byte(keyLabel))
 	if err != nil {
-		return nil, fmt.Errorf("hsm key manager: FindKeyPair(%q): %w", keyLabel, err)
+		return nil, fmt.Errorf("hsm: FindKeyPair(%q): %w", keyLabel, err)
 	}
 
-	if hsmSigner == nil {
+	if signer == nil {
 		return nil, fmt.Errorf(
-			"hsm key manager: no key with label %q in HSM — run `secrets init` first",
+			"hsm: no key with label %q in HSM — generate one first",
 			keyLabel,
 		)
 	}
 
-	pubKey, ok := hsmSigner.Public().(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("hsm key manager: HSM key is not ECDSA")
+	return newHSMKeyManagerFromSigner(signer, ssmMgr)
+}
+
+// newHSMKeyManagerFromSigner constructs an HSMKeyManager from an existing signer.
+// Used internally and in tests to inject a mock signer.
+func newHSMKeyManagerFromSigner(
+	signer hsmSigner,
+	ssmMgr secrets.SecretsManager,
+) (KeyManager, error) {
+	pubKey, err := extractSecp256k1PubKey(signer)
+	if err != nil {
+		return nil, fmt.Errorf("hsm: %w", err)
 	}
 
-	address := types.Address(crypto.PubKeyToAddress(*pubKey))
-
-	// ── 2. BLS key from AWS SSM ──────────────────────────────────────────
-	// SSM stores the raw BLS secret key bytes as a SecureString parameter.
-	// GetSecret decrypts and returns the bytes via the AWS SDK.
-	blsKeyBytes, err := ssmMgr.GetSecret(secrets.ValidatorBLSKey)
+	blsKey, err := blsKeyFromSSM(ssmMgr)
 	if err != nil {
-		return nil, fmt.Errorf("hsm key manager: failed to load BLS key from SSM: %w", err)
-	}
-
-	blsKey, err := crypto.BytesToBLSSecretKey(blsKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("hsm key manager: failed to deserialize BLS key: %w", err)
+		return nil, fmt.Errorf("hsm: failed to load BLS key from SSM: %w", err)
 	}
 
 	return &HSMKeyManager{
-		hsmSigner: hsmSigner,
-		pubKey:    pubKey,
-		address:   address,
-		blsKey:    blsKey,
+		signer:  signer,
+		pubKey:  pubKey,
+		address: polygoncrypto.PubKeyToAddress(pubKey),
+		blsKey:  blsKey,
 	}, nil
 }
 
-// ── Identity ─────────────────────────────────────────────────────────────────
+// extractSecp256k1PubKey validates that the signer holds a secp256k1 ECDSA key
+// and returns it with the correct curve assignment.
+func extractSecp256k1PubKey(signer hsmSigner) (*ecdsa.PublicKey, error) {
+	pub, ok := signer.Public().(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("HSM key is not ECDSA")
+	}
 
+	curve := polygoncrypto.S256
+	if !curve.IsOnCurve(pub.X, pub.Y) {
+		return nil, fmt.Errorf("HSM public key is not on secp256k1 curve")
+	}
+
+	return &ecdsa.PublicKey{
+		Curve: curve,
+		X:     pub.X,
+		Y:     pub.Y,
+	}, nil
+}
+
+// Type returns BLSValidatorType because committed seals use BLS aggregation.
+// Mirrors BLSKeyManager.Type() — must match so IBFT uses AggregatedSeal.
 func (m *HSMKeyManager) Type() validators.ValidatorType {
-	// BLS mode — matches BLSKeyManager exactly
 	return validators.BLSValidatorType
 }
 
+// Address returns the validator address derived from the HSM public key.
 func (m *HSMKeyManager) Address() types.Address {
 	return m.address
 }
 
+// NewEmptyValidators returns empty BLS validator set.
 func (m *HSMKeyManager) NewEmptyValidators() validators.Validators {
 	return validators.NewBLSValidatorSet()
 }
 
+// NewEmptyCommittedSeals returns empty AggregatedSeal for BLS.
 func (m *HSMKeyManager) NewEmptyCommittedSeals() Seals {
 	return &AggregatedSeal{}
 }
 
-// ── Signing — ECDSA via CloudHSM ─────────────────────────────────────────────
-
 // SignProposerSeal signs the block header hash with the ECDSA key in the HSM.
 // Mirrors: BLSKeyManager.SignProposerSeal → crypto.Sign(ecdsaKey, data)
-func (m *HSMKeyManager) SignProposerSeal(hash []byte) ([]byte, error) {
-	return m.hsmECDSASign(hash)
+func (m *HSMKeyManager) SignProposerSeal(digest []byte) ([]byte, error) {
+	return m.hsmECDSASign(digest)
 }
 
-// SignIBFTMessage signs consensus p2p messages with the ECDSA key in the HSM.
+// SignIBFTMessage signs consensus messages with the ECDSA key in the HSM.
 // Mirrors: BLSKeyManager.SignIBFTMessage → crypto.Sign(ecdsaKey, msg)
+//
+// NOTE: The caller already passes a Keccak-256 hash — do NOT re-hash.
 func (m *HSMKeyManager) SignIBFTMessage(msg []byte) ([]byte, error) {
-	// polygon-edge hashes the message before signing, same as crypto.Sign
-	hash := ethcrypto.Keccak256(msg)
-	return m.hsmECDSASign(hash)
+	return m.hsmECDSASign(msg)
 }
-
-// ── Signing — BLS in-process from SSM-loaded key ─────────────────────────────
 
 // SignCommittedSeal signs the commit hash with the BLS key loaded from SSM.
 // Mirrors: BLSKeyManager.SignCommittedSeal → crypto.SignByBLS(blsKey, data)
 func (m *HSMKeyManager) SignCommittedSeal(hash []byte) ([]byte, error) {
-	return crypto.SignByBLS(m.blsKey, hash)
+	return polygoncrypto.SignByBLS(m.blsKey, hash)
 }
 
-// ── Verification — all in-process, no HSM or SSM call ────────────────────────
-
-func (m *HSMKeyManager) Ecrecover(sig []byte, msg []byte) (types.Address, error) {
-	return ecrecover(sig, msg) // existing helper in signer package
+// Ecrecover recovers the address that produced the given signature over digest.
+// Pure local crypto — no HSM call needed.
+func (m *HSMKeyManager) Ecrecover(sig, digest []byte) (types.Address, error) {
+	return ecrecover(sig, digest)
 }
 
+// VerifyCommittedSeal verifies a single BLS committed seal.
+// Mirrors BLSKeyManager.VerifyCommittedSeal exactly.
 func (m *HSMKeyManager) VerifyCommittedSeal(
 	set validators.Validators,
 	addr types.Address,
 	rawSignature []byte,
 	hash []byte,
 ) error {
-	// Identical to BLSKeyManager.VerifyCommittedSeal
 	if set.Type() != m.Type() {
 		return ErrInvalidValidators
 	}
@@ -156,18 +181,19 @@ func (m *HSMKeyManager) VerifyCommittedSeal(
 		return ErrInvalidValidators
 	}
 
-	return crypto.VerifyBLSSignatureFromBytes(
+	return polygoncrypto.VerifyBLSSignatureFromBytes(
 		validator.BLSPublicKey,
 		rawSignature,
 		hash,
 	)
 }
 
+// GenerateCommittedSeals aggregates BLS signatures into an AggregatedSeal.
+// Mirrors BLSKeyManager.GenerateCommittedSeals exactly.
 func (m *HSMKeyManager) GenerateCommittedSeals(
 	sealMap map[types.Address][]byte,
 	set validators.Validators,
 ) (Seals, error) {
-	// Identical to BLSKeyManager.GenerateCommittedSeals
 	if set.Type() != m.Type() {
 		return nil, ErrInvalidValidators
 	}
@@ -177,28 +203,29 @@ func (m *HSMKeyManager) GenerateCommittedSeals(
 		return nil, err
 	}
 
-	multiSignature, err := bls_sig.NewSigPop().AggregateSignatures(blsSignatures...)
+	multiSig, err := bls_sig.NewSigPop().AggregateSignatures(blsSignatures...)
 	if err != nil {
 		return nil, err
 	}
 
-	multiSignatureBytes, err := multiSignature.MarshalBinary()
+	multiSigBytes, err := multiSig.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
 
 	return &AggregatedSeal{
 		Bitmap:    bitMap,
-		Signature: multiSignatureBytes,
+		Signature: multiSigBytes,
 	}, nil
 }
 
+// VerifyCommittedSeals verifies the aggregated BLS seal set.
+// Mirrors BLSKeyManager.VerifyCommittedSeals exactly.
 func (m *HSMKeyManager) VerifyCommittedSeals(
 	rawCommittedSeal Seals,
 	message []byte,
 	vals validators.Validators,
 ) (int, error) {
-	// Identical to BLSKeyManager.VerifyCommittedSeals
 	committedSeal, ok := rawCommittedSeal.(*AggregatedSeal)
 	if !ok {
 		return 0, ErrInvalidCommittedSealType
@@ -211,92 +238,30 @@ func (m *HSMKeyManager) VerifyCommittedSeals(
 	return verifyBLSCommittedSealsImpl(committedSeal, message, vals)
 }
 
-// ── Internal: ECDSA signing via CloudHSM ─────────────────────────────────────
+var _ KeyManager = (*HSMKeyManager)(nil)
 
-// hsmECDSASign sends a 32-byte hash to the HSM for ECDSA signing and
-// converts the DER-encoded response into polygon-edge's expected
-// Ethereum [R(32) || S(32) || V(1)] format.
-func (m *HSMKeyManager) hsmECDSASign(hash []byte) ([]byte, error) {
-	if len(hash) != 32 {
-		return nil, fmt.Errorf("hsm key manager: expected 32-byte hash, got %d bytes", len(hash))
+// hsmECDSASign sends a 32-byte digest to the HSM for raw ECDSA signing
+// (CKM_ECDSA no re-hashing) and converts the DER response into the
+// 65-byte [R || S || V] Ethereum format.
+//
+// Reuses derSigToEthSig from kms_key_manager.go which handles:
+//   - ASN.1 DER unmarshalling
+//   - Low-S normalization (EIP-2)
+//   - Recovery bit (V) detection
+func (m *HSMKeyManager) hsmECDSASign(digest []byte) ([]byte, error) {
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("hsm: expected 32-byte digest, got %d", len(digest))
 	}
 
-	// Private key stays in HSM — only the hash crosses the PKCS#11 boundary
-	derSig, err := m.hsmSigner.Sign(nil, hash, nil)
+	derSig, err := m.signer.Sign(nil, digest, nil)
 	if err != nil {
-		return nil, fmt.Errorf("hsm key manager: HSM ECDSA sign failed: %w", err)
+		return nil, fmt.Errorf("hsm: ECDSA sign failed: %w", err)
 	}
 
-	r, s, err := parseDERToRS(derSig)
+	ethSig, err := derSigToEthSig(derSig, m.pubKey, digest)
 	if err != nil {
-		return nil, fmt.Errorf("hsm key manager: DER parse failed: %w", err)
+		return nil, fmt.Errorf("hsm: %w", err)
 	}
 
-	// Enforce low-s per EIP-2 — go-ethereum rejects high-s signatures
-	s = enforceLoWS(s)
-
-	return m.buildEthSig(hash, r, s)
-}
-
-// parseDERToRS decodes a DER ASN.1 ECDSA signature into (r, s) big.Ints.
-// Format: 0x30 [totalLen] 0x02 [rLen] [r...] 0x02 [sLen] [s...]
-func parseDERToRS(der []byte) (*big.Int, *big.Int, error) {
-	if len(der) < 8 || der[0] != 0x30 {
-		return nil, nil, fmt.Errorf("not a DER SEQUENCE")
-	}
-
-	body := der[2:] // skip 0x30 and total length
-
-	if body[0] != 0x02 {
-		return nil, nil, fmt.Errorf("expected INTEGER tag for r")
-	}
-	rLen := int(body[1])
-	r := new(big.Int).SetBytes(body[2 : 2+rLen])
-	body = body[2+rLen:]
-
-	if body[0] != 0x02 {
-		return nil, nil, fmt.Errorf("expected INTEGER tag for s")
-	}
-	sLen := int(body[1])
-	s := new(big.Int).SetBytes(body[2 : 2+sLen])
-
-	return r, s, nil
-}
-
-// enforceLoWS applies EIP-2 low-s normalization.
-func enforceLoWS(s *big.Int) *big.Int {
-	N := crypto.S256.N
-	halfN := new(big.Int).Rsh(N, 1)
-
-	if s.Cmp(halfN) > 0 {
-		return new(big.Int).Sub(N, s)
-	}
-
-	return s
-}
-
-// buildEthSig encodes (r, s) into [R(32)||S(32)||V(1)] by trying V=0
-// then V=1, accepting whichever recovers our known public key address.
-func (m *HSMKeyManager) buildEthSig(hash []byte, r, s *big.Int) ([]byte, error) {
-	sig := make([]byte, 65)
-	r.FillBytes(sig[0:32])
-	s.FillBytes(sig[32:64])
-
-	for v := byte(0); v <= 1; v++ {
-		sig[64] = v
-
-		recovered, err := crypto.SigToPub(hash, sig)
-		if err != nil {
-			continue
-		}
-
-		if types.Address(crypto.PubKeyToAddress(*recovered)) == m.address {
-			return sig, nil
-		}
-	}
-
-	return nil, fmt.Errorf(
-		"hsm key manager: cannot find recovery bit V for address %s",
-		m.address,
-	)
+	return ethSig, nil
 }

@@ -61,7 +61,7 @@ func NewKeyManagerFromConfig(cfg KeyManagerConfig) (KeyManager, error) {
 		return newLocalKeyManager(cfg.SecretsManager, cfg.ValidatorType)
 
 	case BackendAWSKMS:
-		return NewKMSKeyManager(cfg.AWSKMS)
+		return NewKMSKeyManager(cfg.AWSKMS, nil)
 
 	default:
 		return nil, fmt.Errorf(

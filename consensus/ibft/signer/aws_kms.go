@@ -59,6 +59,7 @@ func NewKMSKeyManager(cfg KMSConfig, ssmMgr secrets.SecretsManager) (KeyManager,
 	awsCfg, err := awsconfig.LoadDefaultConfig(
 		context.Background(),
 		awsconfig.WithRegion(cfg.Region),
+		awsconfig.WithRetryMode(aws.RetryModeAdaptive),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -76,13 +77,11 @@ func newKMSKeyManagerFromClient(
 	keyID string,
 	ssmMgr secrets.SecretsManager,
 ) (KeyManager, error) {
-	// ── 1. ECDSA public key from KMS ─────────────────────────────────────
 	pubKey, err := fetchKMSPublicKey(client, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch KMS public key: %w", err)
 	}
 
-	// ── 2. BLS secret key from SSM ───────────────────────────────────────
 	blsKey, err := blsKeyFromSSM(ssmMgr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load BLS key from SSM: %w", err)
@@ -96,8 +95,6 @@ func newKMSKeyManagerFromClient(
 		blsKey:    blsKey,
 	}, nil
 }
-
-// ── Identity ──────────────────────────────────────────────────────────────────
 
 // Type returns BLSValidatorType because committed seals use BLS aggregation.
 // Mirrors BLSKeyManager.Type() — must match so IBFT uses AggregatedSeal.
@@ -120,8 +117,6 @@ func (k *KMSKeyManager) NewEmptyCommittedSeals() Seals {
 	return &AggregatedSeal{}
 }
 
-// ── Signing ───────────────────────────────────────────────────────────────────
-
 // SignProposerSeal signs the given digest via KMS.
 // Mirrors BLSKeyManager.SignProposerSeal → crypto.Sign(ecdsaKey, data)
 func (k *KMSKeyManager) SignProposerSeal(digest []byte) ([]byte, error) {
@@ -139,8 +134,6 @@ func (k *KMSKeyManager) SignIBFTMessage(digest []byte) ([]byte, error) {
 func (k *KMSKeyManager) SignCommittedSeal(hash []byte) ([]byte, error) {
 	return crypto.SignByBLS(k.blsKey, hash)
 }
-
-// ── Verification — all in-process, no KMS or SSM call ────────────────────────
 
 // Ecrecover recovers the address that produced the given signature over digest.
 // Pure local crypto — no KMS call needed.
@@ -227,11 +220,7 @@ func (k *KMSKeyManager) VerifyCommittedSeals(
 	return verifyBLSCommittedSealsImpl(committedSeal, message, vals)
 }
 
-// ── compile-time check ────────────────────────────────────────────────────────
-
 var _ KeyManager = (*KMSKeyManager)(nil)
-
-// ── internal ──────────────────────────────────────────────────────────────────
 
 // signDigest calls KMS Sign and converts the DER response to
 // the 65-byte Ethereum [R || S || V] format the rest of the signer expects.
@@ -259,23 +248,46 @@ func fetchKMSPublicKey(client kmsClient, keyID string) (*ecdsa.PublicKey, error)
 		return nil, fmt.Errorf("GetPublicKey failed: %w", err)
 	}
 
-	pubKeyBytes := resp.PublicKey
+	// SPKI ASN.1 structure:
+	//   SEQUENCE {
+	//     SEQUENCE { algorithm OID, curve OID }
+	//     BIT STRING { 0x04 || X || Y }
+	//   }
+	var spki struct {
+		Algorithm struct {
+			Algorithm asn1.ObjectIdentifier
+			Curve     asn1.ObjectIdentifier
+		}
+		PublicKey asn1.BitString
+	}
 
-	// expect 65-byte uncompressed point: 04 || X (32 bytes) || Y (32 bytes)
-	if len(pubKeyBytes) != 65 || pubKeyBytes[0] != 0x04 {
+	if _, err := asn1.Unmarshal(resp.PublicKey, &spki); err != nil {
+		return nil, fmt.Errorf("unmarshal SPKI: %w", err)
+	}
+
+	// Verify OID is secp256k1 (1.3.132.0.10)
+	secp256k1OID := asn1.ObjectIdentifier{1, 3, 132, 0, 10}
+	if !spki.Algorithm.Curve.Equal(secp256k1OID) {
 		return nil, fmt.Errorf(
-			"unexpected public key format: length=%d prefix=%x",
-			len(pubKeyBytes), pubKeyBytes[0],
+			"unexpected curve OID: %v, expected secp256k1",
+			spki.Algorithm.Curve,
 		)
 	}
 
-	x := new(big.Int).SetBytes(pubKeyBytes[1:33])
-	y := new(big.Int).SetBytes(pubKeyBytes[33:65])
+	raw := spki.PublicKey.Bytes
+	if len(raw) != 65 || raw[0] != 0x04 {
+		return nil, fmt.Errorf(
+			"unexpected public key format: len=%d prefix=0x%x",
+			len(raw), raw[0],
+		)
+	}
+
+	x := new(big.Int).SetBytes(raw[1:33])
+	y := new(big.Int).SetBytes(raw[33:65])
 
 	curve := crypto.S256
-
 	if !curve.IsOnCurve(x, y) {
-		return nil, fmt.Errorf("public key point is not on secp256k1 curve")
+		return nil, fmt.Errorf("point not on secp256k1")
 	}
 
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
