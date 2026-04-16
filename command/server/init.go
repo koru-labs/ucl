@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/0xPolygon/polygon-edge/command/server/config"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 
 	helperCommon "github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/network/common"
@@ -38,6 +39,10 @@ func (p *serverParams) initRawParams() error {
 	}
 
 	if err := p.initSecretsConfig(); err != nil {
+		return err
+	}
+
+	if err := p.initSignerConfig(); err != nil {
 		return err
 	}
 
@@ -98,6 +103,22 @@ func (p *serverParams) initSecretsConfig() error {
 		p.rawConfig.SecretsConfigPath,
 	); parseErr != nil {
 		return fmt.Errorf("unable to read secrets config file, %w", parseErr)
+	}
+
+	return nil
+}
+
+func (p *serverParams) initSignerConfig() error {
+	if !p.isSignerConfigPathSet() {
+		return nil
+	}
+
+	var parseErr error
+
+	if p.signerConfig, parseErr = signer.ReadConfig(
+		p.rawConfig.SignerConfigPath,
+	); parseErr != nil {
+		return fmt.Errorf("unable to read signer config file, %w", parseErr)
 	}
 
 	return nil

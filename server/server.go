@@ -16,6 +16,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/memory"
 	"github.com/0xPolygon/polygon-edge/blockchain/storage/pebble"
 	consensusIBFT "github.com/0xPolygon/polygon-edge/consensus/ibft"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
@@ -89,6 +90,8 @@ type Server struct {
 
 	// gasHelper is providing functions regarding gas and fees
 	gasHelper *gasprice.GasHelper
+
+	keyManagerFactory signer.KeyManagerFactory
 }
 
 // newFileLogger returns logger instance that writes all logs to a specified file.
@@ -180,6 +183,11 @@ func NewServer(config *Config) (*Server, error) {
 	// Set up the secrets manager
 	if err := m.setupSecretsManager(); err != nil {
 		return nil, fmt.Errorf("failed to set up the secrets manager: %w", err)
+	}
+
+	// Set up the key manager factory
+	if err := m.setupKeyManagerFactory(); err != nil {
+		return nil, fmt.Errorf("failed to set up the key manager factory: %w", err)
 	}
 
 	// start libp2p
@@ -533,6 +541,17 @@ func (s *Server) setupSecretsManager() error {
 	return nil
 }
 
+func (s *Server) setupKeyManagerFactory() error {
+	factory, err := signer.LoadKeyManagerFactory(s.config.SignerConfig, s.secretsManager)
+	if err != nil {
+		return fmt.Errorf("failed to set up key manager factory: %w", err)
+	}
+
+	s.keyManagerFactory = factory
+
+	return nil
+}
+
 // setupConsensus sets up the consensus mechanism
 func (s *Server) setupConsensus() error {
 	engineName := s.config.Chain.Params.GetEngine()
@@ -578,6 +597,7 @@ func (s *Server) setupConsensus() error {
 			Grpc:                  s.grpcServer,
 			Logger:                s.logger,
 			SecretsManager:        s.secretsManager,
+			KeyManagerFactory:     s.keyManagerFactory,
 			BlockTime:             uint64(blockTime.Seconds()),
 			NumBlockConfirmations: s.config.NumBlockConfirmations,
 			MetricsInterval:       s.config.MetricsInterval,

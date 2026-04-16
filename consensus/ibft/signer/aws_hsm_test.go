@@ -47,39 +47,37 @@ func (m *mockHSMSigner) Sign(
 		return nil, m.signErr
 	}
 
-	// Use polygon-edge's crypto.Sign which produces [R||S||V] (65 bytes)
 	ethSig, err := polygoncrypto.Sign(m.key, digest)
 	if err != nil {
 		return nil, err
 	}
 
-	// Re-encode as DER — this is what a real HSM returns
 	r := new(big.Int).SetBytes(ethSig[0:32])
 	s := new(big.Int).SetBytes(ethSig[32:64])
 
 	return asn1.Marshal(ecdsaDERSignature{R: r, S: s})
 }
 
+// nonECDSASigner returns a non-ECDSA public key to test type checking
+type nonECDSASigner struct{}
+
+func (n *nonECDSASigner) Public() crypto.PublicKey {
+	return "not-an-ecdsa-key"
+}
+
+func (n *nonECDSASigner) Sign(_ io.Reader, _ []byte, _ crypto.SignerOpts) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func newTestHSMKeyManager(t *testing.T) (*HSMKeyManager, *mockHSMSigner) {
 	t.Helper()
 
 	signer := newMockHSMSigner(t)
-	ssmMock, _ := newMockBLSSecretsManager(t)
 
-	km, err := newHSMKeyManagerFromSigner(signer, ssmMock)
+	km, err := newHSMKeyManagerFromSigner(signer)
 	require.NoError(t, err)
 
 	return km.(*HSMKeyManager), signer
-}
-
-// helper: convert HSMKeyManager to BLSValidator for test validator sets
-func testHSMKeyManagerToBLSValidator(t *testing.T, km *HSMKeyManager) *validators.BLSValidator {
-	t.Helper()
-
-	pubkeyBytes, err := polygoncrypto.BLSSecretKeyToPubkeyBytes(km.blsKey)
-	require.NoError(t, err)
-
-	return validators.NewBLSValidator(km.Address(), pubkeyBytes)
 }
 
 func TestNewHSMKeyManagerFromSigner(t *testing.T) {
@@ -89,9 +87,8 @@ func TestNewHSMKeyManagerFromSigner(t *testing.T) {
 		t.Parallel()
 
 		signer := newMockHSMSigner(t)
-		ssmMock, _ := newMockBLSSecretsManager(t)
 
-		km, err := newHSMKeyManagerFromSigner(signer, ssmMock)
+		km, err := newHSMKeyManagerFromSigner(signer)
 		require.NoError(t, err)
 		require.NotNil(t, km)
 
@@ -105,56 +102,10 @@ func TestNewHSMKeyManagerFromSigner(t *testing.T) {
 	t.Run("should return error if signer public key is not ECDSA", func(t *testing.T) {
 		t.Parallel()
 
-		ssmMock, _ := newMockBLSSecretsManager(t)
-
-		km, err := newHSMKeyManagerFromSigner(&nonECDSASigner{}, ssmMock)
+		km, err := newHSMKeyManagerFromSigner(&nonECDSASigner{})
 		assert.Nil(t, km)
 		assert.ErrorContains(t, err, "not ECDSA")
 	})
-
-	t.Run("should return error if BLS key loading fails", func(t *testing.T) {
-		t.Parallel()
-
-		signer := newMockHSMSigner(t)
-		ssmMock := &mockBLSSecretsManager{getErr: errTest}
-
-		km, err := newHSMKeyManagerFromSigner(signer, ssmMock)
-		assert.Nil(t, km)
-		assert.ErrorContains(t, err, "failed to load BLS key from SSM")
-	})
-
-	t.Run("should return error if BLS key is empty", func(t *testing.T) {
-		t.Parallel()
-
-		signer := newMockHSMSigner(t)
-		ssmMock := &mockBLSSecretsManager{blsKeyBytes: []byte{}}
-
-		km, err := newHSMKeyManagerFromSigner(signer, ssmMock)
-		assert.Nil(t, km)
-		assert.ErrorContains(t, err, "empty BLS key")
-	})
-
-	t.Run("should return error if BLS key bytes are invalid", func(t *testing.T) {
-		t.Parallel()
-
-		signer := newMockHSMSigner(t)
-		ssmMock := &mockBLSSecretsManager{blsKeyBytes: []byte("not-32-bytes")}
-
-		km, err := newHSMKeyManagerFromSigner(signer, ssmMock)
-		assert.Nil(t, km)
-		assert.ErrorContains(t, err, "UnmarshalBinary BLS key")
-	})
-}
-
-// nonECDSASigner returns a non-ECDSA public key to test type checking
-type nonECDSASigner struct{}
-
-func (n *nonECDSASigner) Public() crypto.PublicKey {
-	return "not-an-ecdsa-key" // string, not *ecdsa.PublicKey
-}
-
-func (n *nonECDSASigner) Sign(_ io.Reader, _ []byte, _ crypto.SignerOpts) ([]byte, error) {
-	return nil, errors.New("not implemented")
 }
 
 func TestHSMKeyManagerType(t *testing.T) {
@@ -162,7 +113,7 @@ func TestHSMKeyManagerType(t *testing.T) {
 
 	km, _ := newTestHSMKeyManager(t)
 
-	assert.Equal(t, validators.BLSValidatorType, km.Type())
+	assert.Equal(t, validators.ECDSAValidatorType, km.Type())
 }
 
 func TestHSMKeyManagerAddress(t *testing.T) {
@@ -182,7 +133,7 @@ func TestHSMKeyManagerNewEmptyValidators(t *testing.T) {
 
 	km, _ := newTestHSMKeyManager(t)
 
-	assert.Equal(t, validators.NewBLSValidatorSet(), km.NewEmptyValidators())
+	assert.Equal(t, validators.NewECDSAValidatorSet(), km.NewEmptyValidators())
 }
 
 func TestHSMKeyManagerNewEmptyCommittedSeals(t *testing.T) {
@@ -190,7 +141,7 @@ func TestHSMKeyManagerNewEmptyCommittedSeals(t *testing.T) {
 
 	km, _ := newTestHSMKeyManager(t)
 
-	assert.Equal(t, &AggregatedSeal{}, km.NewEmptyCommittedSeals())
+	assert.Equal(t, &SerializedSeal{}, km.NewEmptyCommittedSeals())
 }
 
 func TestHSMKeyManagerSignProposerSeal(t *testing.T) {
@@ -198,9 +149,7 @@ func TestHSMKeyManagerSignProposerSeal(t *testing.T) {
 
 	km, _ := newTestHSMKeyManager(t)
 
-	msg := polygoncrypto.Keccak256(
-		hex.MustDecodeHex(testHeaderHashHex),
-	)
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
 
 	proposerSeal, err := km.SignProposerSeal(msg)
 	require.NoError(t, err)
@@ -252,46 +201,30 @@ func TestHSMKeyManagerSignCommittedSeal(t *testing.T) {
 
 	km, _ := newTestHSMKeyManager(t)
 
-	blsPubKey, err := km.blsKey.GetPublicKey()
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
+
+	committedSeal, err := km.SignCommittedSeal(msg)
 	require.NoError(t, err)
 
-	msg := polygoncrypto.Keccak256(
-		wrapCommitHash(
-			hex.MustDecodeHex(testHeaderHashHex),
-		),
-	)
-
-	sealBytes, err := km.SignCommittedSeal(msg)
+	recoveredAddress, err := ecrecover(committedSeal, msg)
 	require.NoError(t, err)
 
-	seal, err := polygoncrypto.UnmarshalBLSSignature(sealBytes)
-	require.NoError(t, err)
-
-	assert.NoError(
-		t,
-		polygoncrypto.VerifyBLSSignature(blsPubKey, seal, msg),
-	)
+	assert.Equal(t, km.Address(), recoveredAddress)
 }
 
+//nolint:dupl
 func TestHSMKeyManagerVerifyCommittedSeal(t *testing.T) {
 	t.Parallel()
 
 	km1, _ := newTestHSMKeyManager(t)
 	km2, _ := newTestHSMKeyManager(t)
 
-	msg := polygoncrypto.Keccak256(
-		wrapCommitHash(
-			hex.MustDecodeHex(testHeaderHashHex),
-		),
-	)
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
 
 	correctSignature, err := km1.SignCommittedSeal(msg)
 	require.NoError(t, err)
 
 	wrongSignature, err := km2.SignCommittedSeal(msg)
-	require.NoError(t, err)
-
-	blsPubKeyBytes, err := polygoncrypto.BLSSecretKeyToPubkeyBytes(km1.blsKey)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -304,36 +237,36 @@ func TestHSMKeyManagerVerifyCommittedSeal(t *testing.T) {
 	}{
 		{
 			name:        "should return ErrInvalidValidators if validators is wrong type",
-			validators:  validators.NewECDSAValidatorSet(),
+			validators:  validators.NewBLSValidatorSet(),
 			address:     km1.Address(),
 			signature:   []byte{},
 			message:     []byte{},
 			expectedErr: ErrInvalidValidators,
 		},
 		{
-			name: "should return ErrValidatorNotFound if address is not in validators",
-			validators: validators.NewBLSValidatorSet(
-				testHSMKeyManagerToBLSValidator(t, km2),
-			),
-			address:     km1.Address(),
-			signature:   []byte{},
-			message:     []byte{},
-			expectedErr: ErrValidatorNotFound,
-		},
-		{
-			name: "should return error if signature is wrong",
-			validators: validators.NewBLSValidatorSet(
-				validators.NewBLSValidator(km1.Address(), blsPubKeyBytes),
+			name: "should return ErrSignerMismatch if signature is from wrong signer",
+			validators: validators.NewECDSAValidatorSet(
+				validators.NewECDSAValidator(km1.Address()),
 			),
 			address:     km1.Address(),
 			signature:   wrongSignature,
 			message:     msg,
-			expectedErr: polygoncrypto.ErrInvalidBLSSignature,
+			expectedErr: ErrSignerMismatch,
+		},
+		{
+			name: "should return ErrNonValidatorCommittedSeal if address not in set",
+			validators: validators.NewECDSAValidatorSet(
+				validators.NewECDSAValidator(km2.Address()),
+			),
+			address:     km1.Address(),
+			signature:   correctSignature,
+			message:     msg,
+			expectedErr: ErrNonValidatorCommittedSeal,
 		},
 		{
 			name: "should return nil if verification is successful",
-			validators: validators.NewBLSValidatorSet(
-				validators.NewBLSValidator(km1.Address(), blsPubKeyBytes),
+			validators: validators.NewECDSAValidatorSet(
+				validators.NewECDSAValidator(km1.Address()),
 			),
 			address:     km1.Address(),
 			signature:   correctSignature,
@@ -366,60 +299,45 @@ func TestHSMKeyManagerGenerateCommittedSeals(t *testing.T) {
 	t.Parallel()
 
 	km1, _ := newTestHSMKeyManager(t)
+	km2, _ := newTestHSMKeyManager(t)
 
-	msg := polygoncrypto.Keccak256(
-		wrapCommitHash(
-			hex.MustDecodeHex(testHeaderHashHex),
-		),
-	)
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
 
-	correctCommittedSeal, err := km1.SignCommittedSeal(msg)
+	seal1, err := km1.SignCommittedSeal(msg)
 	require.NoError(t, err)
 
-	aggregatedBLSSigBytes := testCreateAggregatedSignature(t, msg, km1)
+	seal2, err := km2.SignCommittedSeal(msg)
+	require.NoError(t, err)
 
 	tests := []struct {
 		name        string
 		sealMap     map[types.Address][]byte
 		validators  validators.Validators
-		expectedRes Seals
 		expectedErr error
 	}{
 		{
-			name:        "should return ErrInvalidValidators if validators is wrong type",
-			sealMap:     nil,
+			name: "should return error if seal length is invalid",
+			sealMap: map[types.Address][]byte{
+				km1.Address(): []byte("short"),
+			},
 			validators:  validators.NewECDSAValidatorSet(),
-			expectedRes: nil,
-			expectedErr: ErrInvalidValidators,
+			expectedErr: ErrInvalidCommittedSealLength,
 		},
 		{
-			name: "should return error if signer is not in validators",
+			name: "should return SerializedSeal if successful with one signer",
 			sealMap: map[types.Address][]byte{
-				km1.Address(): correctCommittedSeal,
+				km1.Address(): seal1,
 			},
-			validators:  validators.NewBLSValidatorSet(),
-			expectedRes: nil,
-			expectedErr: ErrNonValidatorCommittedSeal,
+			validators:  validators.NewECDSAValidatorSet(),
+			expectedErr: nil,
 		},
 		{
-			name:        "should return error if sealMap is empty",
-			sealMap:     map[types.Address][]byte{},
-			validators:  validators.NewBLSValidatorSet(),
-			expectedRes: nil,
-			expectedErr: errors.New("at least one signature is required"),
-		},
-		{
-			name: "should return AggregatedSeal if successful",
+			name: "should return SerializedSeal if successful with two signers",
 			sealMap: map[types.Address][]byte{
-				km1.Address(): correctCommittedSeal,
+				km1.Address(): seal1,
+				km2.Address(): seal2,
 			},
-			validators: validators.NewBLSValidatorSet(
-				testHSMKeyManagerToBLSValidator(t, km1),
-			),
-			expectedRes: &AggregatedSeal{
-				Bitmap:    new(big.Int).SetBit(new(big.Int), 0, 1),
-				Signature: aggregatedBLSSigBytes,
-			},
+			validators:  validators.NewECDSAValidatorSet(),
 			expectedErr: nil,
 		},
 	}
@@ -432,8 +350,13 @@ func TestHSMKeyManagerGenerateCommittedSeals(t *testing.T) {
 
 			res, err := km1.GenerateCommittedSeals(test.sealMap, test.validators)
 
-			assert.Equal(t, test.expectedRes, res)
 			testHelper.AssertErrorMessageContains(t, test.expectedErr, err)
+
+			if test.expectedErr == nil {
+				serialized, ok := res.(*SerializedSeal)
+				require.True(t, ok)
+				assert.Equal(t, len(test.sealMap), serialized.Num())
+			}
 		})
 	}
 }
@@ -444,18 +367,26 @@ func TestHSMKeyManagerVerifyCommittedSeals(t *testing.T) {
 	km1, _ := newTestHSMKeyManager(t)
 	km2, _ := newTestHSMKeyManager(t)
 
-	msg := polygoncrypto.Keccak256(
-		wrapCommitHash(
-			hex.MustDecodeHex(testHeaderHashHex),
-		),
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
+
+	seal1, err := km1.SignCommittedSeal(msg)
+	require.NoError(t, err)
+
+	seal2, err := km2.SignCommittedSeal(msg)
+	require.NoError(t, err)
+
+	seals, err := km1.GenerateCommittedSeals(
+		map[types.Address][]byte{
+			km1.Address(): seal1,
+			km2.Address(): seal2,
+		},
+		validators.NewECDSAValidatorSet(),
 	)
+	require.NoError(t, err)
 
-	correctAggregatedSig := testCreateAggregatedSignature(t, msg, km1, km2)
-
-	wrongAggregatedSig := testCreateAggregatedSignature(
-		t,
-		[]byte("fake"),
-		km1, km2,
+	valSet := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(km1.Address()),
+		validators.NewECDSAValidator(km2.Address()),
 	)
 
 	tests := []struct {
@@ -467,64 +398,36 @@ func TestHSMKeyManagerVerifyCommittedSeals(t *testing.T) {
 		expectedErr    error
 	}{
 		{
-			name:           "should return ErrInvalidCommittedSealType if Seals is not *AggregatedSeal",
-			committedSeals: &SerializedSeal{},
+			name:           "should return ErrInvalidCommittedSealType if Seals is not *SerializedSeal",
+			committedSeals: &AggregatedSeal{},
 			digest:         msg,
-			validators:     nil,
+			validators:     valSet,
 			expectedRes:    0,
 			expectedErr:    ErrInvalidCommittedSealType,
 		},
 		{
-			name: "should return ErrInvalidValidators if validators is wrong type",
-			committedSeals: &AggregatedSeal{
-				Bitmap:    new(big.Int).SetBytes([]byte{0x3}),
-				Signature: correctAggregatedSig,
-			},
-			digest:      msg,
-			validators:  validators.NewECDSAValidatorSet(),
-			expectedRes: 0,
-			expectedErr: ErrInvalidValidators,
+			name:           "should return ErrInvalidValidators if validators is wrong type",
+			committedSeals: seals,
+			digest:         msg,
+			validators:     validators.NewBLSValidatorSet(),
+			expectedRes:    0,
+			expectedErr:    ErrInvalidValidators,
 		},
 		{
-			name: "should return ErrEmptyCommittedSeals if signature is empty",
-			committedSeals: &AggregatedSeal{
-				Bitmap:    new(big.Int).SetBit(new(big.Int), 0, 1),
-				Signature: []byte{},
-			},
-			digest: msg,
-			validators: validators.NewBLSValidatorSet(
-				testHSMKeyManagerToBLSValidator(t, km1),
-			),
-			expectedRes: 0,
-			expectedErr: ErrEmptyCommittedSeals,
+			name:           "should return ErrEmptyCommittedSeals if seal set is empty",
+			committedSeals: &SerializedSeal{},
+			digest:         msg,
+			validators:     valSet,
+			expectedRes:    0,
+			expectedErr:    ErrEmptyCommittedSeals,
 		},
 		{
-			name: "should return ErrInvalidSignature if message is different",
-			committedSeals: &AggregatedSeal{
-				Bitmap:    new(big.Int).SetBytes([]byte{0x3}),
-				Signature: wrongAggregatedSig,
-			},
-			digest: msg,
-			validators: validators.NewBLSValidatorSet(
-				testHSMKeyManagerToBLSValidator(t, km1),
-				testHSMKeyManagerToBLSValidator(t, km2),
-			),
-			expectedRes: 0,
-			expectedErr: ErrInvalidSignature,
-		},
-		{
-			name: "should return count if verification is successful",
-			committedSeals: &AggregatedSeal{
-				Bitmap:    new(big.Int).SetBytes([]byte{0x3}),
-				Signature: correctAggregatedSig,
-			},
-			digest: msg,
-			validators: validators.NewBLSValidatorSet(
-				testHSMKeyManagerToBLSValidator(t, km1),
-				testHSMKeyManagerToBLSValidator(t, km2),
-			),
-			expectedRes: 2,
-			expectedErr: nil,
+			name:           "should return count if verification is successful",
+			committedSeals: seals,
+			digest:         msg,
+			validators:     valSet,
+			expectedRes:    2,
+			expectedErr:    nil,
 		},
 	}
 
@@ -546,6 +449,7 @@ func TestHSMKeyManagerVerifyCommittedSeals(t *testing.T) {
 	}
 }
 
+//nolint:dupl
 func TestHSMKeyManager_MultipleSignersAggregation(t *testing.T) {
 	t.Parallel()
 
@@ -553,13 +457,8 @@ func TestHSMKeyManager_MultipleSignersAggregation(t *testing.T) {
 	km2, _ := newTestHSMKeyManager(t)
 	km3, _ := newTestHSMKeyManager(t)
 
-	msg := polygoncrypto.Keccak256(
-		wrapCommitHash(
-			hex.MustDecodeHex(testHeaderHashHex),
-		),
-	)
+	msg := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
 
-	// Each validator signs the committed seal
 	sealMap := make(map[types.Address][]byte)
 
 	for _, km := range []*HSMKeyManager{km1, km2, km3} {
@@ -569,18 +468,15 @@ func TestHSMKeyManager_MultipleSignersAggregation(t *testing.T) {
 		sealMap[km.Address()] = seal
 	}
 
-	// Build validator set
-	valSet := validators.NewBLSValidatorSet(
-		testHSMKeyManagerToBLSValidator(t, km1),
-		testHSMKeyManagerToBLSValidator(t, km2),
-		testHSMKeyManagerToBLSValidator(t, km3),
+	valSet := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(km1.Address()),
+		validators.NewECDSAValidator(km2.Address()),
+		validators.NewECDSAValidator(km3.Address()),
 	)
 
-	// Generate aggregated seal
 	seals, err := km1.GenerateCommittedSeals(sealMap, valSet)
 	require.NoError(t, err)
 
-	// Verify aggregated seal
 	count, err := km1.VerifyCommittedSeals(seals, msg, valSet)
 	require.NoError(t, err)
 
@@ -593,9 +489,7 @@ func TestHSMKeyManager_FullIBFTRound(t *testing.T) {
 	km1, _ := newTestHSMKeyManager(t)
 	km2, _ := newTestHSMKeyManager(t)
 
-	headerHash := polygoncrypto.Keccak256(
-		hex.MustDecodeHex(testHeaderHashHex),
-	)
+	headerHash := polygoncrypto.Keccak256(hex.MustDecodeHex(testHeaderHashHex))
 
 	proposerSeal, err := km1.SignProposerSeal(headerHash)
 	require.NoError(t, err)
@@ -615,9 +509,7 @@ func TestHSMKeyManager_FullIBFTRound(t *testing.T) {
 		assert.Equal(t, km.Address(), recovered)
 	}
 
-	commitHash := polygoncrypto.Keccak256(
-		wrapCommitHash(headerHash),
-	)
+	commitHash := polygoncrypto.Keccak256(wrapCommitHash(headerHash))
 
 	sealMap := make(map[types.Address][]byte)
 
@@ -628,9 +520,9 @@ func TestHSMKeyManager_FullIBFTRound(t *testing.T) {
 		sealMap[km.Address()] = seal
 	}
 
-	valSet := validators.NewBLSValidatorSet(
-		testHSMKeyManagerToBLSValidator(t, km1),
-		testHSMKeyManagerToBLSValidator(t, km2),
+	valSet := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(km1.Address()),
+		validators.NewECDSAValidator(km2.Address()),
 	)
 
 	seals, err := km1.GenerateCommittedSeals(sealMap, valSet)

@@ -7,77 +7,51 @@ import (
 	"github.com/0xPolygon/polygon-edge/validators"
 )
 
-// BackendType selects the signing backend at node startup
-type BackendType string
+type KeyManagerFactory func(valType validators.ValidatorType) (KeyManager, error)
 
-const (
-	BackendLocal  BackendType = "local"
-	BackendAWSKMS BackendType = "aws-kms"
-)
-
-// KeyManagerConfig holds all configuration needed to construct either backend.
-// Only the fields relevant to the chosen Backend need to be populated.
-type KeyManagerConfig struct {
-	// Backend selects which signing backend to use
-	Backend BackendType
-
-	// ValidatorType is used only when Backend == BackendLocal
-	ValidatorType validators.ValidatorType
-
-	// SecretsManager is used only when Backend == BackendLocal
-	SecretsManager secrets.SecretsManager
-
-	// AWSKMS is used only when Backend == BackendAWSKMS
-	AWSKMS KMSConfig
+// Local — uses SecretsManager as before
+func LocalKeyManagerFactory(sm secrets.SecretsManager) KeyManagerFactory {
+	return func(valType validators.ValidatorType) (KeyManager, error) {
+		return NewKeyManagerFromType(sm, valType)
+	}
 }
 
-// LocalConfig holds configuration for the local (classic) key manager
-type LocalConfig struct {
-	// SecretsManager is the existing polygon-edge secrets abstraction.
-	// When nil and backend is local, construction will fail.
-	SecretsManager secrets.SecretsManager
+// KMS — only ECDSA, no SecretsManager involved
+func KMSKeyManagerFactory(cfg *KMSConfig) KeyManagerFactory {
+	return func(valType validators.ValidatorType) (KeyManager, error) {
+		if valType != validators.ECDSAValidatorType {
+			return nil, fmt.Errorf("KMS backend only supports ECDSA, got %s", valType)
+		}
+
+		return NewKMSKeyManager(cfg)
+	}
 }
 
-// NewKeyManagerFromConfig is the single decision point for which backend
-// is used. Everything downstream receives a KeyManager and is blind to
-// which backend was chosen.
-//
-// Usage:
-//
-//	// Classic — behaviour identical to before
-//	km, err := NewKeyManagerFromConfig(KeyManagerConfig{
-//	    Backend: BackendLocal,
-//	    Local:   LocalConfig{SecretsManager: sm},
-//	})
-//
-//	// HSM — no key file, signs via KMS
-//	km, err := NewKeyManagerFromConfig(KeyManagerConfig{
-//	    Backend: BackendAWSKMS,
-//	    AWSKMS:  KMSConfig{KeyID: "arn:...", Region: "us-east-1"},
-//	})
-func NewKeyManagerFromConfig(cfg KeyManagerConfig) (KeyManager, error) {
+// HSM — only ECDSA, no SecretsManager involved
+func HSMKeyManagerFactory(cfg *HSMConfig) KeyManagerFactory {
+	return func(valType validators.ValidatorType) (KeyManager, error) {
+		if valType != validators.ECDSAValidatorType {
+			return nil, fmt.Errorf("HSM backend only supports ECDSA, got %s", valType)
+		}
+
+		return NewHSMKeyManagerFromConfig(cfg)
+	}
+}
+
+func LoadKeyManagerFactory(cfg *SignerConfig, fallback secrets.SecretsManager) (KeyManagerFactory, error) {
+	if cfg == nil {
+		// no signer config — existing nodes unaffected
+		return LocalKeyManagerFactory(fallback), nil
+	}
+
 	switch cfg.Backend {
-	case BackendLocal:
-		return newLocalKeyManager(cfg.SecretsManager, cfg.ValidatorType)
-
-	case BackendAWSKMS:
-		return NewKMSKeyManager(cfg.AWSKMS, nil)
-
+	case SignerBackendKMS:
+		return KMSKeyManagerFactory(cfg.KMS), nil
+	case SignerBackendHSM:
+		return HSMKeyManagerFactory(cfg.HSM), nil
+	case SignerBackendLocal, "":
+		return LocalKeyManagerFactory(fallback), nil
 	default:
-		return nil, fmt.Errorf(
-			"unknown signing backend %q — valid options are %q and %q",
-			cfg.Backend, BackendLocal, BackendAWSKMS,
-		)
+		return nil, fmt.Errorf("unknown signer backend %q", cfg.Backend)
 	}
-}
-
-func newLocalKeyManager(
-	manager secrets.SecretsManager,
-	validatorType validators.ValidatorType,
-) (KeyManager, error) {
-	if manager == nil {
-		return nil, fmt.Errorf("local backend requires a non-nil SecretsManager")
-	}
-
-	return NewKeyManagerFromType(manager, validatorType)
 }
