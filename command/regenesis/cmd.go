@@ -9,9 +9,11 @@ var (
 )
 
 type regenesisParams struct {
-	TrieDBPath         string
-	SnapshotTrieDBPath string
-	TrieRoot           string
+	SrcDBPath string
+	DstDBPath string
+	TrieRoot  string
+	SrcDBType string
+	DstDBType string
 }
 
 func GetCommand() *cobra.Command {

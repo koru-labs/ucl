@@ -38,6 +38,8 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
+	i.logger.Info("new block proposal", "number", block.Header.Number, "hash", block.Hash(), "stateRoot", block.Header.StateRoot)
+
 	return block.MarshalRLP()
 }
 

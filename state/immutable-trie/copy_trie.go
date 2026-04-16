@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
-	"github.com/cockroachdb/pebble"
 
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -236,10 +235,6 @@ func hashChecker(node Node, h *hasher, a *fastrlp.Arena, d int, storage Storage)
 
 func NewKV(db *leveldb.DB) *KVStorage {
 	return &KVStorage{db: db}
-}
-
-func NewPebble(db *pebble.DB) *pebbleStorage {
-	return &pebbleStorage{db: db}
 }
 
 func NewTrieWithRoot(root Node) *Trie {

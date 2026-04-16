@@ -126,12 +126,12 @@ func TestE2E_Migration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, err := pebble.Open(tmpDir, &pebble.Options{ReadOnly: true})
+	stateStorageNew, err := itrie.NewPebbleDBStorageWithOpts(tmpDir, &pebble.Options{ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	stateStorageNew := itrie.NewPebble(db)
+	defer stateStorageNew.Close()
 
 	copiedStateRoot, err := itrie.HashChecker(block.StateRoot.Bytes(), stateStorageNew)
 	if err != nil {
@@ -139,11 +139,6 @@ func TestE2E_Migration(t *testing.T) {
 	}
 
 	require.Equal(t, types.Hash(stateRoot), copiedStateRoot)
-
-	err = db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	cluster := frameworkpolybft.NewTestCluster(t, 7,
 		frameworkpolybft.WithNonValidators(2),
