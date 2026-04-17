@@ -58,7 +58,7 @@ func setFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringVar(
 		&params.kmsSecretKey,
-		kmsSecretKeyFlag,
+		kmsKeyFlag,
 		"",
 		"[kms] the AWS secret access key (leave empty to use instance role)",
 	)
@@ -101,7 +101,7 @@ func setFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringVar(
 		&params.hsmTokenLabel,
-		hsmTokenLabelFlag,
+		hsmLabelFlag,
 		"",
 		"[hsm] the HSM token label",
 	)

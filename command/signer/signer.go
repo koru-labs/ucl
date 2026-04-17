@@ -8,8 +8,9 @@ import (
 
 func GetCommand() *cobra.Command {
 	secretsCmd := &cobra.Command{
-		Use:   "signer",
-		Short: "Top level signer command for managing node signing backend configuration. Only accepts subcommands. Only accepts subcommands.",
+		Use: "signer",
+		Short: "Top level signer command for managing node signing backend configuration." +
+			"Only accepts subcommands.",
 	}
 
 	helper.RegisterGRPCAddressFlag(secretsCmd)
