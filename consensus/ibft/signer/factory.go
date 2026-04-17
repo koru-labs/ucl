@@ -38,10 +38,10 @@ func HSMKeyManagerFactory(cfg *HSMConfig) KeyManagerFactory {
 	}
 }
 
-func LoadKeyManagerFactory(cfg *SignerConfig, fallback secrets.SecretsManager) (KeyManagerFactory, error) {
+func LoadKeyManagerFactory(cfg *SignerConfig, secretManager secrets.SecretsManager) (KeyManagerFactory, error) {
 	if cfg == nil {
 		// no signer config — existing nodes unaffected
-		return LocalKeyManagerFactory(fallback), nil
+		return LocalKeyManagerFactory(secretManager), nil
 	}
 
 	switch cfg.Backend {
@@ -50,7 +50,7 @@ func LoadKeyManagerFactory(cfg *SignerConfig, fallback secrets.SecretsManager) (
 	case SignerBackendHSM:
 		return HSMKeyManagerFactory(cfg.HSM), nil
 	case SignerBackendLocal, "":
-		return LocalKeyManagerFactory(fallback), nil
+		return LocalKeyManagerFactory(secretManager), nil
 	default:
 		return nil, fmt.Errorf("unknown signer backend %q", cfg.Backend)
 	}

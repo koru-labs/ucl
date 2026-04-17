@@ -49,7 +49,14 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 		return nil, fmt.Errorf("hsm: failed to initialize PKCS#11 context: %w", err)
 	}
 
-	return NewHSMKeyManager(hsmCtx, cfg.KeyLabel)
+	keyManager, err := NewHSMKeyManager(hsmCtx, cfg.KeyLabel)
+	if err != nil {
+		hsmCtx.Close()
+
+		return nil, err
+	}
+
+	return keyManager, nil
 }
 
 // NewHSMKeyManager constructs an HSMKeyManager from an already-initialized
