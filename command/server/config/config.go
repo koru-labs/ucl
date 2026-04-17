@@ -17,6 +17,7 @@ import (
 type Config struct {
 	GenesisPath              string        `json:"chain_config" yaml:"chain_config"`
 	SecretsConfigPath        string        `json:"secrets_config" yaml:"secrets_config"`
+	SignerConfigPath         string        `json:"signer_config" yaml:"signer_config"`
 	DataDir                  string        `json:"data_dir" yaml:"data_dir"`
 	BlockGasTarget           string        `json:"block_gas_target" yaml:"block_gas_target"`
 	GRPCAddr                 string        `json:"grpc_addr" yaml:"grpc_addr"`

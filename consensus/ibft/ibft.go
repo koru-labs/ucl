@@ -128,7 +128,7 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 		logger,
 		params.Blockchain,
 		params.Executor,
-		params.SecretsManager,
+		params.KeyManagerFactory,
 		params.Config.Path,
 		epochSize,
 		params.Config.Config,

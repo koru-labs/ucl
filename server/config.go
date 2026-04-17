@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 )
@@ -37,6 +38,7 @@ type Config struct {
 	Seal bool
 
 	SecretsManager *secrets.SecretsManagerConfig
+	SignerConfig   *signer.SignerConfig
 
 	LogLevel hclog.Level
 

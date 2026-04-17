@@ -57,6 +57,10 @@ func (m *mockSecretManager) GetSecret(name string) ([]byte, error) {
 	return m.GetSecretFunc(name)
 }
 
+func localFactory(sm secrets.SecretsManager) signer.KeyManagerFactory {
+	return signer.LocalKeyManagerFactory(sm)
+}
+
 func TestNewForkManager(t *testing.T) {
 	t.Parallel()
 
@@ -75,7 +79,7 @@ func TestNewForkManager(t *testing.T) {
 			logger,
 			nil,
 			nil,
-			nil,
+			localFactory(nil),
 			"",
 			0,
 			map[string]interface{}{},
@@ -104,7 +108,7 @@ func TestNewForkManager(t *testing.T) {
 			logger,
 			nil,
 			nil,
-			secretManager,
+			localFactory(secretManager),
 			"",
 			epochSize,
 			map[string]interface{}{
@@ -152,7 +156,7 @@ func TestNewForkManager(t *testing.T) {
 			logger,
 			blockchain,
 			nil,
-			secretManager,
+			localFactory(secretManager),
 			dirPath,
 			epochSize,
 			map[string]interface{}{
@@ -233,7 +237,7 @@ func TestNewForkManager(t *testing.T) {
 			logger,
 			blockchain,
 			nil,
-			secretManager,
+			localFactory(secretManager),
 			dirPath,
 			epochSize,
 			map[string]interface{}{
@@ -278,7 +282,7 @@ func TestNewForkManager(t *testing.T) {
 			logger,
 			nil,
 			nil,
-			secretManager,
+			localFactory(secretManager),
 			"",
 			epochSize,
 			map[string]interface{}{
@@ -760,7 +764,7 @@ func TestForkManager_initializeKeyManagers(t *testing.T) {
 	tests := []struct {
 		name                string
 		forks               IBFTForks
-		secretManager       *mockSecretManager
+		factory             signer.KeyManagerFactory
 		expectedErr         error
 		expectedKeyManagers map[validators.ValidatorType]signer.KeyManager
 	}{
@@ -773,7 +777,7 @@ func TestForkManager_initializeKeyManagers(t *testing.T) {
 					From:          common.JSONNumber{Value: 0},
 				},
 			},
-			secretManager:       nil,
+			factory:             localFactory(nil),
 			expectedErr:         errors.New("unsupported validator type: fake"),
 			expectedKeyManagers: map[validators.ValidatorType]signer.KeyManager{},
 		},
@@ -792,7 +796,7 @@ func TestForkManager_initializeKeyManagers(t *testing.T) {
 					From:          common.JSONNumber{Value: 50},
 				},
 			},
-			secretManager: &mockSecretManager{
+			factory: localFactory(&mockSecretManager{
 				HasSecretFunc: func(name string) bool {
 					assert.Equal(t, secrets.ValidatorKey, name)
 
@@ -803,7 +807,7 @@ func TestForkManager_initializeKeyManagers(t *testing.T) {
 
 					return keyBytes, nil
 				},
-			},
+			}),
 			expectedErr: nil,
 			expectedKeyManagers: map[validators.ValidatorType]signer.KeyManager{
 				validators.ECDSAValidatorType: signer.NewECDSAKeyManagerFromKey(key),
@@ -818,9 +822,9 @@ func TestForkManager_initializeKeyManagers(t *testing.T) {
 			t.Parallel()
 
 			fm := &ForkManager{
-				forks:          test.forks,
-				secretsManager: test.secretManager,
-				keyManagers:    map[validators.ValidatorType]signer.KeyManager{},
+				forks:             test.forks,
+				keyManagerFactory: test.factory,
+				keyManagers:       map[validators.ValidatorType]signer.KeyManager{},
 			}
 
 			testHelper.AssertErrorMessageContains(
