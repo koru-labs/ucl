@@ -128,3 +128,19 @@ func (p *generateParams) getResult() command.CommandResult {
 		HSMTokenLabel: p.hsmTokenLabel,
 	}
 }
+
+func (p *generateParams) getKMSRequiredFlags() []string {
+	return []string{
+		kmsKeyIDFlag,
+		kmsRegionFlag,
+	}
+}
+
+func (p *generateParams) getHSMRequiredFlags() []string {
+	return []string{
+		hsmLibPathFlag,
+		hsmPinFlag,
+		hsmKeyLabelFlag,
+		hsmLabelFlag,
+	}
+}

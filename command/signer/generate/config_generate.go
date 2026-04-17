@@ -10,125 +10,163 @@ func GetCommand() *cobra.Command {
 	signerGenerateCmd := &cobra.Command{
 		Use:   "generate-config",
 		Short: "Generates a signer configuration file for KMS or HSM backend.",
-		Run:   runCommand,
 	}
 
-	setFlags(signerGenerateCmd)
-	helper.SetRequiredFlags(signerGenerateCmd, params.getRequiredFlags())
-
-	return signerGenerateCmd
-}
-
-func setFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(
+	// Persistent flag available to both subcommands
+	signerGenerateCmd.PersistentFlags().StringVar(
 		&params.dir,
 		dirFlag,
 		defaultConfigFileName,
 		"the output path for the signer configuration file",
 	)
 
-	cmd.Flags().StringVar(
-		&params.backend,
-		backendFlag,
-		"",
-		"the signer backend type (kms, hsm)",
+	signerGenerateCmd.AddCommand(
+		getKMSCommand(),
+		getHSMCommand(),
 	)
 
-	// KMS flags
+	return signerGenerateCmd
+}
+
+func getKMSCommand() *cobra.Command {
+	kmsCmd := &cobra.Command{
+		Use:   "kms",
+		Short: "Generates a signer configuration file for AWS KMS backend.",
+		Run:   runKMSCommand,
+	}
+
+	setKMSFlags(kmsCmd)
+	helper.SetRequiredFlags(kmsCmd, params.getKMSRequiredFlags())
+
+	return kmsCmd
+}
+
+func getHSMCommand() *cobra.Command {
+	hsmCmd := &cobra.Command{
+		Use:   "hsm",
+		Short: "Generates a signer configuration file for HSM backend.",
+		Run:   runHSMCommand,
+	}
+
+	setHSMFlags(hsmCmd)
+	helper.SetRequiredFlags(hsmCmd, params.getHSMRequiredFlags())
+
+	return hsmCmd
+}
+
+func setKMSFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(
 		&params.kmsKeyID,
 		kmsKeyIDFlag,
 		"",
-		"[kms] the KMS key ARN or alias",
+		"the KMS key ARN or alias",
 	)
 
 	cmd.Flags().StringVar(
 		&params.kmsRegion,
 		kmsRegionFlag,
 		"",
-		"[kms] the AWS region",
+		"the AWS region",
 	)
 
 	cmd.Flags().StringVar(
 		&params.kmsAccessKey,
 		kmsAccessKeyFlag,
 		"",
-		"[kms] the AWS access key ID (leave empty to use instance role)",
+		"the AWS access key ID (leave empty to use instance role)",
 	)
 
 	cmd.Flags().StringVar(
 		&params.kmsSecretKey,
 		kmsKeyFlag,
 		"",
-		"[kms] the AWS secret access key (leave empty to use instance role)",
+		"the AWS secret access key (leave empty to use instance role)",
 	)
 
 	cmd.Flags().StringVar(
 		&params.kmsRoleARN,
 		kmsRoleARNFlag,
 		"",
-		"[kms] the IAM role ARN to assume for cross-account keys",
+		"the IAM role ARN to assume for cross-account keys",
 	)
 
 	cmd.Flags().StringVar(
 		&params.kmsEndpoint,
 		kmsEndpointFlag,
 		"",
-		"[kms] custom endpoint override for LocalStack or testing",
+		"custom endpoint override for LocalStack or testing",
 	)
+}
 
-	// HSM flags
+func setHSMFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(
 		&params.hsmPin,
 		hsmPinFlag,
 		"",
-		"[hsm] the HSM PIN",
+		"the HSM PIN",
 	)
 
 	cmd.Flags().StringVar(
 		&params.hsmKeyLabel,
 		hsmKeyLabelFlag,
 		"",
-		"[hsm] the label of the key pair in the HSM",
+		"the label of the key pair in the HSM",
 	)
 
 	cmd.Flags().StringVar(
 		&params.hsmLibPath,
 		hsmLibPathFlag,
 		"",
-		"[hsm] the path to the PKCS#11 library",
+		"the path to the PKCS#11 library",
 	)
 
 	cmd.Flags().StringVar(
 		&params.hsmTokenLabel,
 		hsmLabelFlag,
 		"",
-		"[hsm] the HSM token label",
+		"the HSM token label",
 	)
 
 	cmd.Flags().StringVar(
 		&params.hsmClusterID,
 		hsmClusterIDFlag,
 		"",
-		"[hsm] the CloudHSM cluster ID",
+		"the CloudHSM cluster ID",
 	)
 
 	cmd.Flags().IntVar(
 		&params.hsmMaxSessions,
 		hsmMaxSessionsFlag,
 		0,
-		"[hsm] the maximum number of HSM sessions",
+		"the maximum number of HSM sessions",
 	)
 
 	cmd.Flags().IntVar(
 		&params.hsmSessionTimeout,
 		hsmSessionTimeoutFlag,
 		0,
-		"[hsm] the HSM session timeout in seconds",
+		"the HSM session timeout in seconds",
 	)
 }
 
-func runCommand(cmd *cobra.Command, _ []string) {
+func runKMSCommand(cmd *cobra.Command, _ []string) {
+	params.backend = "kms"
+
+	outputter := command.InitializeOutputter(cmd)
+	defer outputter.WriteOutput()
+
+	if err := params.writeSignerConfig(); err != nil {
+		outputter.SetError(err)
+
+		return
+	}
+
+	outputter.SetCommandResult(params.getResult())
+}
+
+func runHSMCommand(cmd *cobra.Command, _ []string) {
+	params.backend = "hsm"
+
 	outputter := command.InitializeOutputter(cmd)
 	defer outputter.WriteOutput()
 
