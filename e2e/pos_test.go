@@ -825,6 +825,9 @@ func TestSnapshotUpdating(t *testing.T) {
 		t.Fatalf("Unable to stake amount, %v", stakeError)
 	}
 
+	// Wait for the transaction to be mined
+	<-time.After(2 * time.Second)
+
 	// Check validator set on the Staking Smart Contract
 	validateValidatorSet(t, firstNonValidatorAddr, firstValidator.JSONRPC(), true, numGenesisValidators+1)
 
