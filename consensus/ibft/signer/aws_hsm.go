@@ -51,7 +51,7 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 
 	keyManager, err := NewHSMKeyManager(hsmCtx, cfg.KeyLabel)
 	if err != nil {
-		hsmCtx.Close()
+		hsmCtx.Close() //nolint:errcheck
 
 		return nil, err
 	}
