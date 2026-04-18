@@ -10,13 +10,26 @@ import (
 
 // Correct Besu Column Family Names for Bonsai Tries
 const (
-	defaultCF        = "default"
-	blockchainCF     = "BLOCKCHAIN"
-	trieBranchCF     = "TRIE_BRANCH_STORAGE"     // Actual Trie structure
-	accountInfoCF    = "ACCOUNT_INFO_STATE"      // Account leaves
-	accountStorageCF = "ACCOUNT_STORAGE_STORAGE" // Storage leaves
-	trieLogStorageCF = "TRIE_LOG_STORAGE"
-	codeStorageCF    = "CODE_STORAGE"
+	// blockchainCF  = 1
+	// worldStateCF = 2
+	// No longer used but retained for DB backwards compatibility
+	// privateTransactionsCF = 3
+	// privateStateCF        = 4
+	// pruningStateCF        = 5
+	accountInfoCF    = 6
+	codeStorageCF    = 7
+	accountStorageCF = 8
+	trieBranchCF     = 9
+	trieLogStorageCF = 10
+	// variablesCF      = 11 // formerly GOQUORUM_PRIVATE_WORLD_STATE
+	// previously supported GoQuorum private states
+	// goQuorumPrivateStorageCF      = 12
+	// backwardSyncHeadersCF         = 13
+	// backwardSyncBlocksCF          = 14
+	// backwardSyncChainCF           = 15
+	// snapSyncMissingAccountRangeCF = 16
+	// snapSyncAccountToFixCF        = 17
+	// chainPrunerStateCF            = 18
 )
 
 // NewRocksDBStorage creates a RocksDB-based state storage instance
@@ -33,13 +46,9 @@ func NewRocksDBStorage(path string, isReadOnly bool) (Storage, error) {
 	opts := getOptions(isReadOnly)
 	// In NewRocksDBStorage update your slice:
 	cfNames := []string{
-		defaultCF,
-		blockchainCF,
-		trieBranchCF,
-		accountInfoCF,
-		accountStorageCF,
-		trieLogStorageCF,
-		codeStorageCF,
+		string(rune(accountInfoCF)),
+		string(rune(accountStorageCF)), string(rune(trieBranchCF)),
+		string(rune(trieLogStorageCF)), string(rune(codeStorageCF)), "default",
 	}
 
 	cfOpts := make([]*grocksdb.Options, len(cfNames))
@@ -82,13 +91,12 @@ func NewRocksDBStorage(path string, isReadOnly bool) (Storage, error) {
 		db:               db,
 		readOpts:         readOpts,
 		writeOpts:        writeOpts,
-		defaultCF:        cfHandles[0],
-		blockchainCF:     cfHandles[1],
+		opts:             opts,
+		accountInfoCF:    cfHandles[0],
+		accountStorageCF: cfHandles[1],
 		trieBranchCF:     cfHandles[2],
-		accountInfoCF:    cfHandles[3],
-		accountStorageCF: cfHandles[4],
-		trieLogStorageCF: cfHandles[5],
-		codeCF:           cfHandles[6],
+		trieLogStorageCF: cfHandles[3],
+		codeStorageCF:    cfHandles[4],
 	}, nil
 }
 
@@ -100,14 +108,11 @@ type rocksDBStorage struct {
 	writeOpts *grocksdb.WriteOptions // Reusable write options to reduce object allocation
 	opts      *grocksdb.Options      // Database options for reference (not used directly in methods)
 	// Besu Column Families
-	defaultCF    *grocksdb.ColumnFamilyHandle
-	blockchainCF *grocksdb.ColumnFamilyHandle
-	// Trie Structure & State
-	trieBranchCF     *grocksdb.ColumnFamilyHandle // Actual Merkle Patricia Trie nodes
-	accountInfoCF    *grocksdb.ColumnFamilyHandle // Flat account data (Balance, Nonce)
-	accountStorageCF *grocksdb.ColumnFamilyHandle // Contract storage slots
-	trieLogStorageCF *grocksdb.ColumnFamilyHandle // State diffs for reorgs
-	codeCF           *grocksdb.ColumnFamilyHandle // EVM Bytecode
+	accountInfoCF    *grocksdb.ColumnFamilyHandle
+	accountStorageCF *grocksdb.ColumnFamilyHandle
+	trieBranchCF     *grocksdb.ColumnFamilyHandle
+	trieLogStorageCF *grocksdb.ColumnFamilyHandle
+	codeStorageCF    *grocksdb.ColumnFamilyHandle
 }
 
 // Put stores a key-value pair
@@ -136,10 +141,7 @@ func (r *rocksDBStorage) Get(k []byte) ([]byte, bool, error) {
 
 	columnFamily := r.getFamily(prefix)
 
-	ro := grocksdb.NewDefaultReadOptions()
-	defer ro.Destroy()
-
-	val, err := r.db.GetCF(ro, columnFamily, realKey)
+	val, err := r.db.GetCF(r.readOpts, columnFamily, realKey)
 	if err != nil {
 		return nil, false, err
 	}
@@ -170,13 +172,11 @@ func (r *rocksDBStorage) Batch() Batch {
 		db:               r.db,
 		writeBatch:       grocksdb.NewWriteBatch(),
 		writeOpts:        r.writeOpts, // Reuse parent object's write options
-		defaultCF:        r.defaultCF,
-		blockchainCF:     r.blockchainCF,
-		trieBranchCF:     r.trieBranchCF,
 		accountInfoCF:    r.accountInfoCF,
 		accountStorageCF: r.accountStorageCF,
+		trieBranchCF:     r.trieBranchCF,
 		trieLogStorageCF: r.trieLogStorageCF,
-		codeCF:           r.codeCF,
+		codeStorageCF:    r.codeStorageCF,
 	}
 }
 
@@ -207,9 +207,6 @@ func (r *rocksDBStorage) Compact(start []byte, limit []byte) error {
 }
 
 func (r *rocksDBStorage) Has(k []byte) (bool, error) {
-	ro := grocksdb.NewDefaultReadOptions()
-	defer ro.Destroy()
-
 	prefix, realKey, err := splitKey(k)
 	if err != nil {
 		return false, err
@@ -217,7 +214,7 @@ func (r *rocksDBStorage) Has(k []byte) (bool, error) {
 
 	columnFamily := r.getFamily(prefix)
 
-	slice := r.db.KeyMayExistsCF(ro, columnFamily, realKey, "")
+	slice := r.db.KeyMayExistsCF(r.readOpts, columnFamily, realKey, "")
 	if slice == nil {
 		return false, nil
 	}
@@ -255,26 +252,16 @@ func (r *rocksDBStorage) Close() error {
 
 func (b *rocksDBStorage) getFamily(prefix byte) *grocksdb.ColumnFamilyHandle {
 	switch prefix {
-	// Contract Code
 	case 'c':
-		return b.codeCF // Maps to "CODE_STORAGE"
-	// Account Data (Leaves) - Balance, Nonce, CodeHash
+		return b.codeStorageCF
 	case 'a':
-		return b.accountInfoCF // Maps to "ACCOUNT_INFO_STATE"
-	// Contract Storage (Leaves) - Individual slot values
+		return b.accountInfoCF
 	case 's':
-		return b.accountStorageCF // Maps to "ACCOUNT_STORAGE_STORAGE"
-	// Trie Structure (Branches) - The actual Merkle Patricia Trie nodes
-	case 't', 'n':
-		return b.trieBranchCF // Maps to "TRIE_BRANCH_STORAGE"
-	// Block-related data (Headers, Bodies, Receipts)
-	case 'b':
-		return b.blockchainCF // Maps to "BLOCKCHAIN"
-	// Trie Logs (State diffs/Reorg data)
+		return b.accountStorageCF
 	case 'l':
-		return b.trieLogStorageCF // Maps to "TRIE_LOG_STORAGE"
+		return b.trieLogStorageCF
 	default:
-		return b.defaultCF // Falls back to "default"
+		return b.trieBranchCF // case 'n' and default
 	}
 }
 
@@ -285,21 +272,22 @@ type rocksDBBatch struct {
 	writeBatch *grocksdb.WriteBatch   // Write batch
 	writeOpts  *grocksdb.WriteOptions // Reusable write options to reduce object allocation
 	// Besu Column Families
-	defaultCF    *grocksdb.ColumnFamilyHandle
-	blockchainCF *grocksdb.ColumnFamilyHandle
-	// Trie Structure & State
-	trieBranchCF     *grocksdb.ColumnFamilyHandle // Actual Merkle Patricia Trie nodes
-	accountInfoCF    *grocksdb.ColumnFamilyHandle // Flat account data (Balance, Nonce)
-	accountStorageCF *grocksdb.ColumnFamilyHandle // Contract storage slots
-	trieLogStorageCF *grocksdb.ColumnFamilyHandle // State diffs for reorgs
-	codeCF           *grocksdb.ColumnFamilyHandle // EVM Bytecode
+	accountInfoCF    *grocksdb.ColumnFamilyHandle
+	accountStorageCF *grocksdb.ColumnFamilyHandle
+	trieBranchCF     *grocksdb.ColumnFamilyHandle
+	trieLogStorageCF *grocksdb.ColumnFamilyHandle
+	codeStorageCF    *grocksdb.ColumnFamilyHandle
 }
 
 // Put adds a write operation to the batch
 // Implements the Put method of Batch interface
 func (b *rocksDBBatch) Put(k, v []byte) {
-	columnFamily := b.getFamily(k[0])
-	realKey := k[1:]
+	prefix, realKey, err := splitKey(k)
+	if err != nil {
+		return
+	}
+
+	columnFamily := b.getFamily(prefix)
 
 	b.writeBatch.PutCF(columnFamily, realKey, v)
 }
@@ -316,26 +304,16 @@ func (b *rocksDBBatch) Write() error {
 
 func (b *rocksDBBatch) getFamily(prefix byte) *grocksdb.ColumnFamilyHandle {
 	switch prefix {
-	// Contract Code
 	case 'c':
-		return b.codeCF // Maps to "CODE_STORAGE"
-	// Account Data (Leaves) - Balance, Nonce, CodeHash
+		return b.codeStorageCF
 	case 'a':
-		return b.accountInfoCF // Maps to "ACCOUNT_INFO_STATE"
-	// Contract Storage (Leaves) - Individual slot values
+		return b.accountInfoCF
 	case 's':
-		return b.accountStorageCF // Maps to "ACCOUNT_STORAGE_STORAGE"
-	// Trie Structure (Branches) - The actual Merkle Patricia Trie nodes
-	case 't', 'n':
-		return b.trieBranchCF // Maps to "TRIE_BRANCH_STORAGE"
-	// Block-related data (Headers, Bodies, Receipts)
-	case 'b':
-		return b.blockchainCF // Maps to "BLOCKCHAIN"
-	// Trie Logs (State diffs/Reorg data)
+		return b.accountStorageCF
 	case 'l':
-		return b.trieLogStorageCF // Maps to "TRIE_LOG_STORAGE"
+		return b.trieLogStorageCF
 	default:
-		return b.defaultCF // Falls back to "default"
+		return b.trieBranchCF // case 'n' and default
 	}
 }
 
@@ -378,6 +356,10 @@ func getOptions(isReadOnly bool) *grocksdb.Options {
 }
 
 func splitKey(k []byte) (byte, []byte, error) {
+	if len(k) <= 32 {
+		return 'n', k, nil
+	}
+
 	if len(k) == 0 {
 		return 0, nil, errors.New("empty key")
 	}

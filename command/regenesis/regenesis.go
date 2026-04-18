@@ -13,6 +13,8 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
+const besuWorldRootHashKey = "0x776f726c64526f6f74"
+
 /*
 ./polygon-edge regenesis --target-path ./trie_new \
 --stateRoot 0xf5ef1a28c82226effb90f4465180ec3469226747818579673f4be929f1cd8663  \
@@ -59,7 +61,8 @@ func RegenesisCMD() *cobra.Command {
 		outputter := command.InitializeOutputter(cmd)
 		defer outputter.WriteOutput()
 
-		if params.DstDBPath == "" || params.SrcDBPath == "" || params.TrieRoot == "" {
+		if params.DstDBPath == "" || params.SrcDBPath == "" ||
+			(params.TrieRoot == "" && strings.ToLower(params.SrcDBType) != "rocksdb") {
 			outputter.SetError(fmt.Errorf("not enough arguments"))
 
 			return
@@ -70,40 +73,61 @@ func RegenesisCMD() *cobra.Command {
 		outputter := command.InitializeOutputter(cmd)
 		defer outputter.WriteOutput()
 
-		trieStorage, err := getDBInstance(params.SrcDBType, params.SrcDBPath, true)
+		srcSTorage, err := getDBInstance(params.SrcDBType, params.SrcDBPath, true)
 		if err != nil {
 			outputter.SetError(fmt.Errorf("open source trie trieDB error:%w", err))
 
 			return
 		}
 
-		defer trieStorage.Close() //nolint:errcheck
+		defer srcSTorage.Close() //nolint:errcheck
 
-		snapshotStorage, err := getDBInstance(params.DstDBType, params.DstDBPath, false)
+		dstStorage, err := getDBInstance(params.DstDBType, params.DstDBPath, false)
 		if err != nil {
 			outputter.SetError(fmt.Errorf("open destination trie trieDB error:%w", err))
 
 			return
 		}
 
-		defer snapshotStorage.Close() //nolint:errcheck
+		defer dstStorage.Close() //nolint:errcheck
 
-		err = itrie.CopyTrie(types.StringToHash(params.TrieRoot).Bytes(), trieStorage, snapshotStorage, nil, false)
+		var trieRoot types.Hash
+
+		if strings.ToLower(params.SrcDBType) == "rocksdb" && params.TrieRoot == "" {
+			rootHashBytes, exists, err := srcSTorage.Get(types.StringToBytes(besuWorldRootHashKey))
+			if err != nil {
+				outputter.SetError(fmt.Errorf("get besu world root hash error:%w", err))
+
+				return
+			} else if !exists {
+				outputter.SetError(fmt.Errorf("besu world root hash not found"))
+
+				return
+			}
+
+			trieRoot = types.BytesToHash(rootHashBytes)
+
+			outputter.Write(fmt.Appendf(nil, "Besu trie root: %s\n", trieRoot))
+		} else {
+			trieRoot = types.StringToHash(params.TrieRoot)
+		}
+
+		err = itrie.CopyTrie(trieRoot.Bytes(), srcSTorage, dstStorage, nil, false)
 		if err != nil {
-			outputter.SetError(fmt.Errorf("copy trie error:%w", err))
+			outputter.SetError(fmt.Errorf("copy trie error: %w", err))
 
 			return
 		}
 
-		checkedHash, err := itrie.HashChecker(types.StringToHash(params.TrieRoot).Bytes(), snapshotStorage)
+		checkedHash, err := itrie.HashChecker(trieRoot.Bytes(), dstStorage)
 		if err != nil {
-			outputter.SetError(fmt.Errorf("copy trie error:%w", err))
+			outputter.SetError(fmt.Errorf("copy trie error: %w", err))
 
 			return
 		}
 
-		if checkedHash != types.StringToHash(params.TrieRoot) {
-			outputter.SetError(fmt.Errorf("incorrect trie root error:%w", err))
+		if checkedHash != trieRoot {
+			outputter.SetError(fmt.Errorf("incorrect trie root error: expected %s, got %s", trieRoot, checkedHash))
 
 			return
 		}

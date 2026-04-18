@@ -18,8 +18,10 @@ var emptyCodeHash = crypto.Keccak256(nil)
 
 func getCustomNode(hash []byte, storage Storage) (Node, []byte, error) {
 	data, ok, err := storage.Get(hash)
-	if err != nil || !ok {
+	if err != nil {
 		return nil, nil, err
+	} else if !ok {
+		return nil, nil, fmt.Errorf("node not found for hash %s", hex.EncodeToString(hash))
 	}
 
 	// NOTE. We dont need to make copies of the bytes because the nodes
