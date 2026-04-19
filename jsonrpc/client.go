@@ -228,6 +228,15 @@ func (e *EthClient) TxPoolStatus() (*StatusResponse, error) {
 	return &out, nil
 }
 
+func (e *EthClient) TxPoolContent() (*ContentResponse, error) {
+	var out ContentResponse
+	if err := e.client.Call("txpool_content", &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}
+
 // FeeHistory returns base fee per gas and transaction effective priority fee
 func (e *EthClient) FeeHistory(
 	blockCount uint64,
