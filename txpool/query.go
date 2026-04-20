@@ -29,6 +29,11 @@ func (p *TxPool) GetNonce(addr types.Address) uint64 {
 // GetCapacity returns the current number of slots
 // occupied in the pool as well as the max limit
 func (p *TxPool) GetCapacity() (uint64, uint64) {
+	if !p.sealing.Load() {
+		// if not sealing return 0, 0
+		return 0, 0
+	}
+
 	return p.gauge.read(), p.gauge.max
 }
 
@@ -46,6 +51,11 @@ func (p *TxPool) GetPendingTx(txHash types.Hash) (*types.Transaction, bool) {
 func (p *TxPool) GetTxs(inclQueued bool) (
 	allPromoted, allEnqueued map[types.Address][]*types.Transaction,
 ) {
+	if !p.sealing.Load() {
+		// if not sealing return empty
+		return map[types.Address][]*types.Transaction{}, map[types.Address][]*types.Transaction{}
+	}
+
 	return p.accounts.allTxs(inclQueued)
 }
 
