@@ -3768,6 +3768,7 @@ func TestGetCapacity(t *testing.T) {
 	require.NoError(t, err)
 
 	pool.SetSigner(signer)
+	pool.SetSealing(true)
 
 	addr := crypto.PubKeyToAddress(key.PublicKey())
 	tx, err := signer.SignTx(newTx(addr, 0, 1), key.PrivateKey())
