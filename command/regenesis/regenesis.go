@@ -13,7 +13,11 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-const besuWorldRootHashKey = "0x776f726c64526f6f74"
+const (
+	besuWorldRootHashKey    = "0x776f726c64526f6f74"
+	besuWorldBlockHashKey   = "0x776f726c64426c6f636b48617368"
+	besuWorldBlockNumberKey = "0x776f726c64426c6f636b4e756d626572"
+)
 
 /*
 ./polygon-edge regenesis --target-path ./trie_new \
@@ -73,15 +77,6 @@ func RegenesisCMD() *cobra.Command {
 		outputter := command.InitializeOutputter(cmd)
 		defer outputter.WriteOutput()
 
-		srcSTorage, err := getDBInstance(params.SrcDBType, params.SrcDBPath, true)
-		if err != nil {
-			outputter.SetError(fmt.Errorf("open source trie trieDB error:%w", err))
-
-			return
-		}
-
-		defer srcSTorage.Close() //nolint:errcheck
-
 		dstStorage, err := getDBInstance(params.DstDBType, params.DstDBPath, false)
 		if err != nil {
 			outputter.SetError(fmt.Errorf("open destination trie trieDB error:%w", err))
@@ -91,26 +86,26 @@ func RegenesisCMD() *cobra.Command {
 
 		defer dstStorage.Close() //nolint:errcheck
 
-		var trieRoot types.Hash
-
 		if strings.ToLower(params.SrcDBType) == "rocksdb" && params.TrieRoot == "" {
-			rootHashBytes, exists, err := srcSTorage.Get(types.StringToBytes(besuWorldRootHashKey))
-			if err != nil {
-				outputter.SetError(fmt.Errorf("get besu world root hash error:%w", err))
-
-				return
-			} else if !exists {
-				outputter.SetError(fmt.Errorf("besu world root hash not found"))
-
-				return
+			if err := copyTrieBesu(params.SrcDBPath, dstStorage, outputter); err != nil {
+				outputter.SetError(fmt.Errorf("copy besu trie error: %w", err))
+			} else {
+				outputter.WriteCommandResult(&ReGenesisResult{})
 			}
 
-			trieRoot = types.BytesToHash(rootHashBytes)
-
-			outputter.Write(fmt.Appendf(nil, "Besu trie root: %s\n", trieRoot))
-		} else {
-			trieRoot = types.StringToHash(params.TrieRoot)
+			return
 		}
+
+		srcSTorage, err := getDBInstance(params.SrcDBType, params.SrcDBPath, true)
+		if err != nil {
+			outputter.SetError(fmt.Errorf("open source trie trieDB error:%w", err))
+
+			return
+		}
+
+		defer srcSTorage.Close() //nolint:errcheck
+
+		trieRoot := types.StringToHash(params.TrieRoot)
 
 		err = itrie.CopyTrie(trieRoot.Bytes(), srcSTorage, dstStorage, nil, false)
 		if err != nil {
@@ -160,8 +155,6 @@ func getDBInstance(
 			path, &pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: isReadOnly})
 	case "leveldb":
 		return itrie.NewLevelDBStorageWithOpts(path, &opt.Options{ReadOnly: isReadOnly})
-	case "rocksdb":
-		return itrie.NewRocksDBStorage(path, isReadOnly)
 	case "memory":
 		return itrie.NewMemoryStorage(), nil
 	default:

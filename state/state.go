@@ -278,3 +278,78 @@ func (s *StorageObject) Equals(other *StorageObject) bool {
 
 	return true
 }
+
+type ObjectBesu struct {
+	AddrHash types.Hash
+	CodeHash types.Hash
+	Balance  *big.Int
+	Root     types.Hash
+	Nonce    uint64
+	Deleted  bool
+
+	ExpectedRoot types.Hash
+
+	//nolint:godox
+	// TODO: Move this to executor (to be fixed in EVM-527)
+	DirtyCode bool
+	Code      []byte
+
+	Storage []*StorageObjectBesu
+}
+
+func (o *ObjectBesu) Equals(other *ObjectBesu) bool {
+	// Compare Address, CodeHash, Root, Nonce, Deleted, and DirtyCode directly.
+	if o.AddrHash != other.AddrHash ||
+		o.CodeHash != other.CodeHash ||
+		o.Root != other.Root ||
+		o.Nonce != other.Nonce ||
+		o.Deleted != other.Deleted ||
+		o.DirtyCode != other.DirtyCode ||
+		o.ExpectedRoot != other.ExpectedRoot {
+		return false
+	}
+
+	// Compare Balance.
+	if o.Balance.Cmp(other.Balance) != 0 {
+		return false
+	}
+
+	// Compare Code slices.
+	if !bytes.Equal(o.Code, other.Code) {
+		return false
+	}
+
+	// Compare Storage slices by length first.
+	if len(o.Storage) != len(other.Storage) {
+		return false
+	}
+
+	for i, storageObj := range o.Storage {
+		if !(storageObj.Equals(other.Storage[i])) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// StorageObject is an entry in the storage
+type StorageObjectBesu struct {
+	Deleted  bool
+	SlotHash types.Hash
+	Val      []byte
+}
+
+func (s *StorageObjectBesu) Equals(other *StorageObjectBesu) bool {
+	// Compare Deleted field directly
+	if s.Deleted != other.Deleted {
+		return false
+	}
+
+	// Compare Hash and Val byte slices using bytes.Equal
+	if s.SlotHash != other.SlotHash || !bytes.Equal(s.Val, other.Val) {
+		return false
+	}
+
+	return true
+}
