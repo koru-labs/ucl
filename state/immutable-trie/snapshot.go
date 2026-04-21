@@ -206,17 +206,16 @@ func (s *Snapshot) CommitBesu(objs []*state.ObjectBesu) (state.Snapshot, []byte,
 				}
 
 				accountStateTrie := localTxn.Commit()
+				account.Root = types.BytesToHash(accountStateRoot)
 
 				// Add this to the cache
-				s.state.AddState(types.BytesToHash(accountStateRoot), accountStateTrie)
+				s.state.AddState(account.Root, accountStateTrie)
 
-				if obj.ExpectedRoot != types.EmptyRootHash && !bytes.Equal(obj.ExpectedRoot[:], accountStateRoot) {
+				if obj.ExpectedRoot != types.EmptyRootHash && obj.ExpectedRoot != account.Root {
 					return nil, types.ZeroHash[:],
 						fmt.Errorf("snapshot commit failed: account state root mismatch, expected %s, got %s",
-							obj.ExpectedRoot, types.BytesToHash(accountStateRoot))
+							obj.ExpectedRoot, account.Root)
 				}
-
-				account.Root = types.BytesToHash(accountStateRoot)
 			}
 
 			if obj.DirtyCode {
