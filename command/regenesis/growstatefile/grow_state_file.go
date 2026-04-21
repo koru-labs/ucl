@@ -143,6 +143,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		_, _ = outputter.Write(fmt.Appendf(nil, "Contract deployed: %s\n", addr))
 	}
 
+	addOffs := new(big.Int)
 	contractCountEntries := make([]*big.Int, len(contractAddrs))
 	objects := make([]*state.Object, params.contractsCounts)
 	preimage := make([]byte, 64)
@@ -163,11 +164,16 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		for ci, addr := range contractAddrs {
 			account := accounts[ci]
 			cntEntries := contractCountEntries[ci]
-
 			countVal := make([]byte, 32)
+			mapVal := make([]byte, 32)
+
 			cntEntries.Add(cntEntries, bigOne)
 			cntEntries.FillBytes(countVal)
 			copy(preimage, countVal)
+
+			addOffs.SetUint64(params.baseMappingValue)
+			addOffs.Add(addOffs, cntEntries)
+			addOffs.FillBytes(mapVal)
 
 			account.Nonce++
 
@@ -178,7 +184,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 				Root:     account.Root,
 				Nonce:    account.Nonce,
 				Storage: []*state.StorageObject{
-					{Key: crypto.Keccak256(preimage), Val: countVal},
+					{Key: crypto.Keccak256(preimage), Val: mapVal},
 					{Key: countEntriesSlot, Val: countVal},
 				},
 			}

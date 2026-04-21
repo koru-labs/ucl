@@ -28,6 +28,7 @@ const (
 	createGenesisFlag     = "create-genesis-block"
 	rootHashFlag          = "root-hash"
 	useBlsValidatorsFlag  = "use-bls"
+	baseMappingValue      = "base-mapping-value"
 
 	defaultContractsCount   = 2
 	defaultIterationsCnt    = 100
@@ -44,6 +45,7 @@ type growStateParams struct {
 	createGenesisBlock     bool
 	rootHash               string
 	useBlsValidators       bool
+	baseMappingValue       uint64
 }
 
 var params growStateParams
@@ -124,4 +126,9 @@ func setFlags(cmd *cobra.Command) {
 		useBlsValidatorsFlag,
 		defaultUseBlsValidators,
 		"use BLS validators instead of ECDSA validators for signature verification (only for genesis block creation)")
+	cmd.Flags().Uint64Var(
+		&params.baseMappingValue,
+		baseMappingValue,
+		0,
+		"base value for mapping entries, actual value will be base value + entry index")
 }
