@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"github.com/0xPolygon/polygon-edge/command/helper"
+	"github.com/0xPolygon/polygon-edge/command/secrets/address"
 	"github.com/0xPolygon/polygon-edge/command/secrets/generate"
 	initCmd "github.com/0xPolygon/polygon-edge/command/secrets/init"
 	"github.com/0xPolygon/polygon-edge/command/secrets/output"
@@ -29,5 +30,7 @@ func registerSubcommands(baseCmd *cobra.Command) {
 		generate.GetCommand(),
 		// secrets output public data
 		output.GetCommand(),
+
+		address.GetCommand(),
 	)
 }

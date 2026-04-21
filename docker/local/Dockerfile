@@ -1,7 +1,10 @@
 # Keep in sync with the `go` directive in the repo root go.mod
 FROM golang:1.26-alpine AS builder
 
-RUN apk add make git
+# crypto11 / miekg/pkcs11 require cgo + PKCS#11 (PC/SC) headers
+ENV CGO_ENABLED=1
+
+RUN apk add --no-cache make git build-base pkgconf pcsc-lite-dev
 
 WORKDIR /polygon-edge
 
@@ -14,7 +17,7 @@ RUN make build
 
 FROM alpine:latest AS runner
 
-RUN apk --no-cache add ca-certificates jq
+RUN apk --no-cache add ca-certificates jq pcsc-lite-libs
 
 WORKDIR /polygon-edge
 

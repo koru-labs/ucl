@@ -7,6 +7,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/command/server/config"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/server"
@@ -33,6 +34,7 @@ const (
 	maxEnqueuedFlag              = "max-enqueued"
 	blockGasTargetFlag           = "block-gas-target"
 	secretsConfigFlag            = "secrets-config"
+	signerConfigFlag             = "signer-config"
 	restoreFlag                  = "restore"
 	devIntervalFlag              = "dev-interval"
 	devFlag                      = "dev"
@@ -104,6 +106,7 @@ type serverParams struct {
 
 	genesisConfig *chain.Chain
 	secretsConfig *secrets.SecretsManagerConfig
+	signerConfig  *signer.SignerConfig
 
 	logFileLocation string
 
@@ -121,6 +124,10 @@ func (p *serverParams) isPeerRangeSet() bool {
 
 func (p *serverParams) isSecretsConfigPathSet() bool {
 	return p.rawConfig.SecretsConfigPath != ""
+}
+
+func (p *serverParams) isSignerConfigPathSet() bool {
+	return p.rawConfig.SignerConfigPath != ""
 }
 
 func (p *serverParams) isPrometheusAddressSet() bool {
@@ -207,6 +214,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		TxGossipBatchSize:  p.rawConfig.TxPool.TxGossipBatchSize,
 		JournalRotateSize:  p.rawConfig.TxPool.JournalRotateSize,
 		SecretsManager:     p.secretsConfig,
+		SignerConfig:       p.signerConfig,
 		RestoreFile:        p.getRestoreFilePath(),
 		LogLevel:           hclog.LevelFromString(p.rawConfig.LogLevel),
 		JSONLogFormat:      p.rawConfig.JSONLogFormat,

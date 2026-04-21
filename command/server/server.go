@@ -113,6 +113,13 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().StringVar(
+		&params.rawConfig.SignerConfigPath,
+		signerConfigFlag,
+		"",
+		"the path to the Signer config file",
+	)
+
+	cmd.Flags().StringVar(
 		&params.rawConfig.RestoreFile,
 		restoreFlag,
 		"",

@@ -7,6 +7,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
@@ -90,6 +91,8 @@ type Params struct {
 
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
+
+	KeyManagerFactory signer.KeyManagerFactory
 }
 
 // Factory is the factory function to create a discovery consensus

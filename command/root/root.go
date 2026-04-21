@@ -21,6 +21,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/rootchain"
 	"github.com/0xPolygon/polygon-edge/command/secrets"
 	"github.com/0xPolygon/polygon-edge/command/server"
+	"github.com/0xPolygon/polygon-edge/command/signer"
 	"github.com/0xPolygon/polygon-edge/command/status"
 	"github.com/0xPolygon/polygon-edge/command/txpool"
 	"github.com/0xPolygon/polygon-edge/command/version"
@@ -63,6 +64,7 @@ func (rc *RootCommand) registerSubCommands() {
 		bridge.GetCommand(),
 		regenesis.GetCommand(),
 		loadtest.GetCommand(),
+		signer.GetCommand(),
 	)
 }
 

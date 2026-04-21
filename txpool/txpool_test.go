@@ -3768,6 +3768,7 @@ func TestGetCapacity(t *testing.T) {
 	require.NoError(t, err)
 
 	pool.SetSigner(signer)
+	pool.SetSealing(true)
 
 	addr := crypto.PubKeyToAddress(key.PublicKey())
 	tx, err := signer.SignTx(newTx(addr, 0, 1), key.PrivateKey())
@@ -4039,16 +4040,16 @@ func TestResetWithBlock(t *testing.T) {
 
 	const baseFee = uint64(100)
 
-	store := defaultMockStore{
-		DefaultHeader: &types.Header{GasLimit: 4712388},
-		calculateBaseFeeFn: func(h *types.Header) uint64 {
-			return h.BaseFee
-		},
-	}
-
 	header := &types.Header{BaseFee: baseFee, Hash: types.Hash{1}}
 
 	initPool := (func() *TxPool {
+		store := defaultMockStore{
+			DefaultHeader: mockHeader,
+			calculateBaseFeeFn: func(h *types.Header) uint64 {
+				return h.BaseFee
+			},
+		}
+
 		pool, err := newTestPool(store)
 		require.NoError(t, err)
 
@@ -4059,10 +4060,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("removes mined transactions from pool and resets account nonces", func(t *testing.T) {
-		t.Cleanup(func() {
-			store.nonce = 0
-		})
-
 		pool := initPool()
 
 		tx0 := newTx(addr1, 0, 1)
@@ -4110,10 +4107,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("handles multiple accounts in one block", func(t *testing.T) {
-		t.Cleanup(func() {
-			store.nonce = 0
-		})
-
 		pool := initPool()
 
 		txA := newTx(addr1, 0, 1)
@@ -4152,10 +4145,6 @@ func TestResetWithBlock(t *testing.T) {
 	})
 
 	t.Run("empty block only updates base fee", func(t *testing.T) {
-		t.Cleanup(func() {
-			store.nonce = 0
-		})
-
 		pool := initPool()
 
 		tx := newTx(addr1, 0, 1)

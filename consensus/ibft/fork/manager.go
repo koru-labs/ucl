@@ -5,7 +5,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/hook"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
-	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -57,10 +56,10 @@ type HooksInterface interface {
 // ForkManager is the module that has Fork configuration and multiple version of submodules
 // and returns the proper submodule at specified height
 type ForkManager struct {
-	logger         hclog.Logger
-	blockchain     store.HeaderGetter
-	executor       contract.Executor
-	secretsManager secrets.SecretsManager
+	logger            hclog.Logger
+	blockchain        store.HeaderGetter
+	executor          contract.Executor
+	keyManagerFactory signer.KeyManagerFactory
 
 	// configuration
 	forks     IBFTForks
@@ -78,7 +77,7 @@ func NewForkManager(
 	logger hclog.Logger,
 	blockchain store.HeaderGetter,
 	executor contract.Executor,
-	secretManager secrets.SecretsManager,
+	keyManagerFactory signer.KeyManagerFactory,
 	filePath string,
 	epochSize uint64,
 	ibftConfig map[string]interface{},
@@ -89,16 +88,16 @@ func NewForkManager(
 	}
 
 	fm := &ForkManager{
-		logger:          logger.Named(loggerName),
-		blockchain:      blockchain,
-		executor:        executor,
-		secretsManager:  secretManager,
-		filePath:        filePath,
-		epochSize:       epochSize,
-		forks:           forks,
-		keyManagers:     make(map[validators.ValidatorType]signer.KeyManager),
-		validatorStores: make(map[store.SourceType]ValidatorStore),
-		hooksRegisters:  make(map[IBFTType]HooksRegister),
+		logger:            logger.Named(loggerName),
+		blockchain:        blockchain,
+		executor:          executor,
+		filePath:          filePath,
+		epochSize:         epochSize,
+		keyManagerFactory: keyManagerFactory,
+		forks:             forks,
+		keyManagers:       make(map[validators.ValidatorType]signer.KeyManager),
+		validatorStores:   make(map[store.SourceType]ValidatorStore),
+		hooksRegisters:    make(map[IBFTType]HooksRegister),
 	}
 
 	// Need initialization of signers in the constructor
@@ -238,7 +237,7 @@ func (m *ForkManager) initializeKeyManager(valType validators.ValidatorType) err
 		return nil
 	}
 
-	keyManager, err := signer.NewKeyManagerFromType(m.secretsManager, valType)
+	keyManager, err := m.keyManagerFactory(valType)
 	if err != nil {
 		return err
 	}
