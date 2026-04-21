@@ -1,7 +1,6 @@
 package growstatefile
 
 import (
-	"crypto/rand"
 	"fmt"
 	"math/big"
 	"os"
@@ -53,7 +52,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	var (
 		bigOne          = big.NewInt(1)
 		logger          = hclog.NewNullLogger()
-		contractBalance = big.NewInt(1_000_000)
+		contractBalance = big.NewInt(1_234_567)
 		rootHash        []byte
 		genesisHeader   *types.Header
 		totalSize       int64
@@ -146,9 +145,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 
 	contractCountEntries := make([]*big.Int, len(contractAddrs))
 	objects := make([]*state.Object, params.contractsCounts)
-	countVal := make([]byte, 32)
 	preimage := make([]byte, 64)
-	rndVal := make([]byte, 32)
 	countEntriesSlot := make([]byte, 32)
 	// using slot 1
 	countEntriesSlot[31] = 1
@@ -166,8 +163,8 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		for ci, addr := range contractAddrs {
 			account := accounts[ci]
 			cntEntries := contractCountEntries[ci]
-			_, _ = rand.Read(rndVal)
 
+			countVal := make([]byte, 32)
 			cntEntries.Add(cntEntries, bigOne)
 			cntEntries.FillBytes(countVal)
 			copy(preimage, countVal)
@@ -181,7 +178,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 				Root:     account.Root,
 				Nonce:    account.Nonce,
 				Storage: []*state.StorageObject{
-					{Key: crypto.Keccak256(preimage), Val: rndVal},
+					{Key: crypto.Keccak256(preimage), Val: countVal},
 					{Key: countEntriesSlot, Val: countVal},
 				},
 			}
