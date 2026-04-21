@@ -3,10 +3,8 @@ package signer
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"encoding/asn1"
 	"errors"
 	"io"
-	"math/big"
 	"testing"
 
 	polygoncrypto "github.com/0xPolygon/polygon-edge/crypto"
@@ -18,9 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockHSMSigner implements hsmSigner using a local secp256k1 key.
-// Produces real DER-encoded ECDSA signatures so the full
-// sign → DER parse → Eth format → ecrecover pipeline is tested.
 type mockHSMSigner struct {
 	key     *ecdsa.PrivateKey
 	signErr error
@@ -38,6 +33,7 @@ func (m *mockHSMSigner) Public() crypto.PublicKey {
 	return &m.key.PublicKey
 }
 
+// Sign returns raw r||s (64 bytes) — matches CKM_ECDSA output format.
 func (m *mockHSMSigner) Sign(
 	_ io.Reader,
 	digest []byte,
@@ -52,13 +48,10 @@ func (m *mockHSMSigner) Sign(
 		return nil, err
 	}
 
-	r := new(big.Int).SetBytes(ethSig[0:32])
-	s := new(big.Int).SetBytes(ethSig[32:64])
-
-	return asn1.Marshal(ecdsaDERSignature{R: r, S: s})
+	// return raw r||s — first 64 bytes of the 65-byte eth sig
+	return ethSig[:64], nil
 }
 
-// nonECDSASigner returns a non-ECDSA public key to test type checking
 type nonECDSASigner struct{}
 
 func (n *nonECDSASigner) Public() crypto.PublicKey {
