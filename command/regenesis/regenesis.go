@@ -3,12 +3,20 @@ package regenesis
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/command"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/cockroachdb/pebble"
 	"github.com/spf13/cobra"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+)
+
+const (
+	besuWorldRootHashKey    = "0x776f726c64526f6f74"
+	besuWorldBlockHashKey   = "0x776f726c64426c6f636b48617368"
+	besuWorldBlockNumberKey = "0x776f726c64426c6f636b4e756d626572"
 )
 
 /*
@@ -23,13 +31,13 @@ func RegenesisCMD() *cobra.Command {
 	}
 
 	genesisCmd.Flags().StringVar(
-		&params.SnapshotTrieDBPath,
+		&params.DstDBPath,
 		"target-path",
 		"",
 		"the directory of trie data of trie copy",
 	)
 	genesisCmd.Flags().StringVar(
-		&params.TrieDBPath,
+		&params.SrcDBPath,
 		"source-path",
 		"",
 		"the directory of trie data of old chain",
@@ -40,12 +48,25 @@ func RegenesisCMD() *cobra.Command {
 		"",
 		"block state root of old chain",
 	)
-
-	outputter := command.InitializeOutputter(genesisCmd)
-	defer outputter.WriteOutput()
+	genesisCmd.Flags().StringVar(
+		&params.SrcDBType,
+		"source-db-type",
+		"",
+		"source database type",
+	)
+	genesisCmd.Flags().StringVar(
+		&params.DstDBType,
+		"target-db-type",
+		"",
+		"destination database type",
+	)
 
 	genesisCmd.PreRun = func(cmd *cobra.Command, args []string) {
-		if params.SnapshotTrieDBPath == "" || params.TrieDBPath == "" || params.TrieRoot == "" {
+		outputter := command.InitializeOutputter(cmd)
+		defer outputter.WriteOutput()
+
+		if params.DstDBPath == "" || params.SrcDBPath == "" ||
+			(params.TrieRoot == "" && strings.ToLower(params.SrcDBType) != "rocksdb") {
 			outputter.SetError(fmt.Errorf("not enough arguments"))
 
 			return
@@ -53,44 +74,55 @@ func RegenesisCMD() *cobra.Command {
 	}
 
 	genesisCmd.Run = func(cmd *cobra.Command, args []string) {
-		trieDB, err := pebble.Open(params.TrieDBPath, &pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: true})
+		outputter := command.InitializeOutputter(cmd)
+		defer outputter.WriteOutput()
+
+		dstStorage, err := getDBInstance(params.DstDBType, params.DstDBPath, false)
 		if err != nil {
-			outputter.SetError(fmt.Errorf("open trie trieDB error:%w", err))
+			outputter.SetError(fmt.Errorf("open destination trie trieDB error:%w", err))
 
 			return
 		}
 
-		trieStorage := itrie.NewPebble(trieDB)
-		defer trieStorage.Close() //nolint:errcheck
+		defer dstStorage.Close() //nolint:errcheck
 
-		snapshotDB, err := pebble.Open(
-			params.SnapshotTrieDBPath,
-			&pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: false})
-		if err != nil {
-			outputter.SetError(fmt.Errorf("open trie trieDB error:%w", err))
-
-			return
-		}
-
-		snapshotStorage := itrie.NewPebble(snapshotDB)
-		defer snapshotStorage.Close() //nolint:errcheck
-
-		err = itrie.CopyTrie(types.StringToHash(params.TrieRoot).Bytes(), trieStorage, snapshotStorage, nil, false)
-		if err != nil {
-			outputter.SetError(fmt.Errorf("copy trie error:%w", err))
+		if strings.ToLower(params.SrcDBType) == "rocksdb" && params.TrieRoot == "" {
+			if err := copyTrieBesu(params.SrcDBPath, dstStorage, outputter); err != nil {
+				outputter.SetError(fmt.Errorf("copy besu trie error: %w", err))
+			} else {
+				outputter.WriteCommandResult(&ReGenesisResult{})
+			}
 
 			return
 		}
 
-		checkedHash, err := itrie.HashChecker(types.StringToHash(params.TrieRoot).Bytes(), snapshotStorage)
+		srcSTorage, err := getDBInstance(params.SrcDBType, params.SrcDBPath, true)
 		if err != nil {
-			outputter.SetError(fmt.Errorf("copy trie error:%w", err))
+			outputter.SetError(fmt.Errorf("open source trie trieDB error:%w", err))
 
 			return
 		}
 
-		if checkedHash != types.StringToHash(params.TrieRoot) {
-			outputter.SetError(fmt.Errorf("incorrect trie root error:%w", err))
+		defer srcSTorage.Close() //nolint:errcheck
+
+		trieRoot := types.StringToHash(params.TrieRoot)
+
+		err = itrie.CopyTrie(trieRoot.Bytes(), srcSTorage, dstStorage, nil, false)
+		if err != nil {
+			outputter.SetError(fmt.Errorf("copy trie error: %w", err))
+
+			return
+		}
+
+		checkedHash, err := itrie.HashChecker(trieRoot.Bytes(), dstStorage)
+		if err != nil {
+			outputter.SetError(fmt.Errorf("copy trie error: %w", err))
+
+			return
+		}
+
+		if checkedHash != trieRoot {
+			outputter.SetError(fmt.Errorf("incorrect trie root error: expected %s, got %s", trieRoot, checkedHash))
 
 			return
 		}
@@ -112,4 +144,20 @@ func (r *ReGenesisResult) GetOutput() string {
 	buffer.WriteString(r.Message)
 
 	return buffer.String()
+}
+
+func getDBInstance(
+	dbType string, path string, isReadOnly bool,
+) (itrie.Storage, error) {
+	switch strings.ToLower(dbType) {
+	case "pebble", "":
+		return itrie.NewPebbleDBStorageWithOpts(
+			path, &pebble.Options{Logger: itrie.PebbleLogger{}, ReadOnly: isReadOnly})
+	case "leveldb":
+		return itrie.NewLevelDBStorageWithOpts(path, &opt.Options{ReadOnly: isReadOnly})
+	case "memory":
+		return itrie.NewMemoryStorage(), nil
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s", dbType)
+	}
 }

@@ -20,6 +20,15 @@ type pebbleBatch struct {
 	batch *pebble.Batch
 }
 
+func NewPebbleDBStorageWithOpts(path string, opts *pebble.Options) (Storage, error) {
+	trieDB, err := pebble.Open(path, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pebbleStorage{db: trieDB}, nil
+}
+
 func NewPebbleDBStorage(path string, logger hclog.Logger) (Storage, error) {
 	opts := &pebble.Options{Logger: PebbleLogger{}}
 

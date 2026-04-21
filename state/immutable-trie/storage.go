@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/umbracle/fastrlp"
 )
@@ -128,6 +129,15 @@ func (kv *KVStorage) Compact(start []byte, limit []byte) error {
 
 func (kv *KVStorage) Close() error {
 	return kv.db.Close()
+}
+
+func NewLevelDBStorageWithOpts(path string, opts *opt.Options) (Storage, error) {
+	db, err := leveldb.OpenFile(path, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KVStorage{db}, nil
 }
 
 func NewLevelDBStorage(path string, logger hclog.Logger) (Storage, error) {

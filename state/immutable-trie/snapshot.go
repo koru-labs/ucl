@@ -161,3 +161,88 @@ func (s *Snapshot) Commit(objs []*state.Object) (state.Snapshot, []byte, error) 
 
 	return &Snapshot{trie: nTrie, state: s.state}, root, nil
 }
+
+func (s *Snapshot) CommitBesu(objs []*state.ObjectBesu) (state.Snapshot, []byte, error) {
+	batch := s.state.storage.Batch()
+
+	tt := s.trie.Txn(s.state.storage)
+	tt.batch = batch
+
+	arena := stateArenaPool.Get()
+	defer stateArenaPool.Put(arena)
+
+	for _, obj := range objs {
+		if obj.Deleted {
+			tt.Delete(obj.AddrHash[:])
+		} else {
+			account := state.Account{
+				Balance:  obj.Balance,
+				Nonce:    obj.Nonce,
+				CodeHash: obj.CodeHash.Bytes(),
+				Root:     obj.Root, // old root
+			}
+
+			if len(obj.Storage) != 0 {
+				trie, err := s.state.newTrieAt(obj.Root)
+				if err != nil {
+					return nil, types.ZeroHash[:], fmt.Errorf("snapshot commit failed to create trie: %w", err)
+				}
+
+				localTxn := trie.Txn(s.state.storage)
+				localTxn.batch = batch
+
+				for _, entry := range obj.Storage {
+					if entry.Deleted {
+						localTxn.Delete(entry.SlotHash[:])
+					} else {
+						vv := arena.NewBytes(bytes.TrimLeft(entry.Val, "\x00"))
+						localTxn.Insert(entry.SlotHash[:], vv.MarshalTo(nil))
+					}
+				}
+
+				accountStateRoot, err := localTxn.Hash()
+				if err != nil {
+					return nil, types.ZeroHash[:], fmt.Errorf("snapshot commit failed to hash trie: %w", err)
+				}
+
+				accountStateTrie := localTxn.Commit()
+				account.Root = types.BytesToHash(accountStateRoot)
+
+				// Add this to the cache
+				s.state.AddState(account.Root, accountStateTrie)
+
+				if obj.ExpectedRoot != types.EmptyRootHash && obj.ExpectedRoot != account.Root {
+					return nil, types.ZeroHash[:],
+						fmt.Errorf("snapshot commit failed: account state root mismatch, expected %s, got %s",
+							obj.ExpectedRoot, account.Root)
+				}
+			}
+
+			if obj.DirtyCode {
+				batch.Put(GetCodeKey(obj.CodeHash), obj.Code)
+			}
+
+			vv := account.MarshalWith(arena)
+			data := vv.MarshalTo(nil)
+
+			tt.Insert(obj.AddrHash[:], data)
+			arena.Reset()
+		}
+	}
+
+	root, err := tt.Hash()
+	if err != nil {
+		return nil, types.ZeroHash[:], fmt.Errorf("snapshot commit can not retrieve hash: %w", err)
+	}
+
+	nTrie := tt.Commit()
+
+	// Write all the entries to db
+	if err := batch.Write(); err != nil {
+		return nil, types.ZeroHash[:], fmt.Errorf("snapshot commit db write error: %w", err)
+	}
+
+	s.state.AddState(types.BytesToHash(root), nTrie)
+
+	return &Snapshot{trie: nTrie, state: s.state}, root, nil
+}
