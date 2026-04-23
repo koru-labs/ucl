@@ -1,6 +1,7 @@
 package growstatefile
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -165,7 +166,8 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		contractCountEntries[ci] = new(big.Int).SetBytes(stored.Bytes())
 	}
 
-	_, _ = outputter.Write(fmt.Appendf(nil, "Start writting hashes: %d\n", params.hashChangesPerContract))
+	_, _ = outputter.Write(fmt.Appendf(nil, "Start writting contracts: %d, hashes: %d\n",
+		params.contractsCounts, params.hashChangesPerContract))
 
 	for j := range params.hashChangesPerContract {
 		for ci, addr := range contractAddrs {
@@ -219,6 +221,10 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 
 	err = filepath.Walk(params.trieDirPath, func(_ string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
+			if errors.Is(walkErr, os.ErrNotExist) {
+				return nil
+			}
+
 			return walkErr
 		} else if !info.IsDir() {
 			totalSize += info.Size()
