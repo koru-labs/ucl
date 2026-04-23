@@ -261,7 +261,13 @@ func findSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, er
 	return 0, fmt.Errorf("hsm: no slot found with token label %q", label)
 }
 
-func findKeyPairByLabel(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, pubLabel, privLabel string) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
+func findKeyPairByLabel(
+	ctx *pkcs11.Ctx,
+	session pkcs11.SessionHandle,
+	pubLabel, privLabel string) (
+	pkcs11.ObjectHandle,
+	pkcs11.ObjectHandle,
+	error) {
 	// find private key
 	if err := ctx.FindObjectsInit(session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
@@ -399,12 +405,14 @@ func rawRSToEthSig(raw []byte, pubKey *ecdsa.PublicKey, digest []byte) ([]byte, 
 		recovered, _, err := btc_ecdsa.RecoverCompact(btcSig, digest)
 		if err != nil {
 			fmt.Printf("DEBUG: v=%d RecoverCompact err: %v\n", v, err)
+
 			continue
 		}
 
 		recoveredECDSA := recovered.ToECDSA()
 		if recoveredECDSA.X.Cmp(pubKey.X) == 0 && recoveredECDSA.Y.Cmp(pubKey.Y) == 0 {
 			ethSig[64] = v
+
 			return ethSig, nil
 		}
 	}
