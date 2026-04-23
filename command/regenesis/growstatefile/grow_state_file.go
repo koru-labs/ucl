@@ -136,7 +136,8 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		return nil, fmt.Errorf("failed to commit initial contracts: %w", err)
 	}
 
-	_, _ = outputter.Write(fmt.Appendf(nil, "Contract deployed: %d\n", len(initObjs)))
+	_, _ = outputter.Write(fmt.Appendf(nil, "Contracts deployed (startingFrom: %s): %d\n",
+		params.baseAddress, len(initObjs)))
 
 	addOffs := new(big.Int)
 	contractCountEntries := make([]*big.Int, len(contractAddrs))
@@ -160,10 +161,9 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		account := accounts[ci]
 		stored := snap.GetStorage(addr, account.Root, types.BytesToHash(countEntriesSlot))
 		contractCountEntries[ci] = new(big.Int).SetBytes(stored.Bytes())
-
-		_, _ = outputter.Write(fmt.Appendf(nil, "Contract %s start countEntries: %s\n",
-			addr, contractCountEntries[ci]))
 	}
+
+	_, _ = outputter.Write(fmt.Appendf(nil, "Start writting hashes: %d\n", params.hashChangesPerContract))
 
 	for j := range params.hashChangesPerContract {
 		for ci, addr := range contractAddrs {
