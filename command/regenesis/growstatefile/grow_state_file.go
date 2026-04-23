@@ -92,6 +92,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		return nil, err
 	}
 
+	addrBI := new(big.Int).SetBytes(types.StringToAddress(params.baseAddress).Bytes())
 	contractAddrs := make([]types.Address, params.contractsCounts)
 	accounts := make([]*state.Account, params.contractsCounts)
 	codeHash := types.BytesToHash(crypto.Keccak256(contractCode))
@@ -100,24 +101,25 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		return nil, err
 	}
 
+	_, _ = outputter.Write([]byte("Deploying contracts...\n"))
+
+	initObjs := make([]*state.Object, 0, params.contractsCounts)
+
 	for i := range contractAddrs {
-		addr := types.StringToAddress(fmt.Sprintf(contractAddrPrefix, i+1))
+		addr := types.BytesToAddress(addrBI.Bytes())
+		addrBI = addrBI.Add(addrBI, bigOne)
 		contractAddrs[i] = addr
 
 		existingAcc, err := snap.GetAccount(addr)
 		if err != nil {
-			return nil, err
-		}
-
-		if existingAcc != nil {
+			return nil, fmt.Errorf("failed to get account for address %s: %w", addr, err)
+		} else if existingAcc != nil {
 			accounts[i] = existingAcc
-
-			_, _ = outputter.Write(fmt.Appendf(nil, "Contract already exists, skipping deployment: %s\n", addr))
 
 			continue
 		}
 
-		initObj := &state.Object{
+		initObjs = append(initObjs, &state.Object{
 			Address:   addr,
 			CodeHash:  codeHash,
 			Balance:   contractBalance,
@@ -126,22 +128,15 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 			DirtyCode: true,
 			Code:      contractCode,
 			Storage:   []*state.StorageObject{},
-		}
-
-		snap, rootHash, err = snap.Commit([]*state.Object{initObj})
-		if err != nil {
-			return nil, err
-		}
-
-		accounts[i], err = snap.GetAccount(addr)
-		if err != nil {
-			return nil, err
-		} else if accounts[i] == nil {
-			return nil, fmt.Errorf("contract account is nil after deployment: %s", addr)
-		}
-
-		_, _ = outputter.Write(fmt.Appendf(nil, "Contract deployed: %s\n", addr))
+		})
 	}
+
+	snap, rootHash, err = snap.Commit(initObjs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit initial contracts: %w", err)
+	}
+
+	_, _ = outputter.Write(fmt.Appendf(nil, "Contract deployed: %d\n", len(initObjs)))
 
 	addOffs := new(big.Int)
 	contractCountEntries := make([]*big.Int, len(contractAddrs))
@@ -152,6 +147,16 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	countEntriesSlot[31] = 1
 
 	for ci, addr := range contractAddrs {
+		// retrieve account once again if it was deployed in this run
+		if accounts[ci] == nil {
+			accounts[ci], err = snap.GetAccount(addr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get account for address %s after deployment: %w", addr, err)
+			} else if accounts[ci] == nil {
+				return nil, fmt.Errorf("contract account is nil after deployment: %s", addr)
+			}
+		}
+
 		account := accounts[ci]
 		stored := snap.GetStorage(addr, account.Root, types.BytesToHash(countEntriesSlot))
 		contractCountEntries[ci] = new(big.Int).SetBytes(stored.Bytes())

@@ -1,9 +1,12 @@
 package growstatefile
 
 import (
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
+	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +20,7 @@ const (
 			uint256 public countEntries;
 		}
 	*/
-	contractCodeHex    = "608060405234801561000f575f5ffd5b5060043610610034575f3560e01c8063f0ba844014610038578063f99a4a9c14610068575b5f5ffd5b610052600480360381019061004d91906100d7565b610086565b60405161005f9190610111565b60405180910390f35b61007061009a565b60405161007d9190610111565b60405180910390f35b5f602052805f5260405f205f915090505481565b60015481565b5f5ffd5b5f819050919050565b6100b6816100a4565b81146100c0575f5ffd5b50565b5f813590506100d1816100ad565b92915050565b5f602082840312156100ec576100eb6100a0565b5b5f6100f9848285016100c3565b91505092915050565b61010b816100a4565b82525050565b5f6020820190506101245f830184610102565b9291505056fea2646970667358221220a172643bf0366f4662472ce7b8f49939483d5cb36f93a02581a1b3eab24032f764736f6c63430008220033" //nolint
-	contractAddrPrefix = "0x1234567890ABCDEF0000000000000000%d"
+	contractCodeHex = "608060405234801561000f575f5ffd5b5060043610610034575f3560e01c8063f0ba844014610038578063f99a4a9c14610068575b5f5ffd5b610052600480360381019061004d91906100d7565b610086565b60405161005f9190610111565b60405180910390f35b61007061009a565b60405161007d9190610111565b60405180910390f35b5f602052805f5260405f205f915090505481565b60015481565b5f5ffd5b5f819050919050565b6100b6816100a4565b81146100c0575f5ffd5b50565b5f813590506100d1816100ad565b92915050565b5f602082840312156100ec576100eb6100a0565b5b5f6100f9848285016100c3565b91505092915050565b61010b816100a4565b82525050565b5f6020820190506101245f830184610102565b9291505056fea2646970667358221220a172643bf0366f4662472ce7b8f49939483d5cb36f93a02581a1b3eab24032f764736f6c63430008220033" //nolint
 
 	trieDirPathFlag       = "trie-dir-path"
 	blockchainDirPathFlag = "blockchain-dir-path"
@@ -29,10 +31,12 @@ const (
 	rootHashFlag          = "root-hash"
 	useBlsValidatorsFlag  = "use-bls"
 	baseMappingValue      = "base-mapping-value"
+	baseAddressFlag       = "base-address"
 
 	defaultContractsCount   = 2
 	defaultIterationsCnt    = 100
 	defaultUseBlsValidators = false
+	defaultBaseAddress      = "0x1234567890ABCDEF0000000000000000"
 	outputIterationsModuo   = 50
 )
 
@@ -46,6 +50,7 @@ type growStateParams struct {
 	rootHash               string
 	useBlsValidators       bool
 	baseMappingValue       uint64
+	baseAddress            string
 }
 
 var params growStateParams
@@ -69,6 +74,10 @@ func (p *growStateParams) validate() error {
 
 	if params.createGenesisBlock && (params.genesisPath == "" || params.blockchainDirPath == "") {
 		return fmt.Errorf("genesis-path and blockchain-dir-path are required when create-genesis-block is true")
+	}
+
+	if params.baseAddress == "" || !isHex(params.baseAddress) {
+		return fmt.Errorf("base-address must be a valid hex string")
 	}
 
 	return nil
@@ -131,4 +140,22 @@ func setFlags(cmd *cobra.Command) {
 		baseMappingValue,
 		0,
 		"base value for mapping entries, actual value will be base value + entry index")
+	cmd.Flags().StringVar(
+		&params.baseAddress,
+		baseAddressFlag,
+		defaultBaseAddress,
+		"base address for contracts, actual address will be base address + contract index")
+}
+
+// isHex checks if a string is a valid hex string with optional 0x prefix
+func isHex(s string) bool {
+	s = strings.TrimPrefix(s, "0x")
+
+	if len(s) == 0 || len(s) > types.AddressLength*2 {
+		return false
+	}
+
+	_, err := hex.DecodeString(s)
+
+	return err == nil
 }
