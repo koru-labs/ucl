@@ -52,11 +52,12 @@ func (c *KMSConfig) validate() error {
 
 // HSMConfig holds the configuration needed to connect to AWS CloudHSM
 type HSMConfig struct {
-	LibPath        string `json:"lib_path,omitempty"`    // maps to crypto11.Config.Path
-	TokenLabel     string `json:"token_label,omitempty"` // maps to crypto11.Config.TokenLabel
-	Pin            string `json:"pin"`                   // maps to crypto11.Config.Pin
-	KeyLabel       string `json:"key_label"`             // used for FindKeyPair
-	ClusterID      string `json:"cluster_id,omitempty"`  // used by CloudHSM client daemon
+	LibPath        string `json:"lib_path,omitempty"`
+	TokenLabel     string `json:"token_label,omitempty"`
+	Pin            string `json:"pin"`
+	PubKeyLabel    string `json:"key_label"`            // used for FindKeyPair
+	PrivKeyLabel   string `json:"priv_key_label"`       // used for FindKeyPair
+	ClusterID      string `json:"cluster_id,omitempty"` // used by CloudHSM client daemon
 	MaxSessions    int    `json:"max_sessions,omitempty"`
 	SessionTimeout int    `json:"session_timeout,omitempty"`
 }
@@ -66,7 +67,7 @@ func (c *HSMConfig) validate() error {
 		return errors.New("hsm.pin is required")
 	}
 
-	if c.KeyLabel == "" {
+	if c.PubKeyLabel == "" {
 		return errors.New("hsm.key_label is required")
 	}
 

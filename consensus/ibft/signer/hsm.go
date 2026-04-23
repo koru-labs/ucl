@@ -101,7 +101,7 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 		return nil, fmt.Errorf("hsm: Login failed: %w", err)
 	}
 
-	privKey, pubKey, err := findKeyPairByLabel(ctx, session, cfg.KeyLabel)
+	privKey, pubKey, err := findKeyPairByLabel(ctx, session, cfg.PubKeyLabel, cfg.PrivKeyLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -261,13 +261,11 @@ func findSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, er
 	return 0, fmt.Errorf("hsm: no slot found with token label %q", label)
 }
 
-func findKeyPairByLabel(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, label string) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
-	labelAttr := pkcs11.NewAttribute(pkcs11.CKA_LABEL, label)
-
+func findKeyPairByLabel(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, pubLabel, privLabel string) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
 	// find private key
 	if err := ctx.FindObjectsInit(session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
-		labelAttr,
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, privLabel),
 	}); err != nil {
 		return 0, 0, fmt.Errorf("hsm: FindObjectsInit (privkey) failed: %w", err)
 	}
@@ -276,13 +274,13 @@ func findKeyPairByLabel(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, label str
 	ctx.FindObjectsFinal(session) //nolint:errcheck
 
 	if err != nil || len(privObjs) == 0 {
-		return 0, 0, fmt.Errorf("hsm: private key with label %q not found", label)
+		return 0, 0, fmt.Errorf("hsm: private key with label %q not found", privLabel)
 	}
 
 	// find public key
 	if err := ctx.FindObjectsInit(session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
-		labelAttr,
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, pubLabel),
 	}); err != nil {
 		return 0, 0, fmt.Errorf("hsm: FindObjectsInit (pubkey) failed: %w", err)
 	}
@@ -291,7 +289,7 @@ func findKeyPairByLabel(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, label str
 	ctx.FindObjectsFinal(session) //nolint:errcheck
 
 	if err != nil || len(pubObjs) == 0 {
-		return 0, 0, fmt.Errorf("hsm: public key with label %q not found", label)
+		return 0, 0, fmt.Errorf("hsm: public key with label %q not found", pubLabel)
 	}
 
 	return privObjs[0], pubObjs[0], nil

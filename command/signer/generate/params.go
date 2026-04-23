@@ -12,8 +12,7 @@ var (
 )
 
 const (
-	dirFlag     = "dir"
-	backendFlag = "backend"
+	dirFlag = "dir"
 	// KMS flags
 	kmsKeyIDFlag     = "kms-key-id"
 	kmsRegionFlag    = "kms-region"
@@ -24,6 +23,7 @@ const (
 	// HSM flags
 	hsmPinFlag            = "hsm-pin"
 	hsmKeyLabelFlag       = "hsm-key-label"
+	hsmPrivKeyLabelFlag   = "hsm-priv-key-label"
 	hsmLibPathFlag        = "hsm-lib-path"
 	hsmLabelFlag          = "hsm-token-label"
 	hsmClusterIDFlag      = "hsm-cluster-id"
@@ -32,7 +32,7 @@ const (
 )
 
 const (
-	defaultConfigFileName = "./signer.json"
+	defaultConfigFileName = "signer.json"
 )
 
 var (
@@ -58,6 +58,7 @@ type generateParams struct {
 	// HSM
 	hsmPin            string
 	hsmKeyLabel       string
+	hsmPrivKeyLabel   string
 	hsmLibPath        string
 	hsmTokenLabel     string
 	hsmClusterID      string
@@ -65,15 +66,14 @@ type generateParams struct {
 	hsmSessionTimeout int
 }
 
-func (p *generateParams) getRequiredFlags() []string {
-	return []string{
-		backendFlag,
-	}
-}
-
 func (p *generateParams) generateSignerConfig() (*signer.SignerConfig, error) {
 	cfg := &signer.SignerConfig{
 		Backend: signer.SignerBackend(p.backend),
+	}
+
+	privKeyLabel := p.hsmPrivKeyLabel
+	if privKeyLabel == "" {
+		privKeyLabel = p.hsmKeyLabel
 	}
 
 	switch cfg.Backend {
@@ -90,7 +90,8 @@ func (p *generateParams) generateSignerConfig() (*signer.SignerConfig, error) {
 	case signer.SignerBackendHSM:
 		cfg.HSM = &signer.HSMConfig{
 			Pin:            p.hsmPin,
-			KeyLabel:       p.hsmKeyLabel,
+			PubKeyLabel:    p.hsmKeyLabel,
+			PrivKeyLabel:   p.hsmPrivKeyLabel,
 			LibPath:        p.hsmLibPath,
 			TokenLabel:     p.hsmTokenLabel,
 			ClusterID:      p.hsmClusterID,
