@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -96,6 +97,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 	contractAddrs := make([]types.Address, params.contractsCounts)
 	accounts := make([]*state.Account, params.contractsCounts)
 	codeHash := types.BytesToHash(crypto.Keccak256(contractCode))
+	startTime := time.Now() // Start timer for iteration duration
 
 	if err := chainState.SetCode(codeHash, contractCode); err != nil {
 		return nil, err
@@ -210,8 +212,8 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		}
 
 		if (j+1)%outputIterationsModuo == 0 {
-			_, _ = outputter.Write(fmt.Appendf(nil, "Iteration %d committed, new root: %s\n",
-				j+1, types.Hash(rootHash)))
+			_, _ = outputter.Write(fmt.Appendf(nil, "Iteration %d committed, new root: %s, %.2f seconds\n",
+				j+1, types.Hash(rootHash), time.Since(startTime).Seconds()))
 		}
 	}
 
@@ -257,6 +259,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 		StateRootHash: types.BytesToHash(rootHash),
 		TotalSize:     totalSize,
 		GenesisHeader: genesisHeader,
+		TimeElapsed:   time.Since(startTime).Seconds(),
 	}, nil
 }
 

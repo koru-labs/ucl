@@ -11,6 +11,7 @@ import (
 type growStateResult struct {
 	StateRootHash types.Hash    `json:"rootHash"`
 	TotalSize     int64         `json:"totalSize"`
+	TimeElapsed   float64       `json:"timeElapsed"`
 	GenesisHeader *types.Header `json:"genesisHeader,omitempty"`
 }
 
@@ -22,6 +23,7 @@ func (r *growStateResult) GetOutput() string {
 	columns := []string{
 		fmt.Sprintf("StateRootHash|%s", r.StateRootHash),
 		fmt.Sprintf("TotalSizeInMB|%v", float64(r.TotalSize)/(1024*1024)),
+		fmt.Sprintf("TimeElapsedInSeconds|%.2f", r.TimeElapsed),
 	}
 
 	if r.GenesisHeader != nil {
