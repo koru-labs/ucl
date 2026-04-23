@@ -211,7 +211,7 @@ func runGrowStateFile(outputter command.OutputFormatter) (*growStateResult, erro
 			}
 		}
 
-		if (j+1)%outputIterationsModuo == 0 {
+		if uint64(j+1)%params.outputIterationsMod == 0 {
 			_, _ = outputter.Write(fmt.Appendf(nil, "Iteration %d committed, new root: %s, %.2f seconds\n",
 				j+1, types.Hash(rootHash), time.Since(startTime).Seconds()))
 		}

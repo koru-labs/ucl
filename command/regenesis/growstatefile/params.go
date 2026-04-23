@@ -32,12 +32,13 @@ const (
 	useBlsValidatorsFlag  = "use-bls"
 	baseMappingValue      = "base-mapping-value"
 	baseAddressFlag       = "base-address"
+	outputIterationsMod   = "output-iterations-moduo"
 
-	defaultContractsCount   = 2
-	defaultIterationsCnt    = 100
-	defaultUseBlsValidators = false
-	defaultBaseAddress      = "0x1234567890ABCDEF0000000000000000"
-	outputIterationsModuo   = 50
+	defaultContractsCount      = 2
+	defaultIterationsCnt       = 100
+	defaultUseBlsValidators    = false
+	defaultBaseAddress         = "0x1234567890ABCDEF0000000000000000"
+	defaultOutputIterationsMod = 50
 )
 
 type growStateParams struct {
@@ -51,6 +52,7 @@ type growStateParams struct {
 	useBlsValidators       bool
 	baseMappingValue       uint64
 	baseAddress            string
+	outputIterationsMod    uint64
 }
 
 var params growStateParams
@@ -145,6 +147,11 @@ func setFlags(cmd *cobra.Command) {
 		baseAddressFlag,
 		defaultBaseAddress,
 		"base address for contracts, actual address will be base address + contract index")
+	cmd.Flags().Uint64Var(
+		&params.outputIterationsMod,
+		outputIterationsMod,
+		defaultOutputIterationsMod,
+		"modulo for iterations to output progress")
 }
 
 // isHex checks if a string is a valid hex string with optional 0x prefix
