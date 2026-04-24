@@ -310,6 +310,7 @@ function startNodesForKMS() {
         --grpc-address ":$grpc_port" \
         --libp2p ":$libp2p_port" \
         --jsonrpc ":$jsonrpc_port" \
+        --signer-config "test-chain-$i/bootstrap/signer_config.json" \
         --num-block-confirmations 2 \
         --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
