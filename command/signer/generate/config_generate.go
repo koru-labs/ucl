@@ -110,7 +110,14 @@ func setHSMFlags(cmd *cobra.Command) {
 		&params.hsmKeyLabel,
 		hsmKeyLabelFlag,
 		"",
-		"the label of the key pair in the HSM",
+		"the label of the pub key or key pair if privKeyLabel not provided",
+	)
+
+	cmd.Flags().StringVar(
+		&params.hsmPrivKeyLabel,
+		hsmPrivKeyLabelFlag,
+		"",
+		"the label of the priv key",
 	)
 
 	cmd.Flags().StringVar(

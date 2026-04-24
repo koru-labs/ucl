@@ -33,7 +33,7 @@ function showhelp() {
   echo "Usage: cluster {consensus} [{command}] [{flags}]"
   echo "Consensus:"
   echo "  ibft            Start Supernets test environment locally with ibft consensus"
-  echo "  ibft-kms        Start Supernets test environment locally with ibft consensus and kms signing"
+  echo "  ibft-hsm        Start Supernets test environment locally with ibft consensus and hsm signing"
   echo "  polybft         Start Supernets test environment locally with polybft consensus"
   echo "Commands:"
   echo "  stop            Stop the running environment"
@@ -60,8 +60,87 @@ function initIbftConsensus() {
     --bootnode /ip4/127.0.0.1/tcp/30302/p2p/$node2_id"
 }
 
-function initIbftConsensuForKMS() {
+function initIbftConsensusForHSM() {
+  : "${HSM_MODULE:?--hsm-module is required}"
+  : "${HSM_PIN:?--hsm-pin is required}"
+  : "${HSM_TOKEN_LABEL:?--hsm-token-label is required}"
+  : "${HSM_KEY_LABEL_BASE:?--hsm-key-label is required}"
+  : "${HSM_PRIV_KEY_LABEL_BASE:?--hsm-priv-key-label is required}"
+
   echo "Running with ibft consensus with KMS"
+
+  addresses=()
+  pubkeys=()
+
+  for i in {1..4}; do
+      mkdir test-chain-$i test-chain-$i/bootstrap test-chain-$i/logs
+      chmod -R 750 test-chain-$i
+
+    ./polygon-edge secrets generate --dir test-chain-$i/bootstrap/secrets_config.json --type aws-ssm --name v$i --extra region=us-west-2,ssm-parameter-path=/ucl/ibft > /dev/null
+    ./polygon-edge secrets output --config test-chain-$i/bootstrap/secrets_config.json --json > test-chain-$i/bootstrap/secrets.json
+    
+    if [ -z "$(jq -r '(.[0]? // .).node_id // empty' test-chain-$i/bootstrap/secrets.json)" ]; then
+        ./polygon-edge secrets init --config test-chain-$i/bootstrap/secrets_config.json --json > test-chain-$i/bootstrap/secrets.json
+    fi
+    
+    HSM_KEY_LABEL="${HSM_KEY_LABEL_BASE}-$i"
+    HSM_PRIV_KEY_LABEL="${HSM_PRIV_KEY_LABEL_BASE}-$i"
+
+    ./polygon-edge signer generate-config hsm \
+      --hsm-lib-path "$HSM_MODULE" \
+      --hsm-pin "$HSM_PIN" \
+      --hsm-token-label "$HSM_TOKEN_LABEL" \
+      --hsm-key-label "$HSM_KEY_LABEL" \
+      --hsm-priv-key-label "$HSM_PRIV_KEY_LABEL" \
+      --dir "test-chain-$i/bootstrap/signer_config.json"
+
+    pkcs11-tool --module "$HSM_MODULE" \
+      --login --pin "$HSM_PIN" \
+      --token-label "$HSM_TOKEN_LABEL" \
+      --read-object --type pubkey \
+      --label "$HSM_KEY_LABEL" \
+      --output-file /tmp/pubkey.der 2>/dev/null
+
+    pubkey_b64=$(base64 -w 0 /tmp/pubkey.der)
+    rm /tmp/pubkey.der
+
+    pubkeys+=("$pubkey_b64")
+    address=$(./polygon-edge secrets pubkey-to-address --pubkey "$pubkey_b64" | jq -r '.address')
+    addresses+=("$address")
+  done
+
+  node1_id=$(jq -r '(.[0]? // .).node_id' test-chain-1/bootstrap/secrets.json)
+
+  node2_id=$(jq -r '(.[0]? // .).node_id' test-chain-2/bootstrap/secrets.json)
+
+  node3_id=$(jq -r '(.[0]? // .).node_id' test-chain-3/bootstrap/secrets.json)
+
+  node4_id=$(jq -r '(.[0]? // .).node_id' test-chain-4/bootstrap/secrets.json)
+
+ echo "Validator addresses:"
+  for i in "${!addresses[@]}"; do
+      echo "  validator-$((i+1)): ${addresses[$i]}"
+  done
+
+  genesis_params="--consensus ibft \
+    --validators-prefix "" \
+    --validators-path "" \
+    --validators ${addresses[0]#0x} \
+    --validators ${addresses[1]#0x} \
+    --validators ${addresses[2]#0x} \
+    --validators ${addresses[3]#0x} \
+    --bootnode /ip4/127.0.0.1/tcp/30301/p2p/$node1_id \
+    --bootnode /ip4/127.0.0.1/tcp/30302/p2p/$node2_id \
+    --bootnode /ip4/127.0.0.1/tcp/30303/p2p/$node3_id \
+    --bootnode /ip4/127.0.0.1/tcp/30304/p2p/$node4_id"
+}
+
+HSM_MODULE_LOCAL="/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so"
+HSM_PIN_LOCAL="1234"
+HSM_TOKEN_LABEL_LOCAL="ibft-validator"
+
+function initIbftConsensusForHSMLocal() {
+  echo "Running with ibft consensus with HSM"
 
   addresses=()
 
@@ -76,19 +155,28 @@ function initIbftConsensuForKMS() {
         ./polygon-edge secrets init --config test-chain-$i/bootstrap/secrets_config.json --json > test-chain-$i/bootstrap/secrets.json
     fi
 
-      ./polygon-edge signer generate-config kms \
-          --kms-key-id  "alias/ucl/ibft/v$i" \
-          --kms-region  "us-west-2"     \
-          --dir     "test-chain-$i/bootstrap/signer_config.json"
+    HSM_KEY_LABEL="ibft-validator-key-$i"
 
-      pubkey=$(aws kms get-public-key \
-          --key-id  "alias/ucl/ibft/v$i" \
-          --region  "us-west-2"     \
-          --query   "PublicKey"     \
-          --output  text)
+    ./polygon-edge signer generate-config hsm \
+      --hsm-lib-path "$HSM_MODULE_LOCAL" \
+      --hsm-pin "$HSM_PIN_LOCAL" \
+      --hsm-token-label "$HSM_TOKEN_LABEL_LOCAL" \
+      --hsm-key-label "$HSM_KEY_LABEL" \
+      --dir "test-chain-$i/bootstrap/signer_config.json"
 
-      address=$(./polygon-edge secrets pubkey-to-address --pubkey "$pubkey" | jq -r '.address')
-      addresses+=("$address")
+    pkcs11-tool --module "$HSM_MODULE_LOCAL" \
+      --login --pin "$HSM_PIN_LOCAL" \
+      --token-label "$HSM_TOKEN_LABEL_LOCAL" \
+      --read-object --type pubkey \
+      --label "$HSM_KEY_LABEL" \
+      --output-file /tmp/pubkey.der 2>/dev/null
+
+    pubkey_b64=$(base64 -w 0 /tmp/pubkey.der)
+    rm /tmp/pubkey.der
+
+    pubkeys+=("$pubkey_b64")
+    address=$(./polygon-edge secrets pubkey-to-address --pubkey "$pubkey_b64" | jq -r '.address')
+    addresses+=("$address")
   done
 
   node1_id=$(jq -r '(.[0]? // .).node_id' test-chain-1/bootstrap/secrets.json)
@@ -139,7 +227,7 @@ function createGenesis() {
     --proxy-contracts-admin 0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed
 }
 
-function createGenesisForKMS() {
+function createGenesisForHSM() {
   ./polygon-edge genesis $genesis_params \
     --block-gas-limit 10000000 \
     --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6 \
@@ -277,7 +365,7 @@ function startNodes() {
   wait
 }
 
-function startNodesForKMS() {
+function startNodesForHSM() {
   if [ "$2" == "write-logs" ]; then
     echo "Writing validators logs to the files..."
   fi
@@ -323,8 +411,8 @@ function startNodesForKMS() {
 }
 
 function startServerFromDockerCompose() {
-  if [ "$1" != "polybft" ]; then
-    export EDGE_CONSENSUS="$1"
+  if [ "$CONSENSUS" != "polybft" ]; then
+    export EDGE_CONSENSUS="$CONSENSUS"
   fi
 
   docker-compose -f ./docker/local/docker-compose.yml up -d --build
@@ -346,6 +434,28 @@ if [[ "$1" == "--help" ]] || [[ $# -eq 0 ]]; then
   exit 0
 fi
 
+CONSENSUS="$1"
+shift
+
+# Parse HSM flags
+HSM_MODULE=""
+HSM_PIN=""
+HSM_TOKEN_LABEL=""
+HSM_KEY_LABEL_BASE="validator"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hsm-module)      HSM_MODULE="$2";         shift 2 ;;
+    --hsm-pin)         HSM_PIN="$2";            shift 2 ;;
+    --hsm-token-label) HSM_TOKEN_LABEL="$2";    shift 2 ;;
+    --hsm-priv-key-label) HSM_PRIV_KEY_LABEL_BASE="$2";  shift 2;;
+    --hsm-key-label)   HSM_KEY_LABEL_BASE="$2"; shift 2 ;;
+    *)                 break ;;
+  esac
+done
+
+COMMAND="$1"  # write-logs, --docker, etc.
+
 # Reset test-dirs
 rm -rf test-chain-*
 rm -f genesis.json
@@ -354,51 +464,58 @@ rm -f genesis.json
 go build -o polygon-edge .
 
 # If --docker flag is set run docker environment otherwise run from binary
-case "$2" in
+case "$1" in
 "--docker")
   # cluster {consensus} --docker destroy
-  if [ "$3" == "destroy" ]; then
+  if [ "$2" == "destroy" ]; then
     destroyDockerEnvironment
-    echo "Docker $1 environment destroyed!"
+    echo "Docker $CONSENSUS environment destroyed!"
     exit 0
   # cluster {consensus} --docker stop
-  elif [ "$3" == "stop" ]; then
+  elif [ "$2" == "stop" ]; then
     stopDockerEnvironment
-    echo "Docker $1 environment stopped!"
+    echo "Docker $CONSENSUS environment stopped!"
     exit 0
   fi
 
   # cluster {consensus} --docker
-  echo "Running $1 docker environment..."
+  echo "Running $CONSENSUS docker environment..."
   startServerFromDockerCompose $1
-  echo "Docker $1 environment deployed."
+  echo "Docker $CONSENSUS environment deployed."
   exit 0
   ;;
 # cluster {consensus}
 *)
-  echo "Running $1 environment from local binary..."
+  echo "Running $CONSENSUS environment from local binary..."
   # Initialize ibft or polybft consensus
-  if [ "$1" == "ibft" ]; then
+  if [ "$CONSENSUS" == "ibft" ]; then
     # Initialize ibft consensus
     initIbftConsensus
     # Create genesis file and start the server from binary
     createGenesis
-    startNodes $1 $2
+    startNodes $CONSENSUS $1
     exit 0
-  elif [ "$1" == "ibft-kms" ]; then
+  elif [ "$CONSENSUS" == "ibft-hsm" ]; then
     # Initialize ibft consensus
-    initIbftConsensuForKMS
+    initIbftConsensusForHSM
     # Create genesis file and start the server from binary
-    createGenesisForKMS
-    startNodesForKMS $1 $2
+    createGenesisForHSM
+    startNodesForHSM $CONSENSUS $1
     exit 0
-  elif [ "$1" == "polybft" ]; then
+  elif [ "$CONSENSUS" == "ibft-hsm-local" ]; then
+    # Initialize ibft consensus
+    initIbftConsensusForHSMLocal
+    # Create genesis file and start the server from binary
+    createGenesisForHSM
+    startNodesForHSM $CONSENSUS $1
+    exit 0
+  elif [ "$CONSENSUS" == "polybft" ]; then
     # Initialize polybft consensus
     initPolybftConsensus
     # Create genesis file and start the server from binary
     createGenesis
-    initRootchain $2
-    startNodes $1 $2
+    initRootchain $1
+    startNodes $CONSENSUS $1
     exit 0
   else
     echo "Unsupported consensus mode. Supported modes are: ibft and polybft."
