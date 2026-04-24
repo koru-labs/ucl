@@ -91,7 +91,7 @@ func (p *generateParams) generateSignerConfig() (*signer.SignerConfig, error) {
 		cfg.HSM = &signer.HSMConfig{
 			Pin:            p.hsmPin,
 			PubKeyLabel:    p.hsmKeyLabel,
-			PrivKeyLabel:   p.hsmPrivKeyLabel,
+			PrivKeyLabel:   privKeyLabel,
 			LibPath:        p.hsmLibPath,
 			TokenLabel:     p.hsmTokenLabel,
 			ClusterID:      p.hsmClusterID,
