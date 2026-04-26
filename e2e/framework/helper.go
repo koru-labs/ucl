@@ -486,6 +486,7 @@ func NewTestServers(t *testing.T, num int, conf func(*TestServerConfig)) []*Test
 		srv := NewTestServer(t, dataDir, func(c *TestServerConfig) {
 			c.SetLogsDir(logsDir)
 			c.SetSaveLogs(true)
+			c.SetName(fmt.Sprintf("node-%d", i))
 			conf(c)
 		})
 		srv.Config.SetBootnodes(bootnodes)
