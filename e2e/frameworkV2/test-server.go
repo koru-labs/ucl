@@ -24,20 +24,21 @@ import (
 )
 
 type TestServerConfig struct {
-	Name                  string
-	JSONRPCPort           int64
-	GRPCPort              int64
-	P2PPort               int64
-	Validator             bool
-	DataDir               string
-	Chain                 string
-	LogLevel              string
-	Relayer               bool
-	NumBlockConfirmations uint64
-	BridgeJSONRPC         string
-	UseTLS                bool
-	TLSCertFile           string
-	TLSKeyFile            string
+	Name                     string
+	JSONRPCPort              int64
+	GRPCPort                 int64
+	P2PPort                  int64
+	Validator                bool
+	DataDir                  string
+	Chain                    string
+	LogLevel                 string
+	Relayer                  bool
+	NumBlockConfirmations    uint64
+	BridgeJSONRPC            string
+	UseTLS                   bool
+	TLSCertFile              string
+	TLSKeyFile               string
+	AllDebugEndpointsEnabled bool
 }
 
 type TestServerConfigCallback func(*TestServerConfig)
@@ -180,6 +181,10 @@ func (t *TestServer) Start() {
 
 	if config.UseTLS {
 		args = append(args, "--use-tls")
+	}
+
+	if config.AllDebugEndpointsEnabled {
+		args = append(args, "--enable-all-debug-endpoints")
 	}
 
 	// Start the server
