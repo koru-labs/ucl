@@ -51,10 +51,6 @@ func loadHSMConfig(path string) (*signer.HSMConfig, error) {
 }
 
 func deriveValidatorAddress(cfg *signer.HSMConfig) (types.Address, error) {
-	if err := cfg.Validate(); err != nil {
-		return types.Address{}, fmt.Errorf("hsm: invalid config: %w", err)
-	}
-
 	ctx := pkcs11.New(cfg.LibPath)
 	if ctx == nil {
 		return types.Address{}, fmt.Errorf("hsm: failed to load PKCS#11 library: %s", cfg.LibPath)

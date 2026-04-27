@@ -62,7 +62,7 @@ type HSMConfig struct {
 	SessionTimeout int    `json:"session_timeout,omitempty"`
 }
 
-func (c *HSMConfig) Validate() error {
+func (c *HSMConfig) validate() error {
 	if c.Pin == "" {
 		return errors.New("hsm.pin is required")
 	}
@@ -104,7 +104,7 @@ func (c *SignerConfig) validate() error {
 			return errors.New("hsm config is required when backend is hsm")
 		}
 
-		return c.HSM.Validate()
+		return c.HSM.validate()
 
 	case SignerBackendLocal, "":
 		if c.KMS != nil {

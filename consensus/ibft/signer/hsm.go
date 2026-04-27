@@ -69,7 +69,7 @@ func extractSecp256k1PubKey(signer hsmSigner) (*ecdsa.PublicKey, error) {
 }
 
 func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("hsm: invalid config: %w", err)
 	}
 
@@ -101,7 +101,7 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 		return nil, fmt.Errorf("hsm: Login failed: %w", err)
 	}
 
-	privKey, pubKey, err := FindKeyPairByLabel(ctx, session, cfg.PubKeyLabel, cfg.PrivKeyLabel)
+	privKey, pubKey, err := findKeyPairByLabel(ctx, session, cfg.PubKeyLabel, cfg.PrivKeyLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func FindSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, er
 	return 0, fmt.Errorf("hsm: no slot found with token label %q", label)
 }
 
-func FindKeyPairByLabel(
+func findKeyPairByLabel(
 	ctx *pkcs11.Ctx,
 	session pkcs11.SessionHandle,
 	pubLabel, privLabel string) (
