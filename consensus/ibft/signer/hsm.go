@@ -69,7 +69,7 @@ func extractSecp256k1PubKey(signer hsmSigner) (*ecdsa.PublicKey, error) {
 }
 
 func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("hsm: invalid config: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 		return nil, fmt.Errorf("hsm: GetSlotList failed: %w", err)
 	}
 
-	slot, err := findSlotByTokenLabel(ctx, slots, cfg.TokenLabel)
+	slot, err := FindSlotByTokenLabel(ctx, slots, cfg.TokenLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -101,12 +101,12 @@ func NewHSMKeyManagerFromConfig(cfg *HSMConfig) (KeyManager, error) {
 		return nil, fmt.Errorf("hsm: Login failed: %w", err)
 	}
 
-	privKey, pubKey, err := findKeyPairByLabel(ctx, session, cfg.PubKeyLabel, cfg.PrivKeyLabel)
+	privKey, pubKey, err := FindKeyPairByLabel(ctx, session, cfg.PubKeyLabel, cfg.PrivKeyLabel)
 	if err != nil {
 		return nil, err
 	}
 
-	ecPub, err := parseECPoint(ctx, session, pubKey)
+	ecPub, err := ParseECPoint(ctx, session, pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("hsm: failed to parse EC point: %w", err)
 	}
@@ -246,7 +246,7 @@ func (k *HSMKeyManager) verifyCommittedSealsImpl(
 	return numSeals, nil
 }
 
-func findSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, error) {
+func FindSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, error) {
 	for _, slot := range slots {
 		info, err := ctx.GetTokenInfo(slot)
 		if err != nil {
@@ -261,7 +261,7 @@ func findSlotByTokenLabel(ctx *pkcs11.Ctx, slots []uint, label string) (uint, er
 	return 0, fmt.Errorf("hsm: no slot found with token label %q", label)
 }
 
-func findKeyPairByLabel(
+func FindKeyPairByLabel(
 	ctx *pkcs11.Ctx,
 	session pkcs11.SessionHandle,
 	pubLabel, privLabel string) (
@@ -301,9 +301,9 @@ func findKeyPairByLabel(
 	return privObjs[0], pubObjs[0], nil
 }
 
-// parseECPoint reads CKA_EC_POINT from the public key object.
+// ParseECPoint reads CKA_EC_POINT from the public key object.
 // The attribute is DER-encoded: OCTET STRING wrapping the uncompressed point (04 || X || Y).
-func parseECPoint(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, pubObj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
+func ParseECPoint(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, pubObj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
 	attrs, err := ctx.GetAttributeValue(session, pubObj, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
 	})
@@ -418,6 +418,28 @@ func rawRSToEthSig(raw []byte, pubKey *ecdsa.PublicKey, digest []byte) ([]byte, 
 	}
 
 	return nil, fmt.Errorf("could not determine signature recovery bit")
+}
+
+func FindPublicKeyByLabel(
+	ctx *pkcs11.Ctx,
+	session pkcs11.SessionHandle,
+	label string,
+) (pkcs11.ObjectHandle, error) {
+	if err := ctx.FindObjectsInit(session, []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
+	}); err != nil {
+		return 0, fmt.Errorf("hsm: FindObjectsInit (pubkey) failed: %w", err)
+	}
+
+	objs, _, err := ctx.FindObjects(session, 1)
+	ctx.FindObjectsFinal(session) //nolint:errcheck
+
+	if err != nil || len(objs) == 0 {
+		return 0, fmt.Errorf("hsm: public key with label %q not found", label)
+	}
+
+	return objs[0], nil
 }
 
 // trimPadding removes trailing spaces from PKCS#11 fixed-width token label strings.
