@@ -81,13 +81,15 @@ function initIbftConsensuForKMS() {
           --kms-region  "us-west-2"     \
           --dir     "test-chain-$i/bootstrap/signer_config.json"
 
-      pubkey=$(aws kms get-public-key \
-          --key-id  "alias/ucl/ibft/v$i" \
-          --region  "us-west-2"     \
-          --query   "PublicKey"     \
-          --output  text)
+      address=$(./polygon-edge secrets kms-validator-address \
+          --kms-config-path "test-chain-$i/bootstrap/signer_config.json" \
+          --json | jq -r '.address')
 
-      address=$(./polygon-edge secrets pubkey-to-address --pubkey "$pubkey" | jq -r '.address')
+      if [ -z "$address" ] || [ "$address" = "null" ]; then
+          echo "failed to derive validator address for v$i" >&2
+          exit 1
+      fi
+
       addresses+=("$address")
   done
 

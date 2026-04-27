@@ -94,18 +94,15 @@ function initIbftConsensusForHSM() {
       --hsm-priv-key-label "$HSM_PRIV_KEY_LABEL" \
       --dir "test-chain-$i/bootstrap/signer_config.json"
 
-    pkcs11-tool --module "$HSM_MODULE" \
-      --login --pin "$HSM_PIN" \
-      --token-label "$HSM_TOKEN_LABEL" \
-      --read-object --type pubkey \
-      --label "$HSM_KEY_LABEL" \
-      --output-file /tmp/pubkey.der 2>/dev/null
+    address=$(./polygon-edge secrets hsm-validator-address \
+        --kms-config-path "test-chain-$i/bootstrap/signer_config.json" \
+        --json | jq -r '.address')
 
-    pubkey_b64=$(base64 -w 0 /tmp/pubkey.der)
-    rm /tmp/pubkey.der
+    if [ -z "$address" ] || [ "$address" = "null" ]; then
+        echo "failed to derive validator address for v$i" >&2
+        exit 1
+    fi
 
-    pubkeys+=("$pubkey_b64")
-    address=$(./polygon-edge secrets pubkey-to-address --pubkey "$pubkey_b64" | jq -r '.address')
     addresses+=("$address")
   done
 
