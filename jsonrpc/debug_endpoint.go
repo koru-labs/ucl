@@ -130,6 +130,7 @@ type Debug struct {
 	throttling   *Throttling
 	handler      *DebugHandler
 	ReadFileFunc func(filename string) ([]byte, error)
+	allEnabled   bool
 }
 
 // BlockTraceResult represents the results of tracing a single block
@@ -140,12 +141,13 @@ type BlockTraceResult struct {
 	Error  error
 }
 
-func NewDebug(store debugStore, requestsPerSecond uint64) *Debug {
+func NewDebug(store debugStore, requestsPerSecond uint64, allEnabled bool) *Debug {
 	return &Debug{
 		store:        store,
 		throttling:   NewThrottling(requestsPerSecond, time.Second),
 		handler:      new(DebugHandler),
 		ReadFileFunc: os.ReadFile,
+		allEnabled:   allEnabled,
 	}
 }
 
@@ -154,6 +156,10 @@ func NewDebug(store debugStore, requestsPerSecond uint64) *Debug {
 //
 //nolint:stylecheck
 func (d *Debug) CpuProfile(file string, nsec int64) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_cpuProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -179,6 +185,10 @@ func (d *Debug) CpuProfile(file string, nsec int64) (interface{}, error) {
 
 // FreeOSMemory forces a garbage collection.
 func (d *Debug) FreeOSMemory() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_freeOSMemory enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -191,6 +201,10 @@ func (d *Debug) FreeOSMemory() (interface{}, error) {
 
 // GcStats returns GC statistics.
 func (d *Debug) GcStats() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_gcStats enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -204,6 +218,10 @@ func (d *Debug) GcStats() (interface{}, error) {
 
 // MemStats returns detailed runtime memory statistics.
 func (d *Debug) MemStats() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_memStats endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -219,6 +237,10 @@ func (d *Debug) MemStats() (interface{}, error) {
 // It uses a profile rate of 1 for most accurate information. If a different rate is
 // desired, set the rate and write the profile manually.
 func (d *Debug) MutexProfile(file string, nsec int64) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_mutexProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -241,6 +263,10 @@ func (d *Debug) MutexProfile(file string, nsec int64) (interface{}, error) {
 // file. It uses a profile rate of 1 for most accurate information. If a different rate is
 // desired, set the rate and write the profile manually.
 func (d *Debug) BlockProfile(file string, nsec int64) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_blockProfile enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -262,6 +288,10 @@ func (d *Debug) BlockProfile(file string, nsec int64) (interface{}, error) {
 // SetBlockProfileRate sets the rate of goroutine block profile data collection.
 // rate 0 disables block profiling.
 func (d *Debug) SetBlockProfileRate(rate int) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_setBlockProfileRate enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -275,6 +305,10 @@ func (d *Debug) SetBlockProfileRate(rate int) (interface{}, error) {
 // SetGCPercent sets the garbage collection target percentage. It returns the previous
 // setting. A negative value disables GC.
 func (d *Debug) SetGCPercent(v int) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_setGCPercent enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -285,6 +319,10 @@ func (d *Debug) SetGCPercent(v int) (interface{}, error) {
 
 // SetMutexProfileFraction sets the rate of mutex profiling.
 func (d *Debug) SetMutexProfileFraction(rate int) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_setMutexProfileFraction endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -297,6 +335,10 @@ func (d *Debug) SetMutexProfileFraction(rate int) (interface{}, error) {
 
 // StartCPUProfile turns on CPU profiling, writing to the given file.
 func (d *Debug) StartCPUProfile(file string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_startCPUProfile enpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -316,6 +358,10 @@ func (d *Debug) StartCPUProfile(file string) (interface{}, error) {
 
 // GoTrace turns on tracing for nsec seconds and writes
 func (d *Debug) GoTrace(file string, nsec int64) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_goTrace endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -356,6 +402,10 @@ func (d *Debug) PrintBlock(number uint64) (interface{}, error) {
 
 // StartGoTrace turns on tracing, writing to the given file.
 func (d *Debug) StartGoTrace(file string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_startGoTrace endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -375,6 +425,10 @@ func (d *Debug) StartGoTrace(file string) (interface{}, error) {
 
 // StopCPUProfile stops an ongoing CPU profile.
 func (d *Debug) StopCPUProfile() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_stopCPUProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -389,6 +443,10 @@ func (d *Debug) StopCPUProfile() (interface{}, error) {
 
 // StopGoTrace stops an ongoing trace.
 func (d *Debug) StopGoTrace() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_stopGoTrace endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -403,6 +461,10 @@ func (d *Debug) StopGoTrace() (interface{}, error) {
 
 // WriteBlockProfile writes a goroutine blocking profile to the given file.
 func (d *Debug) WriteBlockProfile(file string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_writeBlockProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -421,6 +483,10 @@ func (d *Debug) WriteBlockProfile(file string) (interface{}, error) {
 // it must be set on the command line.
 // WriteBlockProfile writes a goroutine blocking profile to the given file.
 func (d *Debug) WriteMemProfile(file string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_writeMemProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -436,6 +502,10 @@ func (d *Debug) WriteMemProfile(file string) (interface{}, error) {
 
 // WriteMutexProfile writes a goroutine blocking profile to the given file.
 func (d *Debug) WriteMutexProfile(file string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_writeMutexProfile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -453,6 +523,10 @@ func (d *Debug) WriteMutexProfile(file string) (interface{}, error) {
 // also permits the following optional filters to be used:
 //   - filter: boolean expression of packages to filter for
 func (d *Debug) Stacks(filter *string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_stacks endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -475,6 +549,10 @@ func (d *Debug) TraceBlockByNumber(
 	blockNumber BlockNumber,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceBlockByNumber endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -512,6 +590,10 @@ func (d *Debug) TraceBlockByHash(
 
 // GetRawReceipts retrieves the binary-encoded receipts of a single block.
 func (d *Debug) GetRawReceipts(filter BlockNumberOrHash) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_getRawReceipts endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -540,6 +622,10 @@ func (d *Debug) TraceBlock(
 	input string,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceBlock endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -562,6 +648,10 @@ func (d *Debug) TraceBlockFromFile(
 	input string,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceBlockFromFile endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -613,6 +703,10 @@ func (d *Debug) TraceCall(
 	filter BlockNumberOrHash,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceCall endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -645,6 +739,10 @@ func (d *Debug) TraceCall(
 
 // GetRawBlock retrieves the RLP encoded for a single block.
 func (d *Debug) GetRawBlock(filter BlockNumberOrHash) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_getRawBlock endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -665,6 +763,10 @@ func (d *Debug) GetRawBlock(filter BlockNumberOrHash) (interface{}, error) {
 
 // GetRawHeader retrieves the RLP encoding for a single header.
 func (d *Debug) GetRawHeader(filter BlockNumberOrHash) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_getRawHeader endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -680,6 +782,10 @@ func (d *Debug) GetRawHeader(filter BlockNumberOrHash) (interface{}, error) {
 
 // GetRawTransaction returns the bytes of the transaction for the given hash.
 func (d *Debug) GetRawTransaction(txHash types.Hash) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_getRawTransaction endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -699,6 +805,10 @@ func (d *Debug) GetRawTransaction(txHash types.Hash) (interface{}, error) {
 
 // TraceChain traces a range of blocks from `start` to `end` and returns their trace results or an error.
 func (d *Debug) TraceChain(start, end BlockNumber, config *TraceConfig) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceChain endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -767,6 +877,10 @@ func (d *Debug) TraceChain(start, end BlockNumber, config *TraceConfig) (interfa
 // AccountRange enumerates all accounts in the given block and start point in paging request
 func (d *Debug) AccountRange(filter BlockNumberOrHash, start []byte, maxResults int, noCode,
 	noStorage, incompletes bool) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_accountRange endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -804,6 +918,10 @@ func (d *Debug) AccountRange(filter BlockNumberOrHash, start []byte, maxResults 
 
 // DumpBlock retrieves the entire state of the database at a given block.
 func (d *Debug) DumpBlock(blockNumber BlockNumber) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_dumpBlock endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -835,6 +953,10 @@ func (d *Debug) DumpBlock(blockNumber BlockNumber) (interface{}, error) {
 // Verbosity sets the log verbosity ceiling. The verbosity of individual packages
 // and source files can be raised using Vmodule.
 func (d *Debug) Verbosity(level int) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_verbosity endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -849,6 +971,10 @@ func (d *Debug) IntermediateRoots(
 	blockHash types.Hash,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_intermediateRoots endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -953,6 +1079,10 @@ func (d *Debug) GetAccessibleState(from, to BlockNumber) (interface{}, error) {
 
 // ChaindbProperty returns leveldb properties of the key-value database.
 func (d *Debug) ChaindbProperty(property string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_chaindbProperty endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -964,6 +1094,10 @@ func (d *Debug) ChaindbProperty(property string) (interface{}, error) {
 // ChaindbCompact flattens the entire key-value database into a single level,
 // removing all unused slots and merging all keys.
 func (d *Debug) ChaindbCompact() (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_chaindbCompact endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -980,6 +1114,10 @@ func (d *Debug) ChaindbCompact() (interface{}, error) {
 
 // Preimage is a debug API function that returns the preimage for a sha3 hash, if known.
 func (d *Debug) Preimage(codeHash types.Hash) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_preimage endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -992,6 +1130,10 @@ func (d *Debug) Preimage(codeHash types.Hash) (interface{}, error) {
 //
 //nolint:stylecheck
 func (d *Debug) DbGet(key string) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_dbGet endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -1003,6 +1145,10 @@ func (d *Debug) DbGet(key string) (interface{}, error) {
 // StorageRangeAt returns the storage at the given block height and transaction index.
 func (d *Debug) StorageRangeAt(blockHash types.Hash, txIndex int, contractAddress types.Address,
 	keyStart []byte, maxResult int) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_storageRangeAt endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -1060,6 +1206,10 @@ func (d *Debug) GetModifiedAccountsByHash(startHash types.Hash, endHash *types.H
 //
 // With one parameter, returns the list of accounts modified in the specified block.
 func (d *Debug) GetModifiedAccountsByNumber(startNum uint64, endNum *uint64) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_getModifiedAccountsByNumber endpoint is disabled")
+	}
+
 	return d.throttling.AttemptRequest(
 		context.Background(),
 		func() (interface{}, error) {
@@ -1092,6 +1242,10 @@ func (d *Debug) traceBlock(
 	block *types.Block,
 	config *TraceConfig,
 ) (interface{}, error) {
+	if !d.allEnabled {
+		return nil, errors.New("debug_traceBlock endpoint is disabled")
+	}
+
 	if block.Number() == 0 {
 		return nil, ErrTraceGenesisBlock
 	}

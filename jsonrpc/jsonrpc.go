@@ -62,7 +62,8 @@ type Config struct {
 	BlockCacheTTL      time.Duration
 	BlockCacheCapacity uint64
 
-	DisableTxPoolEndpoints bool
+	DisableTxPoolEndpoints  bool
+	EnableAllDebugEndpoints bool
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -80,6 +81,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			blockCacheTTL:           config.BlockCacheTTL,
 			blockCacheCapacity:      config.BlockCacheCapacity,
 			disableTxPoolEndpoints:  config.DisableTxPoolEndpoints,
+			enableAllDebugEndpoints: config.EnableAllDebugEndpoints,
 		},
 	)
 	if err != nil {

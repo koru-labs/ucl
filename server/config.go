@@ -65,7 +65,8 @@ type Config struct {
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
 
-	DisableTxPoolEndpoints bool
+	DisableTxPoolEndpoints  bool
+	EnableAllDebugEndpoints bool
 }
 
 // Telemetry holds the config details for metric services

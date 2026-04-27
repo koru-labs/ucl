@@ -60,7 +60,8 @@ const (
 
 	metricsIntervalFlag = "metrics-interval"
 
-	DisableTxPoolEndpointsFlag = "disable-tx-pool-endpoints"
+	DisableTxPoolEndpointsFlag  = "disable-tx-pool-endpoints"
+	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -220,16 +221,17 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONLogFormat:      p.rawConfig.JSONLogFormat,
 		LogFilePath:        p.logFileLocation,
 
-		Relayer:                p.relayer,
-		NumBlockConfirmations:  p.rawConfig.NumBlockConfirmations,
-		MetricsInterval:        p.rawConfig.MetricsInterval,
-		UseTLS:                 p.rawConfig.UseTLS,
-		TLSCertFile:            p.rawConfig.TLSCertFile,
-		TLSKeyFile:             p.rawConfig.TLSKeyFile,
-		BlockCacheTTL:          p.rawConfig.BlockCacheTTL,
-		BlockCacheCapacity:     p.rawConfig.BlockCacheCapacity,
-		MaxRequestBodySize:     p.rawConfig.MaxRequestBodySize,
-		JSONRPCTimeout:         p.rawConfig.JSONRPCTimeout,
-		DisableTxPoolEndpoints: p.rawConfig.DisableTxPoolEndpoints,
+		Relayer:                 p.relayer,
+		NumBlockConfirmations:   p.rawConfig.NumBlockConfirmations,
+		MetricsInterval:         p.rawConfig.MetricsInterval,
+		UseTLS:                  p.rawConfig.UseTLS,
+		TLSCertFile:             p.rawConfig.TLSCertFile,
+		TLSKeyFile:              p.rawConfig.TLSKeyFile,
+		BlockCacheTTL:           p.rawConfig.BlockCacheTTL,
+		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
+		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
+		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
+		DisableTxPoolEndpoints:  p.rawConfig.DisableTxPoolEndpoints,
+		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 	}
 }
