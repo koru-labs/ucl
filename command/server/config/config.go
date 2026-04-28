@@ -50,7 +50,8 @@ type Config struct {
 
 	MetricsInterval time.Duration `json:"metrics_interval" yaml:"metrics_interval"`
 
-	DisableTxPoolEndpoints bool `json:"disable_tx_pool_endpoints" yaml:"disable_tx_pool_endpoints"`
+	DisableTxPoolEndpoints  bool `json:"disable_tx_pool_endpoints" yaml:"disable_tx_pool_endpoints"`
+	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
 }
 
 // Telemetry holds the config details for metric services.

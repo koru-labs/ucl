@@ -333,6 +333,14 @@ func setFlags(cmd *cobra.Command) {
 		false,
 		"disable all txpool JSON-RPC endpoints",
 	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.EnableAllDebugEndpoints,
+		EnableAllDebugEndpointsFlag,
+		false,
+		"enable all debug JSON-RPC endpoints",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

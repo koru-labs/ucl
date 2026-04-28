@@ -70,7 +70,8 @@ type dispatcherParams struct {
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
 
-	disableTxPoolEndpoints bool
+	disableTxPoolEndpoints  bool
+	enableAllDebugEndpoints bool
 }
 
 func (dp dispatcherParams) isExceedingBatchLengthLimit(value uint64) bool {
@@ -121,7 +122,7 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 	d.endpoints.Bridge = &Bridge{
 		store,
 	}
-	d.endpoints.Debug = NewDebug(store, d.params.concurrentRequestsDebug)
+	d.endpoints.Debug = NewDebug(store, d.params.concurrentRequestsDebug, d.params.enableAllDebugEndpoints)
 
 	var err error
 

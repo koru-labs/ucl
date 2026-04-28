@@ -1103,6 +1103,7 @@ func (s *Server) setupJSONRPC() error {
 		MaxRequestBodySize:       s.config.MaxRequestBodySize,
 		JSONRPCTimeout:           s.config.JSONRPCTimeout,
 		DisableTxPoolEndpoints:   s.config.DisableTxPoolEndpoints,
+		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)

@@ -86,6 +86,9 @@ func TestE2E_Migration(t *testing.T) {
 
 	deployedContractAddr := receipt.ContractAddress
 
+	// wait for state root update after contract deployment
+	time.Sleep(500 * time.Millisecond)
+
 	initReceipt, err := ABITransaction(relayer, userKey, contractsapi.TestWriteBlockMetadata, receipt.ContractAddress, "init")
 	if err != nil {
 		t.Fatal(err)

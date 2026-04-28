@@ -270,6 +270,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 		config      *TraceConfig
 		store       *debugEndpointMockStore
 		result      interface{}
+		enabled     bool
 		err         bool
 	}{
 		{
@@ -292,8 +293,9 @@ func TestTraceBlockByNumber(t *testing.T) {
 					return testTraceResults, nil
 				},
 			},
-			result: testTraceResults,
-			err:    false,
+			result:  testTraceResults,
+			enabled: true,
+			err:     false,
 		},
 		{
 			name:        "should trace the block at the given height",
@@ -312,8 +314,9 @@ func TestTraceBlockByNumber(t *testing.T) {
 					return testTraceResults, nil
 				},
 			},
-			result: testTraceResults,
-			err:    false,
+			result:  testTraceResults,
+			enabled: true,
+			err:     false,
 		},
 		{
 			name:        "should return errTraceGenesisBlock for genesis block",
@@ -327,8 +330,9 @@ func TestTraceBlockByNumber(t *testing.T) {
 					return testGenesisBlock, true
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
 		},
 		{
 			name:        "should return errBlockNotFound",
@@ -342,8 +346,18 @@ func TestTraceBlockByNumber(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
+		},
+		{
+			name:        "should return error when disabled",
+			blockNumber: LatestBlockNumber,
+			config:      &TraceConfig{},
+			store:       &debugEndpointMockStore{},
+			enabled:     false,
+			result:      nil,
+			err:         true,
 		},
 	}
 
@@ -353,7 +367,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.TraceBlockByNumber(test.blockNumber, test.config)
 
 			require.Equal(t, test.result, res)
@@ -416,7 +430,7 @@ func TestPrintBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, true)
 			res, err := endpoint.PrintBlock(test.number)
 
 			require.Equal(t, test.result, res)
@@ -484,7 +498,7 @@ func TestTraceBlockByHash(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, true)
 			res, err := endpoint.TraceBlockByHash(test.blockHash, test.config)
 
 			require.Equal(t, test.result, res)
@@ -505,12 +519,13 @@ func TestTraceBlock(t *testing.T) {
 	blockHex := hex.EncodeToHex(blockBytes)
 
 	tests := []struct {
-		name   string
-		input  string
-		config *TraceConfig
-		store  *debugEndpointMockStore
-		result interface{}
-		err    bool
+		name    string
+		input   string
+		config  *TraceConfig
+		store   *debugEndpointMockStore
+		result  interface{}
+		enabled bool
+		err     bool
 	}{
 		{
 			name:   "should trace the given block",
@@ -523,16 +538,27 @@ func TestTraceBlock(t *testing.T) {
 					return testTraceResults, nil
 				},
 			},
-			result: testTraceResults,
-			err:    false,
+			result:  testTraceResults,
+			enabled: true,
+			err:     false,
 		},
 		{
-			name:   "should return error in case of invalid block",
-			input:  "hoge",
-			config: &TraceConfig{},
-			store:  &debugEndpointMockStore{},
-			result: nil,
-			err:    true,
+			name:    "should return error in case of invalid block",
+			input:   "hoge",
+			config:  &TraceConfig{},
+			store:   &debugEndpointMockStore{},
+			result:  nil,
+			enabled: true,
+			err:     true,
+		},
+		{
+			name:    "should return error when disabled",
+			input:   "",
+			config:  &TraceConfig{},
+			store:   &debugEndpointMockStore{},
+			enabled: false,
+			result:  nil,
+			err:     true,
 		},
 	}
 
@@ -542,7 +568,7 @@ func TestTraceBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.TraceBlock(test.input, test.config)
 
 			require.Equal(t, test.result, res)
@@ -568,6 +594,7 @@ func TestTraceBlockFromFile(t *testing.T) {
 		config  *TraceConfig
 		store   *debugEndpointMockStore
 		result  interface{}
+		enabled bool
 		err     bool
 	}{
 		{
@@ -582,8 +609,9 @@ func TestTraceBlockFromFile(t *testing.T) {
 					return testTraceResults, nil
 				},
 			},
-			result: testTraceResults,
-			err:    false,
+			result:  testTraceResults,
+			enabled: true,
+			err:     false,
 		},
 		{
 			name:    "should return error in case of invalid block from the file",
@@ -592,6 +620,7 @@ func TestTraceBlockFromFile(t *testing.T) {
 			config:  &TraceConfig{},
 			store:   &debugEndpointMockStore{},
 			result:  nil,
+			enabled: true,
 			err:     true,
 		},
 		{
@@ -600,6 +629,17 @@ func TestTraceBlockFromFile(t *testing.T) {
 			fileErr: nil,
 			config:  &TraceConfig{},
 			store:   &debugEndpointMockStore{},
+			result:  nil,
+			enabled: true,
+			err:     true,
+		},
+		{
+			name:    "should return error when disabled",
+			input:   nil,
+			fileErr: nil,
+			config:  &TraceConfig{},
+			store:   &debugEndpointMockStore{},
+			enabled: false,
 			result:  nil,
 			err:     true,
 		},
@@ -611,7 +651,7 @@ func TestTraceBlockFromFile(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 
 			endpoint.ReadFileFunc = func(filename string) ([]byte, error) {
 				return test.input, test.fileErr
@@ -761,7 +801,7 @@ func TestTraceTransaction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, true)
 			res, err := endpoint.TraceTransaction(test.txHash, test.config)
 
 			require.Equal(t, test.result, res)
@@ -820,13 +860,14 @@ func TestTraceCall(t *testing.T) {
 	decodedTx.ComputeHash(1)
 
 	tests := []struct {
-		name   string
-		arg    *txnArgs
-		filter BlockNumberOrHash
-		config *TraceConfig
-		store  *debugEndpointMockStore
-		result interface{}
-		err    bool
+		name    string
+		arg     *txnArgs
+		filter  BlockNumberOrHash
+		config  *TraceConfig
+		store   *debugEndpointMockStore
+		result  interface{}
+		enabled bool
+		err     bool
 	}{
 		{
 			name: "should trace the given transaction",
@@ -854,8 +895,9 @@ func TestTraceCall(t *testing.T) {
 					return &Account{Nonce: 1}, nil
 				},
 			},
-			result: testTraceResult,
-			err:    false,
+			result:  testTraceResult,
+			enabled: true,
+			err:     false,
 		},
 		{
 			name: "should return error if block not found",
@@ -878,8 +920,9 @@ func TestTraceCall(t *testing.T) {
 					return &Account{Nonce: 1}, nil
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
 		},
 		{
 			name: "should return error if decoding transaction fails",
@@ -900,8 +943,19 @@ func TestTraceCall(t *testing.T) {
 					return &Account{Nonce: 1}, nil
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
+		},
+		{
+			name:    "should return error when disabled",
+			arg:     txArg,
+			filter:  BlockNumberOrHash{BlockNumber: &blockNumber},
+			config:  &TraceConfig{},
+			store:   &debugEndpointMockStore{},
+			enabled: false,
+			result:  nil,
+			err:     true,
 		},
 	}
 
@@ -911,7 +965,7 @@ func TestTraceCall(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 
 			res, err := endpoint.TraceCall(test.arg, test.filter, test.config)
 
@@ -930,11 +984,12 @@ func TestGetRawBlock(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		filter BlockNumberOrHash
-		store  *debugEndpointMockStore
-		result interface{}
-		err    bool
+		name    string
+		filter  BlockNumberOrHash
+		store   *debugEndpointMockStore
+		result  interface{}
+		enabled bool
+		err     bool
 	}{
 		{
 			name:   "HeaderNotFound",
@@ -947,8 +1002,9 @@ func TestGetRawBlock(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
 		},
 		{
 			name:   "BlockNotFound",
@@ -963,8 +1019,9 @@ func TestGetRawBlock(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
 		},
 		{
 			name:   "Success",
@@ -978,8 +1035,17 @@ func TestGetRawBlock(t *testing.T) {
 					return testLatestBlock, true
 				},
 			},
-			result: testLatestBlock.MarshalRLP(),
-			err:    false,
+			result:  testLatestBlock.MarshalRLP(),
+			enabled: true,
+			err:     false,
+		},
+		{
+			name:    "should return error when disabled",
+			filter:  LatestBlockNumberOrHash,
+			store:   &debugEndpointMockStore{},
+			enabled: false,
+			result:  nil,
+			err:     true,
 		},
 	}
 
@@ -989,7 +1055,7 @@ func TestGetRawBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.GetRawBlock(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1007,11 +1073,12 @@ func TestGetRawHeader(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		filter BlockNumberOrHash
-		store  *debugEndpointMockStore
-		result interface{}
-		err    bool
+		name    string
+		filter  BlockNumberOrHash
+		store   *debugEndpointMockStore
+		result  interface{}
+		enabled bool
+		err     bool
 	}{
 		{
 			name:   "HeaderNotFound",
@@ -1021,8 +1088,9 @@ func TestGetRawHeader(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
-			err:    true,
+			result:  nil,
+			enabled: true,
+			err:     true,
 		},
 		{
 			name:   "Success",
@@ -1032,8 +1100,17 @@ func TestGetRawHeader(t *testing.T) {
 					return testLatestBlock.Header
 				},
 			},
-			result: testLatestBlock.Header.MarshalRLP(),
-			err:    false,
+			result:  testLatestBlock.Header.MarshalRLP(),
+			enabled: true,
+			err:     false,
+		},
+		{
+			name:    "should return error when disabled",
+			filter:  LatestBlockNumberOrHash,
+			store:   &debugEndpointMockStore{},
+			enabled: false,
+			result:  nil,
+			err:     true,
 		},
 	}
 
@@ -1043,7 +1120,7 @@ func TestGetRawHeader(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.GetRawHeader(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1068,10 +1145,11 @@ func TestGetRawTransaction(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		txHash types.Hash
-		store  *debugEndpointMockStore
-		result interface{}
+		name    string
+		txHash  types.Hash
+		store   *debugEndpointMockStore
+		result  interface{}
+		enabled bool
 	}{
 		{
 			name:   "successful because ReadTxLookup is filled",
@@ -1089,7 +1167,8 @@ func TestGetRawTransaction(t *testing.T) {
 					return blockWithTx, true
 				},
 			},
-			result: blockWithTx.Transactions[0].MarshalRLP(),
+			result:  blockWithTx.Transactions[0].MarshalRLP(),
+			enabled: true,
 		},
 		{
 			name:   "should return error if ReadTxLookup and GetPendingTx returns null",
@@ -1106,7 +1185,8 @@ func TestGetRawTransaction(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
+			result:  nil,
+			enabled: true,
 		},
 		{
 			name:   "should return error if block not found",
@@ -1129,7 +1209,8 @@ func TestGetRawTransaction(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
+			result:  nil,
+			enabled: true,
 		},
 		{
 			name:   "should return error if the tx is not including the block",
@@ -1152,7 +1233,8 @@ func TestGetRawTransaction(t *testing.T) {
 					return nil, false
 				},
 			},
-			result: nil,
+			enabled: true,
+			result:  nil,
 		},
 		{
 			name:   "should succeed if GetPendingTx succeeds",
@@ -1169,7 +1251,15 @@ func TestGetRawTransaction(t *testing.T) {
 					return blockWithTx.Transactions[0], true
 				},
 			},
-			result: blockWithTx.Transactions[0].MarshalRLP(),
+			enabled: true,
+			result:  blockWithTx.Transactions[0].MarshalRLP(),
+		},
+		{
+			name:    "should return error when disabled",
+			txHash:  testTxHash1,
+			store:   &debugEndpointMockStore{},
+			enabled: false,
+			result:  nil,
 		},
 	}
 
@@ -1179,7 +1269,7 @@ func TestGetRawTransaction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, _ := endpoint.GetRawTransaction(test.txHash)
 
 			require.Equal(t, test.result, res)
@@ -1204,6 +1294,7 @@ func TestGetRawReceipts(t *testing.T) {
 		store     *debugEndpointMockStore
 		result    interface{}
 		returnErr string
+		enabled   bool
 		err       bool
 	}{
 		{
@@ -1219,6 +1310,7 @@ func TestGetRawReceipts(t *testing.T) {
 
 			returnErr: "failed to get the header of block",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 		{
@@ -1239,6 +1331,7 @@ func TestGetRawReceipts(t *testing.T) {
 
 			returnErr: "receipts not found",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 		{
@@ -1260,7 +1353,17 @@ func TestGetRawReceipts(t *testing.T) {
 
 			returnErr: "",
 			result:    [][]byte{rec.MarshalRLP()},
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:      "should return error when disabled",
+			filter:    LatestBlockNumberOrHash,
+			store:     &debugEndpointMockStore{},
+			enabled:   false,
+			returnErr: "endpoint is disabled",
+			result:    nil,
+			err:       true,
 		},
 	}
 
@@ -1270,7 +1373,7 @@ func TestGetRawReceipts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.GetRawReceipts(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1299,6 +1402,7 @@ func TestAccountRange(t *testing.T) {
 		store     *debugEndpointMockStore
 		result    interface{}
 		returnErr string
+		enabled   bool
 		err       bool
 	}{
 		{
@@ -1314,6 +1418,7 @@ func TestAccountRange(t *testing.T) {
 
 			returnErr: "failed to get header",
 			result:    dumpEmpty,
+			enabled:   true,
 			err:       true,
 		},
 		{
@@ -1331,6 +1436,7 @@ func TestAccountRange(t *testing.T) {
 
 			returnErr: "block not found for hash",
 			result:    dumpEmpty,
+			enabled:   true,
 			err:       true,
 		},
 		{
@@ -1354,6 +1460,7 @@ func TestAccountRange(t *testing.T) {
 
 			returnErr: "failed to get iterator dump tree",
 			result:    dumpEmpty,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1378,7 +1485,17 @@ func TestAccountRange(t *testing.T) {
 
 			returnErr: "",
 			result:    dumpIter,
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:      "should return error when disabled",
+			filter:    LatestBlockNumberOrHash,
+			store:     &debugEndpointMockStore{},
+			returnErr: "endpoint is disabled",
+			result:    nil,
+			enabled:   false,
+			err:       true,
 		},
 	}
 
@@ -1388,7 +1505,7 @@ func TestAccountRange(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 
 			res, err := endpoint.AccountRange(test.filter, []byte{}, 1, false, false, false)
 
@@ -1414,6 +1531,7 @@ func TestDumpBlock(t *testing.T) {
 		store       *debugEndpointMockStore
 		result      interface{}
 		returnErr   string
+		enabled     bool
 		err         bool
 	}{
 		{
@@ -1422,6 +1540,7 @@ func TestDumpBlock(t *testing.T) {
 			store:       &debugEndpointMockStore{},
 			returnErr:   "failed to get block number",
 			result:      nil,
+			enabled:     true,
 			err:         true,
 		},
 		{
@@ -1440,6 +1559,7 @@ func TestDumpBlock(t *testing.T) {
 
 			returnErr: "block not found for number ",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 		{
@@ -1463,6 +1583,7 @@ func TestDumpBlock(t *testing.T) {
 
 			returnErr: "failed to dump tree",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1487,7 +1608,17 @@ func TestDumpBlock(t *testing.T) {
 
 			returnErr: "",
 			result:    dump,
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:        "should return error when disabled",
+			blockNumber: *LatestBlockNumberOrHash.BlockNumber,
+			store:       &debugEndpointMockStore{},
+			enabled:     false,
+			returnErr:   "endpoint is disabled",
+			result:      nil,
+			err:         true,
 		},
 	}
 
@@ -1497,7 +1628,7 @@ func TestDumpBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 
 			res, err := endpoint.DumpBlock(test.blockNumber)
 
@@ -1625,7 +1756,7 @@ func TestGetAccessibleState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, true)
 
 			res, err := endpoint.GetAccessibleState(test.start, test.end)
 
@@ -1650,6 +1781,7 @@ func TestIntermediateRoots(t *testing.T) {
 		store     *debugEndpointMockStore
 		result    interface{}
 		returnErr string
+		enabled   bool
 		err       bool
 	}{
 		{
@@ -1667,6 +1799,7 @@ func TestIntermediateRoots(t *testing.T) {
 
 			returnErr: "not found",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1687,6 +1820,7 @@ func TestIntermediateRoots(t *testing.T) {
 
 			returnErr: "roots not valid",
 			result:    []types.Hash{},
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1707,7 +1841,18 @@ func TestIntermediateRoots(t *testing.T) {
 
 			returnErr: "",
 			result:    []types.Hash{testLatestBlock.Hash()},
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:      "should return error when disabled",
+			blockHash: testLatestBlock.Hash(),
+			config:    &TraceConfig{},
+			store:     &debugEndpointMockStore{},
+			enabled:   false,
+			returnErr: "endpoint is disabled",
+			result:    nil,
+			err:       true,
 		},
 	}
 
@@ -1717,7 +1862,7 @@ func TestIntermediateRoots(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.IntermediateRoots(test.blockHash, test.config)
 			require.Equal(t, test.result, res)
 
@@ -1740,6 +1885,7 @@ func TestStorageRangeAt(t *testing.T) {
 		store              *debugEndpointMockStore
 		result             interface{}
 		returnErr          string
+		enabled            bool
 		err                bool
 	}{
 		{
@@ -1756,6 +1902,7 @@ func TestStorageRangeAt(t *testing.T) {
 
 			returnErr: "not found",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1776,6 +1923,7 @@ func TestStorageRangeAt(t *testing.T) {
 
 			returnErr: "storageRangeAt not valid",
 			result:    state.StorageRangeResult{},
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1796,7 +1944,17 @@ func TestStorageRangeAt(t *testing.T) {
 
 			returnErr: "",
 			result:    state.StorageRangeResult{},
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:      "should return error when disabled",
+			blockHash: testLatestBlock.Hash(),
+			store:     &debugEndpointMockStore{},
+			returnErr: "endpoint is disabled",
+			result:    nil,
+			enabled:   false,
+			err:       true,
 		},
 	}
 
@@ -1806,7 +1964,7 @@ func TestStorageRangeAt(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.StorageRangeAt(test.blockHash, 0, addr0, []byte{}, 10)
 			require.Equal(t, test.result, res)
 
@@ -1896,7 +2054,7 @@ func TestGetModifiedAccountsByHash(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, false)
 			res, err := endpoint.GetModifiedAccountsByHash(test.startblockHash, test.endblockHash)
 			require.Equal(t, test.result, res)
 
@@ -1920,6 +2078,7 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 		store            *debugEndpointMockStore
 		result           interface{}
 		returnErr        string
+		enabled          bool
 		err              bool
 	}{
 		{
@@ -1936,6 +2095,7 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 
 			returnErr: "not found",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1957,6 +2117,7 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 
 			returnErr: "parent block",
 			result:    nil,
+			enabled:   true,
 			err:       true,
 		},
 
@@ -1981,7 +2142,17 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 
 			returnErr: "",
 			result:    []types.Address{addr0, addr1},
+			enabled:   true,
 			err:       false,
+		},
+		{
+			name:             "should return error when disabled",
+			startblockNumber: number,
+			store:            &debugEndpointMockStore{},
+			enabled:          false,
+			returnErr:        "endpoint is disabled",
+			result:           nil,
+			err:              true,
 		},
 	}
 
@@ -1991,7 +2162,7 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000)
+			endpoint := NewDebug(test.store, 100000, test.enabled)
 			res, err := endpoint.GetModifiedAccountsByNumber(test.startblockNumber, test.endblockNumber)
 			require.Equal(t, test.result, res)
 

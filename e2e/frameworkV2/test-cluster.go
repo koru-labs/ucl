@@ -143,6 +143,8 @@ type TestClusterConfig struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
+	AllDebugEndpointsEnabled bool
+
 	Consensus server.ConsensusType
 }
 
@@ -410,6 +412,12 @@ func WithTLSCertificate(certFile string, keyFile string) ClusterOption {
 	}
 }
 
+func WithAllDebugEndpoints() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.AllDebugEndpointsEnabled = true
+	}
+}
+
 func WithConsensusType(consensusType server.ConsensusType) ClusterOption {
 	return func(h *TestClusterConfig) {
 		h.Consensus = consensusType
@@ -630,6 +638,7 @@ func (c *TestCluster) InitTestServer(t *testing.T,
 		config.UseTLS = c.Config.UseTLS
 		config.TLSCertFile = c.Config.TLSCertFile
 		config.TLSKeyFile = c.Config.TLSKeyFile
+		config.AllDebugEndpointsEnabled = c.Config.AllDebugEndpointsEnabled
 	})
 
 	// watch the server for stop signals. It is important to fix the specific
