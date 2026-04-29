@@ -190,6 +190,9 @@ func TestE2E_JsonRPCTLS(t *testing.T) {
 		txn := cluster.Transfer(t, preminedAcctOne, receiver, tokens)
 		require.True(t, txn.Succeed())
 
+		// wait for state update after transfer
+		time.Sleep(500 * time.Millisecond)
+
 		newBalance, err := ethClient.GetBalance(receiver, jsonrpc.LatestBlockNumberOrHash)
 		require.NoError(t, err)
 		require.Equal(t, tokens, newBalance)
@@ -260,6 +263,9 @@ func TestE2E_JsonRPCTLS(t *testing.T) {
 
 		transferTxn := cluster.Transfer(t, preminedAcctOne, newAccountAddr, tokenAmount)
 		require.True(t, transferTxn.Succeed())
+
+		// wait for state update after transfer
+		time.Sleep(500 * time.Millisecond)
 
 		newAccountBalance, err := ethClient.GetBalance(newAccountAddr, jsonrpc.LatestBlockNumberOrHash)
 		require.NoError(t, err)
