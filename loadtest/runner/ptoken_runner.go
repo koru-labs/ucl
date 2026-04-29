@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi/artifact"
 	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/txrelayerv2"
@@ -119,75 +118,12 @@ func (e *PTokenRunner) Run(ctx context.Context) error {
 	return e.printNodeInfos(nodeInfos)
 }
 
-// deployERC20Token deploys an ERC20 token contract.
-// It loads the contract artifact from the specified file path,
-// encodes the constructor inputs, creates a new transaction,
-// sends the transaction using a transaction relayer,
-// and retrieves the deployment receipt.
-// If the deployment is successful, it sets the ERC20 token address
-// and artifact in the ERC20Runner instance.
-// Returns an error if any step of the deployment process fails.
-func (e *PTokenRunner) deployERC20Token() error {
-	fmt.Println("=============================================================")
-	fmt.Println("Deploying ERC20 token contract")
-
-	start := time.Now().UTC()
-	artifact := contractsapi.ZexCoinERC20
-
-	input, err := artifact.Abi.Constructor.Inputs.Encode(map[string]interface{}{
-		"coinName":   "ZexCoin",
-		"coinSymbol": "ZEX",
-		"total":      500000000000,
-	})
-	if err != nil {
-		return err
-	}
-
-	txn := &types.Transaction{
-		Type:  types.LegacyTx,
-		To:    nil,
-		Input: append(artifact.Bytecode, input...),
-		From:  e.loadTestAccount.key.Address(),
-	}
-
-	txrelayerv2, err := txrelayerv2.NewTxRelayer(
-		txrelayerv2.WithClient(e.clients.getClient()),
-		txrelayerv2.WithReceiptsTimeout(e.cfg.ReceiptsTimeout))
-	if err != nil {
-		return err
-	}
-
-	receipt, err := txrelayerv2.SendTransaction(txn, e.loadTestAccount.key)
-	if err != nil {
-		return err
-	}
-
-	if receipt == nil || receipt.Status == uint64(types.ReceiptFailed) {
-		return fmt.Errorf("failed to deploy ERC20 token")
-	}
-
-	e.erc20Token = types.Address(receipt.ContractAddress)
-	e.erc20TokenArtifact = artifact
-
-	input, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
-		"receiver":  e.receivers.getReceiver(),
-		"numTokens": big.NewInt(1),
-	})
-	if err != nil {
-		return err
-	}
-
-	e.txInput = input
-
-	fmt.Printf("Deploying ERC20 token took %s\n", time.Since(start))
-
-	return nil
-}
-
 // mintERC20TokenToVUs mints ERC20 tokens to the specified virtual users (VUs).
 // It sends a transfer transaction to each VU's address, minting the specified number of tokens.
 // The transaction is sent using a transaction relayer, and the result is checked for success.
 // If any error occurs during the minting process, an error is returned.
+//
+//nolint:dupl
 func (e *PTokenRunner) mintERC20TokenToVUs() error {
 	fmt.Println("=============================================================")
 

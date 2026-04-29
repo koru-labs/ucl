@@ -145,12 +145,14 @@ func (ltp *loadTestParams) validateFlags() error {
 		return errInvalidTxpoolReadThreads
 	}
 
-	if ltp.loadTestType != runner.PTokenTestType && ltp.tokenContractAddress == "" {
-		return errNoTokenContractAddressProvided
-	}
+	if ltp.loadTestType == runner.PTokenTestType {
+		if ltp.tokenContractAddress == "" {
+			return errNoTokenContractAddressProvided
+		}
 
-	if err := types.IsValidAddress(ltp.tokenContractAddress); err != nil {
-		return err
+		if err := types.IsValidAddress(ltp.tokenContractAddress); err != nil {
+			return err
+		}
 	}
 
 	return nil
