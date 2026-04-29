@@ -227,8 +227,6 @@ func (e *PTokenRunner) mintERC20TokenToVUs() error {
 }
 
 // createERC20Transaction creates an ERC20 transaction
-//
-//nolint:dupl
 func (e *PTokenRunner) createERC20Transaction(account *account, feeData *feeData,
 	chainID *big.Int) (*types.Transaction, error) {
 	if e.cfg.DynamicTxs {
