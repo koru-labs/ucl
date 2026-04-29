@@ -7,6 +7,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/command/helper"
 	"github.com/0xPolygon/polygon-edge/loadtest/runner"
+	"github.com/0xPolygon/polygon-edge/types"
 )
 
 const (
@@ -35,6 +36,8 @@ const (
 	blockNumberDeadbandFlag = "block-num-deadband"
 
 	tearDownFlag = "tear-down"
+
+	tokenContractAddressFlag = "token-sc-address"
 )
 
 var (
@@ -51,6 +54,7 @@ var (
 	errInvalidReceiversNum                  = errors.New("receivers-num must be greater than 0")
 	errInvalidStateReadThreads              = errors.New("state-read-threads must be equal or greater than 0")
 	errInvalidTxpoolReadThreads             = errors.New("txpool-read-threads must be equal or greater than 0")
+	errNoTokenContractAddressProvided       = errors.New("no token contract address provided")
 )
 
 type loadTestParams struct {
@@ -79,6 +83,8 @@ type loadTestParams struct {
 	blockNumberDeadband uint64
 
 	tearDown bool
+
+	tokenContractAddress string
 }
 
 func (ltp *loadTestParams) validateFlags() error {
@@ -137,6 +143,14 @@ func (ltp *loadTestParams) validateFlags() error {
 
 	if ltp.txpoolReadThreads < 0 {
 		return errInvalidTxpoolReadThreads
+	}
+
+	if ltp.loadTestType != runner.PTokenTestType && ltp.tokenContractAddress == "" {
+		return errNoTokenContractAddressProvided
+	}
+
+	if err := types.IsValidAddress(ltp.tokenContractAddress); err != nil {
+		return err
 	}
 
 	return nil
