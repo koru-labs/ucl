@@ -46,6 +46,8 @@ func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
 // 7. Waits for transaction receipts.
 // 8. Calculates the transactions per second (TPS) based on block information and transaction statistics.
 // Returns an error if any of the steps fail.
+//
+//nolint:dupl
 func (e *ERC20Runner) Run(ctx context.Context) error {
 	fmt.Println("Running ERC20 load test", e.cfg.LoadTestName)
 
@@ -192,6 +194,8 @@ func (e *ERC20Runner) deployERC20Token() error {
 // It sends a transfer transaction to each VU's address, minting the specified number of tokens.
 // The transaction is sent using a transaction relayer, and the result is checked for success.
 // If any error occurs during the minting process, an error is returned.
+//
+//nolint:dupl
 func (e *ERC20Runner) mintERC20TokenToVUs() error {
 	fmt.Println("=============================================================")
 
@@ -270,6 +274,8 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 }
 
 // createERC20Transaction creates an ERC20 transaction
+//
+//nolint:dupl
 func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 	chainID *big.Int) (*types.Transaction, error) {
 	if e.cfg.DynamicTxs {
