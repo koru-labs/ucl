@@ -146,10 +146,6 @@ func (ltp *loadTestParams) validateFlags() error {
 	}
 
 	if ltp.loadTestType == runner.PTokenTestType {
-		if ltp.tokenContractAddress == "" {
-			return errNoTokenContractAddressProvided
-		}
-
 		if err := types.IsValidAddress(ltp.tokenContractAddress); err != nil {
 			return err
 		}
