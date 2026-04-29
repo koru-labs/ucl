@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi/artifact"
 	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/txrelayerv2"
@@ -53,6 +54,10 @@ func (e *PTokenRunner) Run(ctx context.Context) error {
 	}
 
 	if err := e.fundVUs(); err != nil {
+		return err
+	}
+
+	if err := e.prepareTransferPayload(); err != nil {
 		return err
 	}
 
@@ -116,6 +121,24 @@ func (e *PTokenRunner) Run(ctx context.Context) error {
 	}
 
 	return e.printNodeInfos(nodeInfos)
+}
+
+func (e *PTokenRunner) prepareTransferPayload() error {
+	artifact := contractsapi.ZexCoinERC20
+
+	e.erc20TokenArtifact = artifact
+
+	input, err := e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
+		"receiver":  e.receivers.getReceiver(),
+		"numTokens": big.NewInt(1),
+	})
+	if err != nil {
+		return err
+	}
+
+	e.txInput = input
+
+	return nil
 }
 
 // mintERC20TokenToVUs mints ERC20 tokens to the specified virtual users (VUs).
