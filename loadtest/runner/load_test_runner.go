@@ -12,24 +12,14 @@ import (
 )
 
 const (
-	EOATestType      = "eoa"
-	ERC20TestType    = "erc20"
-	ERC721TestType   = "erc721"
-	ERC1155TestType  = "erc1155"
-	MixedTestType    = "mixed"
-	PerfContractType = "perf-contract"
-	PTokenTestType   = "ptoken"
+	ERC20TestType  = "erc20"
+	PTokenTestType = "ptoken"
 )
 
 func IsLoadTestSupported(loadTestType string) bool {
 	ltp := strings.ToLower(loadTestType)
 
-	return ltp == EOATestType ||
-		ltp == ERC20TestType ||
-		ltp == ERC721TestType ||
-		ltp == ERC1155TestType ||
-		ltp == MixedTestType ||
-		ltp == PerfContractType
+	return ltp == ERC20TestType || ltp == PTokenTestType
 }
 
 type account struct {
