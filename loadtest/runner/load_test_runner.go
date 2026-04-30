@@ -8,26 +8,18 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
+	"github.com/0xPolygon/polygon-edge/types"
 )
 
 const (
-	EOATestType      = "eoa"
-	ERC20TestType    = "erc20"
-	ERC721TestType   = "erc721"
-	ERC1155TestType  = "erc1155"
-	MixedTestType    = "mixed"
-	PerfContractType = "perf-contract"
+	ERC20TestType  = "erc20"
+	PTokenTestType = "ptoken"
 )
 
 func IsLoadTestSupported(loadTestType string) bool {
 	ltp := strings.ToLower(loadTestType)
 
-	return ltp == EOATestType ||
-		ltp == ERC20TestType ||
-		ltp == ERC721TestType ||
-		ltp == ERC1155TestType ||
-		ltp == MixedTestType ||
-		ltp == PerfContractType
+	return ltp == ERC20TestType || ltp == PTokenTestType
 }
 
 type account struct {
@@ -82,6 +74,8 @@ type LoadTestConfig struct {
 
 	// Tear down for the load test
 	TearDown bool // TearDown indicates whether to tear down the load test.
+
+	TokenContractAddress types.Address
 }
 
 // LoadTestRunner represents a runner for load tests.
@@ -100,6 +94,13 @@ func (r *LoadTestRunner) Run(ctx context.Context, cfg LoadTestConfig) error {
 		}
 
 		return erc20Runner.Run(ctx)
+	case PTokenTestType:
+		pTokenRunner, err := NewPTokenRunner(cfg)
+		if err != nil {
+			return err
+		}
+
+		return pTokenRunner.Run(ctx)
 	default:
 		return fmt.Errorf("unknown load test type %s", cfg.LoadTestType)
 	}

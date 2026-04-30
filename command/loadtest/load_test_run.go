@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/helper"
 	"github.com/0xPolygon/polygon-edge/loadtest/runner"
 	"github.com/0xPolygon/polygon-edge/server"
+	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/spf13/cobra"
 )
 
@@ -159,6 +160,13 @@ func setFlags(cmd *cobra.Command) {
 		"indicates whether to tear down the load test",
 	)
 
+	cmd.Flags().StringVar(
+		&params.tokenContractAddress,
+		tokenContractAddressFlag,
+		"",
+		"token smart contract address",
+	)
+
 	_ = cmd.MarkFlagRequired(MnemonicFlag)
 	_ = cmd.MarkFlagRequired(loadTestTypeFlag)
 
@@ -190,6 +198,7 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		ReceiversNum:         params.receiversNum,
 		BlockNumberDeadband:  params.blockNumberDeadband,
 		TearDown:             params.tearDown,
+		TokenContractAddress: types.StringToAddress(params.tokenContractAddress),
 	})
 	if err != nil {
 		outputter.SetError(err)

@@ -16,7 +16,7 @@ import (
 )
 
 // ERC20Runner represents a load test runner for ERC20 tokens.
-type ERC20Runner struct {
+type PTokenRunner struct {
 	*BaseLoadTestRunner
 
 	erc20Token         types.Address
@@ -26,13 +26,13 @@ type ERC20Runner struct {
 
 // NewERC20Runner creates a new ERC20Runner instance with the given LoadTestConfig.
 // It returns a pointer to the created ERC20Runner and an error, if any.
-func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
+func NewPTokenRunner(cfg LoadTestConfig) (*PTokenRunner, error) {
 	runner, err := NewBaseLoadTestRunner(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ERC20Runner{BaseLoadTestRunner: runner}, nil
+	return &PTokenRunner{BaseLoadTestRunner: runner, erc20Token: cfg.TokenContractAddress}, nil
 }
 
 // Run executes the ERC20 load test.
@@ -48,7 +48,7 @@ func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
 // Returns an error if any of the steps fail.
 //
 //nolint:dupl
-func (e *ERC20Runner) Run(ctx context.Context) error {
+func (e *PTokenRunner) Run(ctx context.Context) error {
 	fmt.Println("Running ERC20 load test", e.cfg.LoadTestName)
 
 	if err := e.createVUs(); err != nil {
@@ -59,7 +59,7 @@ func (e *ERC20Runner) Run(ctx context.Context) error {
 		return err
 	}
 
-	if err := e.deployERC20Token(); err != nil {
+	if err := e.prepareTransferPayload(); err != nil {
 		return err
 	}
 
@@ -125,57 +125,12 @@ func (e *ERC20Runner) Run(ctx context.Context) error {
 	return e.printNodeInfos(nodeInfos)
 }
 
-// deployERC20Token deploys an ERC20 token contract.
-// It loads the contract artifact from the specified file path,
-// encodes the constructor inputs, creates a new transaction,
-// sends the transaction using a transaction relayer,
-// and retrieves the deployment receipt.
-// If the deployment is successful, it sets the ERC20 token address
-// and artifact in the ERC20Runner instance.
-// Returns an error if any step of the deployment process fails.
-func (e *ERC20Runner) deployERC20Token() error {
-	fmt.Println("=============================================================")
-	fmt.Println("Deploying ERC20 token contract")
-
-	start := time.Now().UTC()
+func (e *PTokenRunner) prepareTransferPayload() error {
 	artifact := contractsapi.ZexCoinERC20
 
-	input, err := artifact.Abi.Constructor.Inputs.Encode(map[string]interface{}{
-		"coinName":   "ZexCoin",
-		"coinSymbol": "ZEX",
-		"total":      500000000000,
-	})
-	if err != nil {
-		return err
-	}
-
-	txn := &types.Transaction{
-		Type:  types.LegacyTx,
-		To:    nil,
-		Input: append(artifact.Bytecode, input...),
-		From:  e.loadTestAccount.key.Address(),
-	}
-
-	txrelayerv2, err := txrelayerv2.NewTxRelayer(
-		txrelayerv2.WithClient(e.clients.getClient()),
-		txrelayerv2.WithReceiptsTimeout(e.cfg.ReceiptsTimeout))
-	if err != nil {
-		return err
-	}
-
-	receipt, err := txrelayerv2.SendTransaction(txn, e.loadTestAccount.key)
-	if err != nil {
-		return err
-	}
-
-	if receipt == nil || receipt.Status == uint64(types.ReceiptFailed) {
-		return fmt.Errorf("failed to deploy ERC20 token")
-	}
-
-	e.erc20Token = types.Address(receipt.ContractAddress)
 	e.erc20TokenArtifact = artifact
 
-	input, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
+	input, err := e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
 		"receiver":  e.receivers.getReceiver(),
 		"numTokens": big.NewInt(1),
 	})
@@ -184,8 +139,6 @@ func (e *ERC20Runner) deployERC20Token() error {
 	}
 
 	e.txInput = input
-
-	fmt.Printf("Deploying ERC20 token took %s\n", time.Since(start))
 
 	return nil
 }
@@ -196,7 +149,7 @@ func (e *ERC20Runner) deployERC20Token() error {
 // If any error occurs during the minting process, an error is returned.
 //
 //nolint:dupl
-func (e *ERC20Runner) mintERC20TokenToVUs() error {
+func (e *PTokenRunner) mintERC20TokenToVUs() error {
 	fmt.Println("=============================================================")
 
 	start := time.Now().UTC()
@@ -274,7 +227,7 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 }
 
 // createERC20Transaction creates an ERC20 transaction
-func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
+func (e *PTokenRunner) createERC20Transaction(account *account, feeData *feeData,
 	chainID *big.Int) (*types.Transaction, error) {
 	if e.cfg.DynamicTxs {
 		return &types.Transaction{
