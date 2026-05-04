@@ -18,7 +18,7 @@ require (
 	github.com/consensys/gnark-crypto v0.20.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.6.0
+	github.com/docker/go-connections v0.7.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
