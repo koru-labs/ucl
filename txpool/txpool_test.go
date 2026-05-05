@@ -4053,7 +4053,6 @@ func TestResetWithBlock(t *testing.T) {
 		pool, err := newTestPool(store)
 		require.NoError(t, err)
 
-		pool.store = store
 		pool.SetSigner(&mockSigner{})
 
 		return pool
@@ -4111,6 +4110,10 @@ func TestResetWithBlock(t *testing.T) {
 
 		txA := newTx(addr1, 0, 1)
 		txB := newTx(addr2, 0, 1)
+
+		// since nonce is the same for both txs, prevent same hash generation by setting txs input
+		txA.Input = []byte{1}
+		txB.Input = []byte{2}
 
 		require.NoError(t, pool.addTx(local, txA))
 		pool.handlePromoteRequest(<-pool.promoteReqCh)
