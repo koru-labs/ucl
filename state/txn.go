@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
+	"github.com/hashicorp/go-metrics"
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -586,6 +588,21 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 }
 
 // GetCode gets the code on a given address
+//
+// Read path and caching (see also METRICS.md → State):
+//   - One *Txn is reused for an entire block in Executor.ProcessBlock, so the
+//     per-Txn LRU (codeCache, capacity 20) is scoped to that block transition,
+//     not to each individual transaction.
+//   - First GetCode(addr) in that transition that misses the LRU loads from the
+//     snapshot (Pebble for production): at most once per distinct address until
+//     the address is evicted from the LRU.
+//   - If more than 20 distinct contract addresses are touched in interleaved
+//     order, an earlier address may be evicted and later GetCode(addr) can hit
+//     Pebble again in the same block.
+//   - DirtyCode (contract updated in this transition) returns in-memory bytes
+//     and does not touch the LRU or storage.
+//   - Multiple GetCode(addr) in one tx / nested CALLs: LRU hit after the first
+//     load (unless evicted).
 func (txn *Txn) GetCode(addr types.Address) []byte {
 	object, exists := txn.getStateObject(addr)
 	if !exists {
@@ -600,11 +617,17 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 	v, ok := txn.codeCache.Get(addr)
 
 	if ok {
+		metrics.IncrCounter([]string{"state", "code_cache", "hit"}, 1)
 		//nolint:forcetypeassert
 		return v.([]byte)
 	}
 
+	metrics.IncrCounter([]string{"state", "code_cache", "miss"}, 1)
+
+	start := time.Now()
 	code, _ := txn.snapshot.GetCode(types.BytesToHash(object.Account.CodeHash))
+	metrics.MeasureSince([]string{"state", "code_db_read"}, start)
+
 	txn.codeCache.Add(addr, code)
 
 	return code

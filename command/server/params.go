@@ -62,6 +62,8 @@ const (
 
 	DisableTxPoolEndpointsFlag  = "disable-tx-pool-endpoints"
 	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+
+	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -233,5 +235,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
 		DisableTxPoolEndpoints:  p.rawConfig.DisableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
+
+		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}
 }

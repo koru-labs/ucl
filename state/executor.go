@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/contracts"
@@ -639,8 +641,20 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 	}
 }
 
-func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, error) {
-	var err error
+func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
+		metrics.IncrCounter([]string{"state", "tx_apply", "count"}, 1)
+		switch {
+		case err != nil:
+			metrics.IncrCounter([]string{"state", "tx_apply", "failed"}, 1)
+		case result != nil && result.Failed():
+			metrics.IncrCounter([]string{"state", "tx_apply", "failed"}, 1)
+		default:
+			metrics.IncrCounter([]string{"state", "tx_apply", "success"}, 1)
+		}
+	}()
 
 	if msg.Type == types.StateTx {
 		err = checkAndProcessStateTx(msg)
@@ -681,11 +695,10 @@ func (t *Transition) apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.ctx.GasPrice = types.BytesToHash(gasPrice.Bytes())
 	t.ctx.Origin = msg.From
 
-	var result *runtime.ExecutionResult
 	if msg.IsContractCreation() {
 		result = t.Create2(msg.From, msg.Input, value, gasLeft)
 	} else {
-		if err := t.state.IncrNonce(msg.From); err != nil {
+		if err = t.state.IncrNonce(msg.From); err != nil {
 			return nil, err
 		}
 

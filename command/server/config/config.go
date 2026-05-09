@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/network"
+	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/hashicorp/hcl"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"gopkg.in/yaml.v3"
@@ -52,6 +53,14 @@ type Config struct {
 
 	DisableTxPoolEndpoints  bool `json:"disable_tx_pool_endpoints" yaml:"disable_tx_pool_endpoints"`
 	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+
+	// JumpdestCacheSize is the number of distinct contract codes (keyed by
+	// code hash) for which the EVM keeps a precomputed JUMPDEST bitmap in
+	// memory. Setting this to 0 disables the cache. See
+	// `state/runtime/evm/jumpdest_cache.go` for the rationale and
+	// `.cursor/plans/large_contract_perf_analysis.plan.md` for the analysis
+	// that motivated the optimization.
+	JumpdestCacheSize uint64 `json:"jumpdest_cache_size" yaml:"jumpdest_cache_size"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -166,6 +175,7 @@ func DefaultConfig() *Config {
 		BlockCacheCapacity:       50,
 		MaxRequestBodySize:       DefaultRequestBodySize,
 		JSONRPCTimeout:           DefaultJSONRPCTimeout,
+		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -37,6 +38,7 @@ import (
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/state/runtime/addresslist"
+	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -217,6 +219,27 @@ func NewServer(config *Config) (*Server, error) {
 	m.state = st
 
 	m.executor = state.NewExecutor(config.Chain.Params, st, logger)
+
+	// Apply the operator-configured JUMPDEST cache size before the executor
+	// services any traffic. The cache defaults to `evm.DefaultJumpdestCacheSize`
+	// at package init time; a `--jumpdest-cache-size` of 0 disables it.
+	// Capping at MaxInt32 protects against absurdly large values and keeps the
+	// downstream `lru.New(int)` happy on 32-bit architectures.
+	configuredJDCacheSize := config.JumpdestCacheSize
+	if configuredJDCacheSize > math.MaxInt32 {
+		m.logger.Warn("jumpdest-cache-size is too large; clamping to MaxInt32",
+			"requested", configuredJDCacheSize, "applied", math.MaxInt32)
+
+		configuredJDCacheSize = math.MaxInt32
+	}
+
+	evm.SetJumpdestCacheSize(int(configuredJDCacheSize))
+
+	if configuredJDCacheSize == 0 {
+		m.logger.Info("EVM JUMPDEST bitmap cache: disabled")
+	} else {
+		m.logger.Info("EVM JUMPDEST bitmap cache: enabled", "size", configuredJDCacheSize)
+	}
 
 	// custom write genesis hook per consensus engine
 	engineName := m.config.Chain.Params.GetEngine()

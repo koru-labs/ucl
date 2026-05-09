@@ -228,6 +228,11 @@ func TestRun(t *testing.T) {
 			evm := NewEVM()
 			contract := newMockContract(tt.value, tt.gas, tt.code)
 			host := &mockHost{}
+			// EVM.Run consults the JUMPDEST cache via host.GetCodeHash; the
+			// zero hash short-circuits caching (see shouldCacheJumpdestBitmap),
+			// preserving the un-cached behavior these tests originally
+			// asserted against.
+			host.On("GetCodeHash", mock.Anything).Return(types.ZeroHash.String())
 			config := tt.config
 
 			if config == nil {

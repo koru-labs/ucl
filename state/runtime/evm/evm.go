@@ -2,6 +2,9 @@ package evm
 
 import (
 	"errors"
+	"time"
+
+	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -30,6 +33,12 @@ func (e *EVM) Name() string {
 
 // Run implements the runtime interface
 func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInTime) *runtime.ExecutionResult {
+	start := time.Now()
+	defer func() {
+		metrics.MeasureSince([]string{"evm", "run"}, start)
+		metrics.IncrCounter([]string{"evm", "run", "count"}, 1)
+	}()
+
 	contract := acquireState()
 	contract.resetReturnData()
 
@@ -40,7 +49,21 @@ func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInT
 	contract.host = host
 	contract.config = config
 
-	contract.bitmap.setCode(c.Code)
+	// JUMPDEST analysis is a pure function of `c.Code`, so we look it up in
+	// the process-wide bitmap cache keyed by the contract's code hash. The
+	// cache short-circuits the O(N) scan that used to dominate per-call
+	// overhead on large contracts (see
+	// `.cursor/plans/large_contract_perf_analysis.plan.md`).
+	//
+	// We pull the code hash from the host (O(1) on the account object) rather
+	// than hashing the bytes ourselves — re-hashing 50 KB on every call would
+	// cost almost as much as the original scan and defeat the optimization.
+	// `setCodeWithCache` itself decides whether the (hash, code) pair is
+	// cacheable; init-code runs (CREATE/CREATE2) fall back to the owned-buffer
+	// path because the host returns EmptyCodeHash before the constructor has
+	// produced the deployed bytecode.
+	codeHash := host.GetCodeHash(c.CodeAddress)
+	contract.bitmap.setCodeWithCache(codeHash, c.Code)
 
 	ret, err := contract.Run()
 

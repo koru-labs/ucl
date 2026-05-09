@@ -1732,7 +1732,7 @@ func TestJump(t *testing.T) {
 	defer cancelFn()
 
 	s.code = make([]byte, 10)
-	s.bitmap = bitmap{big.NewInt(255).Bytes()}
+	s.bitmap = bitmap{buf: big.NewInt(255).Bytes()}
 	s.push(*uint256.NewInt(5))
 
 	opJump(s)
@@ -1745,7 +1745,7 @@ func TestJumpI(t *testing.T) {
 	defer cancelFn()
 
 	s.code = make([]byte, 10)
-	s.bitmap = bitmap{big.NewInt(255).Bytes()}
+	s.bitmap = bitmap{buf: big.NewInt(255).Bytes()}
 	s.push(one256)
 	s.push(*uint256.NewInt(5))
 

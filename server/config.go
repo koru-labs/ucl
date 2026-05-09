@@ -67,6 +67,11 @@ type Config struct {
 
 	DisableTxPoolEndpoints  bool
 	EnableAllDebugEndpoints bool
+
+	// JumpdestCacheSize controls the size of the per-process JUMPDEST bitmap
+	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
+	// 0 disables the cache.
+	JumpdestCacheSize uint64
 }
 
 // Telemetry holds the config details for metric services
