@@ -72,7 +72,7 @@ func (b *bitmap) setCode(code []byte) {
 	buildStart := time.Now()
 	populateJumpdestBitmap(code, b.buf)
 	metrics.MeasureSince([]string{"evm", "jumpdest_bitmap", "build"}, buildStart)
-	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "count"}, 1)
+	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "invocations"}, 1)
 }
 
 // setCodeWithCache populates the bitmap using the JUMPDEST analysis cache when
@@ -122,7 +122,7 @@ func (b *bitmap) setCodeWithCache(codeHash types.Hash, code []byte) {
 	buildStart := time.Now()
 	populateJumpdestBitmap(code, fresh)
 	metrics.MeasureSince([]string{"evm", "jumpdest_bitmap", "build"}, buildStart)
-	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "count"}, 1)
+	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "invocations"}, 1)
 
 	storeCachedJumpdestBitmap(codeHash, fresh)
 

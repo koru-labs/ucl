@@ -645,7 +645,8 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	start := time.Now()
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
-		metrics.IncrCounter([]string{"state", "tx_apply", "count"}, 1)
+		// "invocations" avoids colliding with the Prometheus summary's *_count series.
+		metrics.IncrCounter([]string{"state", "tx_apply", "invocations"}, 1)
 		switch {
 		case err != nil:
 			metrics.IncrCounter([]string{"state", "tx_apply", "failed"}, 1)

@@ -36,7 +36,9 @@ func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInT
 	start := time.Now()
 	defer func() {
 		metrics.MeasureSince([]string{"evm", "run"}, start)
-		metrics.IncrCounter([]string{"evm", "run", "count"}, 1)
+		// "invocations" avoids colliding with the Prometheus summary's *_count
+		// child series for the same timer (see hashicorp/go-metrics prometheus sink).
+		metrics.IncrCounter([]string{"evm", "run", "invocations"}, 1)
 	}()
 
 	contract := acquireState()
@@ -52,8 +54,7 @@ func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInT
 	// JUMPDEST analysis is a pure function of `c.Code`, so we look it up in
 	// the process-wide bitmap cache keyed by the contract's code hash. The
 	// cache short-circuits the O(N) scan that used to dominate per-call
-	// overhead on large contracts (see
-	// `.cursor/plans/large_contract_perf_analysis.plan.md`).
+	// overhead on large contracts.
 	//
 	// We pull the code hash from the host (O(1) on the account object) rather
 	// than hashing the bytes ourselves — re-hashing 50 KB on every call would
