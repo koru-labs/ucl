@@ -146,6 +146,8 @@ type TestClusterConfig struct {
 	AllDebugEndpointsEnabled bool
 
 	Consensus server.ConsensusType
+
+	WithZKServer bool
 }
 
 func (c *TestClusterConfig) Dir(name string) string {
@@ -424,6 +426,12 @@ func WithConsensusType(consensusType server.ConsensusType) ClusterOption {
 	}
 }
 
+func WithZKServer() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.WithZKServer = true
+	}
+}
+
 func isTrueEnv(e string) bool {
 	return strings.ToLower(os.Getenv(e)) == "true"
 }
@@ -610,6 +618,10 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 		cluster.InitTestServer(t, dir, None)
 	}
 
+	if cluster.Config.WithZKServer {
+		dockerComposeUp(cluster.Config.LogsDir)
+	}
+
 	return cluster
 }
 
@@ -670,6 +682,11 @@ func (c *TestCluster) Stop() {
 		if srv.isRunning() {
 			srv.Stop()
 		}
+	}
+
+	if c.Config.WithZKServer {
+		dockerComposeDown()
+		dockerVolumePrune()
 	}
 }
 
@@ -934,4 +951,59 @@ func ReadValidatorBLSKey(dataDir string) (string, error) {
 	}
 
 	return helper.LoadBLSPublicKey(sm)
+}
+
+func dockerComposeUp(logsDir string) {
+	// Create a log file for docker-compose output
+	f, err := os.OpenFile(filepath.Join(logsDir, "zk-server.log"), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0600)
+	if err != nil {
+		fmt.Printf("Error creating zk-server log file: %v\n", err)
+	}
+
+	// Equivalent to running 'docker compose up' in your terminal
+	cmd := exec.Command("sudo", "docker", "compose", "up")
+
+	// Set the working directory for this command
+	cmd.Dir = "../docker/zk"
+	cmd.Stdout = f
+	cmd.Stderr = f
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Error executing docker compose up: %v\n", err)
+	}
+
+	if err := cmd.Process.Release(); err != nil {
+		fmt.Printf("Error releasing docker compose process: %v\n", err)
+	}
+
+	fmt.Println("docker compose up executed")
+}
+
+func dockerComposeDown() {
+	cmd := exec.Command("sudo", "docker", "compose", "down")
+	cmd.Dir = "../docker/zk"
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Error executing docker compose down: %v\n", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		fmt.Printf("Error waiting for docker compose down to execute: %v\n", err)
+	}
+
+	fmt.Println("docker compose down executed")
+}
+
+func dockerVolumePrune() {
+	cmd := exec.Command("sudo", "docker", "volume", "prune", "-f")
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Error executing docker volume prune: %v\n", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		fmt.Printf("Error waiting for docker volume prune to execute: %v\n", err)
+	}
+
+	fmt.Println("docker volume prune executed")
 }

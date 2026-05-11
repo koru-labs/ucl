@@ -45,7 +45,7 @@ type TestServerConfigCallback func(*TestServerConfig)
 
 const hostIP = "127.0.0.1"
 
-var initialPortForServer = int64(12000)
+var initialPortForServer = int64(10001)
 
 func getOpenPortForServer() int64 {
 	return atomic.AddInt64(&initialPortForServer, 1)
