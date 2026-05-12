@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/network"
-	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/hashicorp/hcl"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -60,17 +59,6 @@ type Config struct {
 	// memory. Setting this to 0 disables the cache. See
 	// `state/runtime/evm/jumpdest_cache.go`
 	JumpdestCacheSize uint64 `json:"jumpdest_cache_size" yaml:"jumpdest_cache_size"`
-
-	// GlobalCodeCacheSize is the number of distinct contract codes (keyed by
-	// code hash) for which the state layer keeps the deployed bytecode in
-	// memory. Setting this to 0 disables the cache. See
-	// `state/code_cache.go`.
-	//
-	// Each entry stores one full bytecode body, so the worst-case memory
-	// footprint is roughly `size * max_contract_size`. The default is
-	// conservative; raise it on RPC nodes that simulate a wide working set
-	// of large contracts.
-	GlobalCodeCacheSize uint64 `json:"global_code_cache_size" yaml:"global_code_cache_size"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -186,7 +174,6 @@ func DefaultConfig() *Config {
 		MaxRequestBodySize:       DefaultRequestBodySize,
 		JSONRPCTimeout:           DefaultJSONRPCTimeout,
 		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
-		GlobalCodeCacheSize:      state.DefaultGlobalCodeCacheSize,
 	}
 }
 

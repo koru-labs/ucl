@@ -349,14 +349,6 @@ func setFlags(cmd *cobra.Command) {
 			"precomputed JUMPDEST bitmap in memory; set to 0 to disable",
 	)
 
-	cmd.Flags().Uint64Var(
-		&params.rawConfig.GlobalCodeCacheSize,
-		globalCodeCacheSizeFlag,
-		defaultConfig.GlobalCodeCacheSize,
-		"number of contract codes (keyed by code hash) for which the state layer keeps "+
-			"the full deployed bytecode in memory across transitions; set to 0 to disable",
-	)
-
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

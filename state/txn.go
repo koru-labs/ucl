@@ -593,28 +593,12 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //
 //   - One *Txn is reused for an entire block in Executor.ProcessBlock, so the
 //     per-Txn LRU (codeCache, capacity 20) is scoped to that block transition,
-//     not to each individual transaction. Per-Txn hits avoid even the global
-//     cache lookup, which keeps the hot path lock-free for repeated calls
-//     inside a block.
-//   - On a per-Txn miss we consult the process-wide code cache keyed by code
-//     hash (see `state/code_cache.go`). This is what lets JSON-RPC simulation
-//     paths — `eth_call`, `eth_estimateGas`'s binary search, etc. — reuse
-//     bytecode across the fresh `Transition`s they build per attempt, instead
-//     of re-loading and re-copying 50–60 KB blobs from Pebble each time.
-//   - If both caches miss, we read through the snapshot (Pebble in production)
-//     and back-fill the global cache with content-addressed bytes plus the
-//     per-Txn LRU keyed by address.
-//   - If more than 20 distinct contract addresses are touched in interleaved
-//     order, an earlier address may be evicted from the per-Txn LRU and the
-//     next call for that address falls through to the global cache (or, on a
-//     cold global cache, to storage).
+//     not to each individual transaction.
+//   - On a per-Txn miss we read through the snapshot (Pebble in production) and
+//     populate the per-Txn LRU keyed by address.
 //   - DirtyCode (contract created or updated in this transition, including
-//     `WithStateOverride`) returns in-memory bytes and is intentionally NOT
-//     surfaced to the global cache: it is transition-local and may not match
-//     anything content-addressed under that hash on disk.
-//   - The global cache is shared by reference; callers MUST treat the returned
-//     slice as immutable. The EVM only reads `Contract.Code`, so this holds
-//     today.
+//     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
+//     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
 	object, exists := txn.getStateObject(addr)
 	if !exists {
@@ -636,24 +620,11 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 
 	codeHash := types.BytesToHash(object.Account.CodeHash)
 
-	// Process-wide cache keyed by code hash, populated lazily across
-	// transitions. This is the layer that turns repeated `eth_estimateGas`
-	// attempts into a single Pebble read per distinct contract.
-	if code, ok := lookupCachedCode(codeHash); ok {
-		txn.codeCache.Add(addr, code)
-
-		return code
-	}
-
-	start := time.Now()
+	start := time.Now().UTC()
 	code, _ := txn.snapshot.GetCode(codeHash)
+
 	metrics.MeasureSince([]string{"state", "code_db_read"}, start)
 
-	// Publish to the global cache before the per-Txn LRU so concurrent
-	// transitions that race on the same code hash share the result instead
-	// of all paying for a Pebble read. `storeCachedCode` filters out empty /
-	// sentinel-hash payloads internally.
-	storeCachedCode(codeHash, code)
 	txn.codeCache.Add(addr, code)
 
 	return code

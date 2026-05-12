@@ -72,13 +72,6 @@ type Config struct {
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
 	// 0 disables the cache.
 	JumpdestCacheSize uint64
-
-	// GlobalCodeCacheSize controls the size of the per-process contract
-	// bytecode cache used by `state.Txn.GetCode` (see
-	// `state/code_cache.go`). Each entry holds one full deployed
-	// contract body keyed by code hash, shared across `Transition`s.
-	// 0 disables the cache.
-	GlobalCodeCacheSize uint64
 }
 
 // Telemetry holds the config details for metric services

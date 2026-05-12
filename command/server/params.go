@@ -63,8 +63,7 @@ const (
 	DisableTxPoolEndpointsFlag  = "disable-tx-pool-endpoints"
 	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
 
-	jumpdestCacheSizeFlag   = "jumpdest-cache-size"
-	globalCodeCacheSizeFlag = "global-code-cache-size"
+	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -237,7 +236,6 @@ func (p *serverParams) generateConfig() *server.Config {
 		DisableTxPoolEndpoints:  p.rawConfig.DisableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 
-		JumpdestCacheSize:   p.rawConfig.JumpdestCacheSize,
-		GlobalCodeCacheSize: p.rawConfig.GlobalCodeCacheSize,
+		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}
 }

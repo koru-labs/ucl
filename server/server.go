@@ -241,28 +241,6 @@ func NewServer(config *Config) (*Server, error) {
 		m.logger.Info("EVM JUMPDEST bitmap cache: enabled", "size", configuredJDCacheSize)
 	}
 
-	// Apply the operator-configured global contract code cache size before
-	// the executor services any traffic. The cache defaults to
-	// `state.DefaultGlobalCodeCacheSize` at package init time; a
-	// `--global-code-cache-size` of 0 disables it. Capping at MaxInt32
-	// protects against absurdly large values and keeps the downstream
-	// `lru.NewWithEvict(int, ...)` happy on 32-bit architectures.
-	configuredCodeCacheSize := config.GlobalCodeCacheSize
-	if configuredCodeCacheSize > math.MaxInt32 {
-		m.logger.Warn("global-code-cache-size is too large; clamping to MaxInt32",
-			"requested", configuredCodeCacheSize, "applied", math.MaxInt32)
-
-		configuredCodeCacheSize = math.MaxInt32
-	}
-
-	state.SetGlobalCodeCacheSize(int(configuredCodeCacheSize))
-
-	if configuredCodeCacheSize == 0 {
-		m.logger.Info("Global contract code cache: disabled")
-	} else {
-		m.logger.Info("Global contract code cache: enabled", "size", configuredCodeCacheSize)
-	}
-
 	// custom write genesis hook per consensus engine
 	engineName := m.config.Chain.Params.GetEngine()
 	if factory, exists := genesisCreationFactory[ConsensusType(engineName)]; exists {
