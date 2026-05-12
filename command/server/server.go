@@ -341,6 +341,14 @@ func setFlags(cmd *cobra.Command) {
 		"enable all debug JSON-RPC endpoints",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JumpdestCacheSize,
+		jumpdestCacheSizeFlag,
+		defaultConfig.JumpdestCacheSize,
+		"number of contract codes (keyed by code hash) for which the EVM keeps a "+
+			"precomputed JUMPDEST bitmap in memory; set to 0 to disable",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
+	"github.com/hashicorp/go-metrics"
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -585,7 +587,18 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 	})
 }
 
-// GetCode gets the code on a given address
+// GetCode gets the code on a given address.
+//
+// Read path and caching (see also METRICS.md → State):
+//
+//   - One *Txn is reused for an entire block in Executor.ProcessBlock, so the
+//     per-Txn LRU (codeCache, capacity 20) is scoped to that block transition,
+//     not to each individual transaction.
+//   - On a per-Txn miss we read through the snapshot (Pebble in production) and
+//     populate the per-Txn LRU keyed by address.
+//   - DirtyCode (contract created or updated in this transition, including
+//     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
+//     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
 	object, exists := txn.getStateObject(addr)
 	if !exists {
@@ -597,14 +610,21 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 	}
 	//nolint:godox
 	// TODO; Should we move this to state? (to be fixed in EVM-527)
-	v, ok := txn.codeCache.Get(addr)
-
-	if ok {
+	if v, ok := txn.codeCache.Get(addr); ok {
+		metrics.IncrCounter([]string{"state", "code_cache", "hit"}, 1)
 		//nolint:forcetypeassert
 		return v.([]byte)
 	}
 
-	code, _ := txn.snapshot.GetCode(types.BytesToHash(object.Account.CodeHash))
+	metrics.IncrCounter([]string{"state", "code_cache", "miss"}, 1)
+
+	codeHash := types.BytesToHash(object.Account.CodeHash)
+
+	start := time.Now().UTC()
+	code, _ := txn.snapshot.GetCode(codeHash)
+
+	metrics.MeasureSince([]string{"state", "code_db_read"}, start)
+
 	txn.codeCache.Add(addr, code)
 
 	return code
