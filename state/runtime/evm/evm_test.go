@@ -233,6 +233,7 @@ func TestRun(t *testing.T) {
 			// preserving the un-cached behavior these tests originally
 			// asserted against.
 			host.On("GetCodeHash", mock.Anything).Return(types.ZeroHash.String())
+
 			config := tt.config
 
 			if config == nil {

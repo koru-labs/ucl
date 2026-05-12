@@ -17,8 +17,8 @@ import (
 // requested size with a JUMPDEST sprinkled at positions that are NOT inside
 // PUSH immediates, so the bitmap actually has bits set. PUSH opcodes are
 // scrubbed to avoid accidentally consuming the JUMPDEST byte.
-func makeJumpdestTestCode(t testing.TB, size int, seed int64) []byte {
-	t.Helper()
+func makeJumpdestTestCode(tb testing.TB, size int, seed int64) []byte {
+	tb.Helper()
 
 	r := rand.New(rand.NewSource(seed))
 	code := make([]byte, size)
@@ -41,8 +41,8 @@ func makeJumpdestTestCode(t testing.TB, size int, seed int64) []byte {
 
 // directBitmap computes the JUMPDEST bitmap with the un-cached path so we can
 // compare against the cached path bit-for-bit.
-func directBitmap(t testing.TB, code []byte) []byte {
-	t.Helper()
+func directBitmap(tb testing.TB, code []byte) []byte {
+	tb.Helper()
 
 	var b bitmap
 
@@ -57,10 +57,10 @@ func directBitmap(t testing.TB, code []byte) []byte {
 // withFreshCache reinstalls a clean cache with the given size and restores
 // the default at the end of the test. Centralised so individual tests can't
 // pollute each other's stats counters.
-func withFreshCache(t testing.TB, size int) {
-	t.Helper()
+func withFreshCache(tb testing.TB, size int) {
+	tb.Helper()
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		SetJumpdestCacheSize(DefaultJumpdestCacheSize)
 	})
 
@@ -252,6 +252,7 @@ func TestJumpdestCache_ResizingDropsExistingEntries(t *testing.T) {
 
 	SetJumpdestCacheSize(8)
 	assert.Zero(t, JumpdestCacheLen(), "resizing the cache must reset its contents")
+
 	hits, misses, enabled := JumpdestCacheStats()
 	assert.True(t, enabled)
 	assert.Zero(t, hits)
@@ -291,8 +292,10 @@ func TestJumpdestCache_LRUEviction(t *testing.T) {
 
 	// Re-fetching an evicted entry must be a MISS that re-populates the cache.
 	missesBefore = missesAfter
+
 	b.reset()
 	b.setCodeWithCache(hashes[0], codes[0])
+
 	_, missesAfter, _ = JumpdestCacheStats()
 	assert.Equal(t, missesBefore+1, missesAfter, "evicted entry should miss and re-populate")
 }

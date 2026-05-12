@@ -33,7 +33,8 @@ func (e *EVM) Name() string {
 
 // Run implements the runtime interface
 func (e *EVM) Run(c *runtime.Contract, host runtime.Host, config *chain.ForksInTime) *runtime.ExecutionResult {
-	start := time.Now()
+	start := time.Now().UTC()
+
 	defer func() {
 		metrics.MeasureSince([]string{"evm", "run"}, start)
 		// "invocations" avoids colliding with the Prometheus summary's *_count

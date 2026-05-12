@@ -642,11 +642,13 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 }
 
 func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
-	start := time.Now()
+	start := time.Now().UTC()
+
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
 		// "invocations" avoids colliding with the Prometheus summary's *_count series.
 		metrics.IncrCounter([]string{"state", "tx_apply", "invocations"}, 1)
+
 		switch {
 		case err != nil:
 			metrics.IncrCounter([]string{"state", "tx_apply", "failed"}, 1)

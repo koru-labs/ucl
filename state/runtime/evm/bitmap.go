@@ -69,7 +69,8 @@ func (b *bitmap) setCode(code []byte) {
 
 	bufLen := len(code)/bitmapSize + 1
 	b.buf = common.ExtendByteSlice(b.buf, bufLen)
-	buildStart := time.Now()
+	buildStart := time.Now().UTC()
+
 	populateJumpdestBitmap(code, b.buf)
 	metrics.MeasureSince([]string{"evm", "jumpdest_bitmap", "build"}, buildStart)
 	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "invocations"}, 1)
@@ -119,7 +120,8 @@ func (b *bitmap) setCodeWithCache(codeHash types.Hash, code []byte) {
 	// extend it under another goroutine's nose), publish it, and adopt it.
 	bufLen := len(code)/bitmapSize + 1
 	fresh := make([]byte, bufLen)
-	buildStart := time.Now()
+	buildStart := time.Now().UTC()
+
 	populateJumpdestBitmap(code, fresh)
 	metrics.MeasureSince([]string{"evm", "jumpdest_bitmap", "build"}, buildStart)
 	metrics.IncrCounter([]string{"evm", "jumpdest_bitmap", "build", "invocations"}, 1)
