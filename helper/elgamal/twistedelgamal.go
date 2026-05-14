@@ -2,9 +2,10 @@ package crypto
 
 import (
 	"fmt"
+	"math/big"
+
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
 	"github.com/consensys/gnark-crypto/ecc/bn254/twistededwards"
-	"math/big"
 )
 
 func AddElGamal(cipher1Left *twistededwards.PointAffine, cipher1Right *twistededwards.PointAffine, cipher2Left *twistededwards.PointAffine, cipher2Right *twistededwards.PointAffine) (*twistededwards.PointAffine, *twistededwards.PointAffine, error) {
@@ -64,7 +65,6 @@ func AddMultipleElGamal(ciphers []CipherText) (*twistededwards.PointAffine, *twi
 
 func ConvertBig2AffinePoint(xBig *big.Int, yBig *big.Int) (*twistededwards.PointAffine, error) {
 	if xBig.Sign() == 0 && yBig.Sign() == 0 {
-		fmt.Printf("Converting (0,0) to identity point (0,1)")
 		yBig = big.NewInt(1)
 	}
 

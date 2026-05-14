@@ -2,12 +2,12 @@ package precompiled
 
 import (
 	"fmt"
+	"math/big"
+
 	"github.com/0xPolygon/polygon-edge/chain"
 	crypto "github.com/0xPolygon/polygon-edge/helper/elgamal"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"log"
-	"math/big"
 )
 
 type elGamalAddMultiple struct{}
@@ -25,8 +25,6 @@ func (c *elGamalAddMultiple) gas(input []byte, _ *chain.ForksInTime) uint64 {
 }
 
 func (c *elGamalAddMultiple) run(input []byte, caller types.Address, host runtime.Host) ([]byte, error) {
-	log.Printf("elGamalAddMultiple is called with input length: %d", len(input))
-
 	// Check if input length is a multiple of 128 (each cipher contains two points, 64 bytes per point)
 	if len(input)%128 != 0 {
 		return nil, fmt.Errorf("input length must be a multiple of 128 bytes")
