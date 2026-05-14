@@ -2,13 +2,13 @@ package precompiled
 
 import (
 	"fmt"
+	"math/big"
+
 	"github.com/0xPolygon/polygon-edge/chain"
 	crypto "github.com/0xPolygon/polygon-edge/helper/elgamal"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/consensys/gnark-crypto/ecc/bn254/twistededwards"
-	"log"
-	"math/big"
 )
 
 type elGamalAdd struct{}
@@ -18,7 +18,7 @@ func (c *elGamalAdd) gas(input []byte, _ *chain.ForksInTime) uint64 {
 }
 
 func (c *elGamalAdd) run(input []byte, caller types.Address, host runtime.Host) ([]byte, error) {
-	log.Printf("elGamalAdd is called with input length: %d", len(input))
+
 	if len(input) != 256 {
 		return nil, fmt.Errorf("input must be 256 bytes")
 	}
