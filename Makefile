@@ -72,7 +72,7 @@ fuzz-test: check-go
 .PHONY: test-e2e
 test-e2e: check-go
 	go build -race -o artifacts/polygon-edge .
-	env EDGE_BINARY=${PWD}/artifacts/polygon-edge go test -v -timeout=40m ./e2e/...
+	env EDGE_BINARY=${PWD}/artifacts/polygon-edge go test -v -timeout=40m ./e2e
 
 .PHONY: test-e2e-polybft
 test-e2e-polybft: check-go
