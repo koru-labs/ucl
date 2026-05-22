@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
+	rawGrpc "google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -122,10 +123,11 @@ func (m *syncPeerClient) EnablePublishingPeerStatus() {
 
 // GetPeerStatus fetches peer status
 func (m *syncPeerClient) GetPeerStatus(peerID peer.ID) (*NoForkPeer, error) {
-	clt, err := m.newSyncPeerClient(peerID)
+	clt, conn, err := m.newSyncPeerClient(peerID)
 	if err != nil {
 		return nil, err
 	}
+	defer m.closeSyncPeerConn(conn, peerID)
 
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), defaultTimeoutForStatus)
 	defer cancel()
@@ -295,13 +297,21 @@ func (m *syncPeerClient) CloseStream(peerID peer.ID) error {
 	return m.network.CloseProtocolStream(syncerProto, peerID)
 }
 
-// GetBlocks returns a stream of blocks from given height to peer's latest
+// GetBlocks returns a stream of blocks from given height to peer's latest.
+//
+// The underlying *grpc.ClientConn is saved into the peer's protocolStreams
+// map so that the syncer (which orchestrates bulk sync) can tear it down via
+// CloseStream when the caller is done reading. On every exit path of this
+// function, the conn is either closed directly (on early error) or scheduled
+// for cleanup via CloseProtocolStream once the consuming goroutine drains the
+// stream. This guarantees the libp2p stream does not leak, regardless of
+// whether the syncer caller forgets to call CloseStream.
 func (m *syncPeerClient) GetBlocks(
 	peerID peer.ID,
 	from uint64,
 	timeoutPerBlock time.Duration,
 ) (<-chan *types.Block, error) {
-	clt, err := m.newSyncPeerClient(peerID)
+	clt, conn, err := m.newSyncPeerClient(peerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sync peer client: %w", err)
 	}
@@ -313,9 +323,16 @@ func (m *syncPeerClient) GetBlocks(
 	})
 	if err != nil {
 		cancel()
+		m.closeSyncPeerConn(conn, peerID)
 
 		return nil, fmt.Errorf("failed to open GetBlocks stream: %w", err)
 	}
+
+	// Make the stream externally closable (via CloseStream / CloseProtocolStream)
+	// so callers like syncer.bulkSyncWithPeer can release it explicitly.
+	// addProtocolStream is now safe to call even if a previous conn was saved:
+	// the old one will be closed defensively before being replaced.
+	m.network.SaveProtocolStream(syncerProto, conn, peerID)
 
 	// input channel
 	streamBlockCh, streamErrorCh := blockStreamToChannel(stream)
@@ -326,6 +343,15 @@ func (m *syncPeerClient) GetBlocks(
 	go func() {
 		defer cancel()
 		defer close(blockCh)
+		// Belt-and-suspenders cleanup: if no external CloseStream call happens
+		// for this peer, this ensures the conn (and underlying libp2p stream)
+		// is released. CloseProtocolStream is idempotent when the entry is
+		// already gone, so this is safe to call even if syncer also runs it.
+		defer func() {
+			if err := m.network.CloseProtocolStream(syncerProto, peerID); err != nil {
+				m.logger.Debug("failed to close sync stream on exit", "peer", peerID, "err", err)
+			}
+		}()
 
 		for {
 			select {
@@ -353,10 +379,11 @@ func (m *syncPeerClient) GetBlocks(
 func (m *syncPeerClient) SyncTxPool(
 	peerID peer.ID,
 ) error {
-	clt, err := m.newSyncPeerClient(peerID)
+	clt, conn, err := m.newSyncPeerClient(peerID)
 	if err != nil {
 		return fmt.Errorf("failed to create sync peer client: %w", err)
 	}
+	defer m.closeSyncPeerConn(conn, peerID)
 
 	stream, err := clt.GetTxPool(context.Background(), &emptypb.Empty{})
 	if err != nil {
@@ -387,16 +414,37 @@ func (m *syncPeerClient) addTxsToPool(txs []*types.Transaction) {
 	}
 }
 
-// newSyncPeerClient creates gRPC client
-func (m *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.SyncPeerClient, error) {
+// newSyncPeerClient opens a fresh libp2p stream on the syncer protocol and
+// wraps it as a gRPC client connection. The returned *grpc.ClientConn owns the
+// underlying libp2p stream and MUST be closed by the caller when the RPC is
+// finished, otherwise the stream stays open and counts against the remote
+// peer's per-protocol StreamsInbound limit on its libp2p ResourceManager
+// (eventually causing inbound resets with code 0x1002).
+//
+// This helper deliberately does NOT save the conn into the shared
+// protocolStreams map. Callers that need external lifecycle control (e.g.
+// long-running streaming RPCs that should be closable via CloseStream) must
+// call SaveProtocolStream explicitly.
+func (m *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.SyncPeerClient, *rawGrpc.ClientConn, error) {
 	conn, err := m.network.NewProtoConnection(syncerProto, peerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open a stream, err %w", err)
+		return nil, nil, fmt.Errorf("failed to open a stream, err %w", err)
 	}
 
-	m.network.SaveProtocolStream(syncerProto, conn, peerID)
+	return proto.NewSyncPeerClient(conn), conn, nil
+}
 
-	return proto.NewSyncPeerClient(conn), nil
+// closeSyncPeerConn closes a gRPC client connection used for a syncer RPC and
+// logs (at debug level) any non-nil error so that close failures are visible
+// without polluting normal sync logs.
+func (m *syncPeerClient) closeSyncPeerConn(conn *rawGrpc.ClientConn, peerID peer.ID) {
+	if conn == nil {
+		return
+	}
+
+	if err := conn.Close(); err != nil {
+		m.logger.Debug("failed to close sync peer conn", "peer", peerID, "err", err)
+	}
 }
 
 // fromProto gets block from gRPC response data

@@ -185,8 +185,15 @@ type PeerConnInfo struct {
 	protocolStreams map[string]*rawGrpc.ClientConn
 }
 
-// addProtocolStream adds a protocol stream
+// addProtocolStream adds a protocol stream. If a stream is already saved for
+// the protocol, it is closed before being replaced so that the underlying
+// libp2p stream is released and not left dangling against the remote peer's
+// per-protocol StreamsInbound limit on the ResourceManager.
 func (pci *PeerConnInfo) addProtocolStream(protocol string, stream *rawGrpc.ClientConn) {
+	if old, ok := pci.protocolStreams[protocol]; ok && old != nil && old != stream {
+		_ = old.Close()
+	}
+
 	pci.protocolStreams[protocol] = stream
 }
 
