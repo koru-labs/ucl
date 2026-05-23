@@ -127,6 +127,8 @@ func (m *syncPeerClient) GetPeerStatus(peerID peer.ID) (*NoForkPeer, error) {
 		return nil, err
 	}
 
+	defer m.CloseStream(peerID) //nolint:errcheck
+
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), defaultTimeoutForStatus)
 	defer cancel()
 
@@ -357,6 +359,8 @@ func (m *syncPeerClient) SyncTxPool(
 	if err != nil {
 		return fmt.Errorf("failed to create sync peer client: %w", err)
 	}
+
+	defer m.CloseStream(peerID) //nolint:errcheck
 
 	stream, err := clt.GetTxPool(context.Background(), &emptypb.Empty{})
 	if err != nil {
