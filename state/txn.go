@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
@@ -49,6 +50,7 @@ type Txn struct {
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
 	codeCache *lru.Cache
+	mu        sync.RWMutex
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -56,6 +58,9 @@ func NewTxn(snapshot Snapshot) *Txn {
 }
 
 func (txn *Txn) GetRadix() *iradix.Txn {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	return txn.txn
 }
 
@@ -96,6 +101,9 @@ func calculateTransientStorageSlotIradixKey(addr types.Address, slot types.Hash)
 func (txn *Txn) SetTransientState(addr types.Address, slot types.Hash, value types.Hash) {
 	key := calculateTransientStorageSlotIradixKey(addr, slot)
 
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	if (value == types.Hash{}) {
 		txn.txn.Delete(key)
 	} else {
@@ -106,6 +114,9 @@ func (txn *Txn) SetTransientState(addr types.Address, slot types.Hash, value typ
 // GetTransientState reads a value from transient storage for the given address and slot.
 func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Hash {
 	key := calculateTransientStorageSlotIradixKey(addr, slot)
+
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
 
 	val, exists := txn.txn.Get(key)
 
@@ -120,6 +131,9 @@ func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Has
 // of every tx because EIP-1153 requires transient storage to be empty at tx boundaries.
 func (txn *Txn) ClearTransientStorage() {
 	var toDelete [][]byte
+
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
 
 	txn.txn.Root().Walk(func(key []byte, value interface{}) bool {
 		if bytes.HasPrefix(key, []byte{transientStorageKeyPrefix}) && len(key) == 53 {
@@ -139,6 +153,9 @@ func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects
 	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
+
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
 
 	var (
 		nextKey         []byte
@@ -216,6 +233,9 @@ func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects
 // StorageRangeAt returns the storage at the given block height and transaction index.
 func (txn *Txn) StorageRangeAt(storageRangeResult *StorageRangeResult, addr *types.Address,
 	keyStart []byte, maxResult int) error {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	storageRangeResult.Storage = make(storageMap)
 
 	object, exists := txn.getStateObject(*addr)
@@ -261,6 +281,9 @@ func (txn *Txn) StorageRangeAt(storageRangeResult *StorageRangeResult, addr *typ
 
 // Snapshot takes a snapshot at this point in time
 func (txn *Txn) Snapshot() int {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	t := txn.txn.CommitOnly()
 
 	id := len(txn.snapshots)
@@ -271,6 +294,9 @@ func (txn *Txn) Snapshot() int {
 
 // RevertToSnapshot reverts to a given snapshot
 func (txn *Txn) RevertToSnapshot(id int) error {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	if id > len(txn.snapshots)-1 {
 		return fmt.Errorf("snapshot id %d out of the range", id)
 	}
@@ -283,6 +309,9 @@ func (txn *Txn) RevertToSnapshot(id int) error {
 
 // GetAccount returns an account
 func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil, false
@@ -340,6 +369,9 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 }
 
 func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Suicide {
 			*object = *newStateObject()
@@ -352,6 +384,9 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Add(object.Account.Balance, balance)
 	})
@@ -369,15 +404,20 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 		return runtime.ErrNotEnoughFunds
 	}
 
+	txn.mu.Lock()
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
 	})
+	txn.mu.Unlock()
 
 	return nil
 }
 
 // SetBalance sets the balance
 func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 	})
@@ -385,6 +425,9 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -400,6 +443,9 @@ func (txn *Txn) EmitLog(addr types.Address, topics []types.Hash, data []byte) {
 		Topics:  topics,
 	}
 	log.Data = append(log.Data, data...)
+
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
 
 	var logs []*types.Log
 
@@ -500,6 +546,9 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Txn == nil {
 			object.Txn = iradix.New().Txn()
@@ -515,6 +564,9 @@ func (txn *Txn) SetState(
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -545,6 +597,8 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 // IncrNonce increases the nonce of the address
 func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Account.Nonce+1 < object.Account.Nonce {
@@ -561,6 +615,9 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 
 // SetNonce reduces the balance
 func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 	})
@@ -568,6 +625,9 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -580,6 +640,9 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr types.Address, code []byte) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.CodeHash = crypto.Keccak256(code)
 		object.DirtyCode = true
@@ -600,6 +663,9 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -635,6 +701,9 @@ func (txn *Txn) GetCodeSize(addr types.Address) int {
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -646,6 +715,8 @@ func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
 // Suicide marks the given account as suicided
 func (txn *Txn) Suicide(addr types.Address) bool {
 	var suicided bool
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
 
 	txn.upsertAccount(addr, false, func(object *StateObject) {
 		if object == nil || object.Suicide {
@@ -665,6 +736,9 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 
 // HasSuicided returns true if the account suicided
 func (txn *Txn) HasSuicided(addr types.Address) bool {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	object, exists := txn.getStateObject(addr)
 
 	return exists && object.Suicide
@@ -672,16 +746,25 @@ func (txn *Txn) HasSuicided(addr types.Address) bool {
 
 // Refund
 func (txn *Txn) AddRefund(gas uint64) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	refund := txn.GetRefund() + gas
 	txn.txn.Insert(refundIndex, refund)
 }
 
 func (txn *Txn) SubRefund(gas uint64) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	refund := txn.GetRefund() - gas
 	txn.txn.Insert(refundIndex, refund)
 }
 
 func (txn *Txn) Logs() []*types.Log {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	data, exists := txn.txn.Get(logIndex)
 	if !exists {
 		return nil
@@ -693,6 +776,9 @@ func (txn *Txn) Logs() []*types.Log {
 }
 
 func (txn *Txn) GetRefund() uint64 {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	data, exists := txn.txn.Get(refundIndex)
 	if !exists {
 		return 0
@@ -704,6 +790,9 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	obj, ok := txn.getStateObject(addr)
 	if !ok {
 		return types.Hash{}
@@ -715,6 +804,9 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 // GetStorageRoot retrieves the storage root from the given address or empty
 // if object not found.
 func (txn *Txn) GetStorageRoot(addr types.Address) types.Hash {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	obj, ok := txn.getStateObject(addr)
 	if !ok {
 		return types.Hash{}
@@ -730,24 +822,35 @@ func (txn *Txn) SetFullStorage(addr types.Address, state map[types.Hash]types.Ha
 		txn.SetState(addr, k, v)
 	}
 
+	txn.mu.Lock()
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.withFakeStorage = true
 	})
+	txn.mu.Unlock()
 }
 
 func (txn *Txn) TouchAccount(addr types.Address) {
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	txn.upsertAccount(addr, true, func(obj *StateObject) {
 
 	})
 }
 
 func (txn *Txn) Exist(addr types.Address) bool {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	_, exists := txn.getStateObject(addr)
 
 	return exists
 }
 
 func (txn *Txn) Empty(addr types.Address) bool {
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
+
 	obj, exists := txn.getStateObject(addr)
 	if !exists {
 		return true
@@ -775,6 +878,9 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 		},
 	}
 
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
+
 	prev, ok := txn.getStateObject(addr)
 	if ok {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
@@ -785,6 +891,8 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 	remove := [][]byte{}
+	txn.mu.Lock()
+	defer txn.mu.Unlock()
 
 	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
@@ -825,6 +933,9 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
+
+	txn.mu.RLock()
+	defer txn.mu.RUnlock()
 
 	x := txn.txn.Commit()
 
