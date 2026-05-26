@@ -13,8 +13,25 @@ import (
 	"github.com/libp2p/go-libp2p-kbucket/keyspace"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 	rawGrpc "google.golang.org/grpc"
 )
+
+// peerMultiaddrStrings converts a list of libp2p multiaddrs to a string slice
+// suitable for structured logging. Returned nil when the input is empty so
+// hclog emits an empty value instead of "[]".
+func peerMultiaddrStrings(addrs []multiaddr.Multiaddr) []string {
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(addrs))
+	for i, addr := range addrs {
+		out[i] = addr.String()
+	}
+
+	return out
+}
 
 // NewIdentityClient returns a new identity service client connection
 func (s *Server) NewIdentityClient(peerID peer.ID) (proto.IdentityClient, error) {
@@ -31,7 +48,12 @@ func (s *Server) NewIdentityClient(peerID peer.ID) (proto.IdentityClient, error)
 // AddPeer adds a new peer to the networking server's peer list,
 // and updates relevant counters and metrics
 func (s *Server) AddPeer(id peer.ID, direction network.Direction) {
-	s.logger.Info("Peer connected", "id", id.String())
+	s.logger.Info(
+		"Peer connected",
+		"id", id.String(),
+		"direction", direction,
+		"addrs", peerMultiaddrStrings(s.host.Peerstore().PeerInfo(id).Addrs),
+	)
 
 	// Update the peer connection info
 	if connectionExists := s.addPeerInfo(id, direction); connectionExists {

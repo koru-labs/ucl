@@ -7,8 +7,18 @@ import (
 )
 
 func (i *backendIBFT) signMessage(msg *protoIBFT.IbftMessage) *protoIBFT.IbftMessage {
+	view := msg.GetView()
+
 	raw, err := proto.Marshal(msg)
 	if err != nil {
+		i.logger.Error(
+			"failed to marshal IBFT message for signing",
+			"type", msg.GetType().String(),
+			"height", view.GetHeight(),
+			"round", view.GetRound(),
+			"err", err,
+		)
+
 		return nil
 	}
 
@@ -22,6 +32,14 @@ func (i *backendIBFT) signMessage(msg *protoIBFT.IbftMessage) *protoIBFT.IbftMes
 	}
 
 	if msg.Signature, err = signer.SignIBFTMessage(raw); err != nil {
+		i.logger.Error(
+			"failed to sign IBFT message",
+			"type", msg.GetType().String(),
+			"height", view.GetHeight(),
+			"round", view.GetRound(),
+			"err", err,
+		)
+
 		return nil
 	}
 
@@ -41,6 +59,13 @@ func (i *backendIBFT) BuildPrePrepareMessage(
 	// hash calculation begins
 	proposalHash, err := i.calculateProposalHashFromBlockBytes(rawProposal, &view.Round)
 	if err != nil {
+		i.logger.Error(
+			"failed to calculate proposal hash for PREPREPARE",
+			"height", view.GetHeight(),
+			"round", view.GetRound(),
+			"err", err,
+		)
+
 		return nil
 	}
 

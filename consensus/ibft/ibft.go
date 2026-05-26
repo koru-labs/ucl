@@ -3,6 +3,7 @@ package ibft
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	protomsg "github.com/0xPolygon/go-ibft/messages/proto"
@@ -276,8 +277,9 @@ func (i *backendIBFT) startConsensus() {
 	defer i.blockchain.UnsubscribeEvents(newBlockSub)
 
 	var (
-		sequenceCh  = make(<-chan struct{})
-		isValidator bool
+		sequenceCh             = make(<-chan struct{})
+		isValidator            bool
+		lastLoggedValidatorSet string
 	)
 
 	for {
@@ -299,6 +301,32 @@ func (i *backendIBFT) startConsensus() {
 		metrics.SetGauge([]string{consensusMetrics, "validators"}, float32(validators.Len()))
 
 		isValidator = i.isActiveValidator()
+
+		// Log per-height consensus loop progress. The full validator set is
+		// only emitted when it changes since the previous logged value, to
+		// keep noise down during normal operation while still surfacing any
+		// validator-set divergence between nodes.
+		i.logger.Info(
+			"consensus sequence start",
+			"height", pending,
+			"validator_count", validators.Len(),
+			"is_validator", isValidator,
+		)
+
+		validatorAddrs := make([]string, validators.Len())
+		for idx := 0; idx < validators.Len(); idx++ {
+			validatorAddrs[idx] = validators.At(uint64(idx)).Addr().String()
+		}
+
+		if setKey := strings.Join(validatorAddrs, ","); setKey != lastLoggedValidatorSet {
+			i.logger.Info(
+				"active validator set",
+				"height", pending,
+				"validators", validatorAddrs,
+			)
+
+			lastLoggedValidatorSet = setKey
+		}
 
 		i.txpool.SetSealing(isValidator)
 
@@ -334,7 +362,26 @@ func (i *backendIBFT) isActiveValidator() bool {
 		return false
 	}
 
-	return validators.Includes(signer.Address())
+	if !validators.Includes(signer.Address()) {
+		// Helpful when a node is started with the wrong validator key, or
+		// when the genesis validator set on this node does not match the
+		// rest of the network.
+		expected := make([]string, validators.Len())
+		for idx := 0; idx < validators.Len(); idx++ {
+			expected[idx] = validators.At(uint64(idx)).Addr().String()
+		}
+
+		i.logger.Warn(
+			"local signer is not in active validator set",
+			"height", pending,
+			"signer", signer.Address().String(),
+			"validators", expected,
+		)
+
+		return false
+	}
+
+	return true
 }
 
 // updateMetrics will update various metrics based on the given block

@@ -20,6 +20,16 @@ func (g *gossipTransport) Multicast(msg *proto.IbftMessage) error {
 }
 
 func (i *backendIBFT) Multicast(msg *proto.IbftMessage) {
+	view := msg.GetView()
+
+	i.logger.Info(
+		"consensus message sent",
+		"type", msg.Type.String(),
+		"height", view.GetHeight(),
+		"round", view.GetRound(),
+		"from_validator", types.BytesToAddress(msg.From).String(),
+	)
+
 	if err := i.transport.Multicast(msg); err != nil {
 		i.logger.Error("fail to gossip", "err", err)
 	}
@@ -33,13 +43,11 @@ func (i *backendIBFT) setupTransport() error {
 		return err
 	}
 
-	// Subscribe to the newly created topic
+	// Subscribe to the newly created topic. Both validators and sentries log
+	// the inbound message so we can see propagation across the whole network,
+	// but only validators forward the message to the consensus state machine.
 	if err := topic.Subscribe(
-		func(obj interface{}, _ peer.ID) {
-			if !i.isActiveValidator() {
-				return
-			}
-
+		func(obj interface{}, from peer.ID) {
 			msg, ok := obj.(*proto.IbftMessage)
 			if !ok {
 				i.logger.Error("invalid type assertion for message request")
@@ -47,15 +55,28 @@ func (i *backendIBFT) setupTransport() error {
 				return
 			}
 
-			i.consensus.AddMessage(msg)
+			isActive := i.isActiveValidator()
 
-			i.logger.Debug(
-				"validator message received",
+			role := "sentry"
+			if isActive {
+				role = "validator"
+			}
+
+			i.logger.Info(
+				"consensus message received",
+				"role", role,
 				"type", msg.Type.String(),
 				"height", msg.GetView().Height,
 				"round", msg.GetView().Round,
-				"addr", types.BytesToAddress(msg.From).String(),
+				"from_validator", types.BytesToAddress(msg.From).String(),
+				"forwarded_by", from.String(),
 			)
+
+			if !isActive {
+				return
+			}
+
+			i.consensus.AddMessage(msg)
 		},
 	); err != nil {
 		return err
