@@ -201,11 +201,6 @@ func ReadConfigFile(path string) (*Config, error) {
 	}
 
 	config := DefaultConfig()
-	config.Network = new(Network)
-	config.Network.MaxPeers = -1
-	config.Network.MaxInboundPeers = -1
-	config.Network.MaxOutboundPeers = -1
-
 	if err := unmarshalFunc(data, config); err != nil {
 		return nil, err
 	}
