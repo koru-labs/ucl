@@ -64,6 +64,7 @@ func (t *Topic) Publish(obj proto.Message) error {
 	}
 
 	metrics.SetGauge([]string{networkMetrics, "egress_bytes"}, float32(len(data)))
+	t.logger.Debug("Publish", "msg size", len(data))
 
 	return t.topic.Publish(context.Background(), data)
 }

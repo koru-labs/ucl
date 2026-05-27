@@ -82,7 +82,11 @@ func (i *backendIBFT) BuildPrePrepareMessage(
 		},
 	}
 
-	return i.signMessage(msg)
+	retVal := i.signMessage(msg)
+	i.logger.Debug("PrePrepareMsg", "signature length", len(msg.Signature))
+	i.logger.Debug("PrePrepareMsg", "rawProposal length", len(rawProposal))
+	return retVal
+	//return i.signMessage(msg)
 }
 
 func (i *backendIBFT) BuildPrepareMessage(proposalHash []byte, view *protoIBFT.View) *protoIBFT.IbftMessage {
