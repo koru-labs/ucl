@@ -23,7 +23,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6.3.0
         with:
-          go-version-file: "go.mod"
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Run Go Test
         run: make benchmark-test

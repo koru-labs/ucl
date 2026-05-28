@@ -24,7 +24,7 @@ jobs:
       - name: Setup Go environment
         uses: actions/setup-go@v6.3.0
         with:
-          go-version-file: "go.mod"
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Set Version Variables
         id: set_version
@@ -98,7 +98,7 @@ jobs:
       - name: Setup Go environment
         uses: actions/setup-go@v6.3.0
         with:
-          go-version-file: "go.mod"
+          go-version: ${{ vars.GO_VERSION }}
 
       - name: Reproduce builds
         continue-on-error: true
