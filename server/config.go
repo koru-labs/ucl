@@ -65,7 +65,7 @@ type Config struct {
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
 
-	DisableTxPoolEndpoints  bool
+	EnableTxPoolEndpoints   bool
 	EnableAllDebugEndpoints bool
 
 	// JumpdestCacheSize controls the size of the per-process JUMPDEST bitmap

@@ -51,8 +51,12 @@ type Config struct {
 
 	MetricsInterval time.Duration `json:"metrics_interval" yaml:"metrics_interval"`
 
-	DisableTxPoolEndpoints  bool `json:"disable_tx_pool_endpoints" yaml:"disable_tx_pool_endpoints"`
+	EnableTxPoolEndpoints   bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
 	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+
+	// Deprecated: use enable_tx_pool_endpoints (inverted). Honored when true.
+	//nolint:lll
+	DisableTxPoolEndpointsDeprecated bool `json:"disable_tx_pool_endpoints,omitempty" yaml:"disable_tx_pool_endpoints,omitempty"`
 
 	// JumpdestCacheSize is the number of distinct contract codes (keyed by
 	// code hash) for which the EVM keeps a precomputed JUMPDEST bitmap in
@@ -174,6 +178,15 @@ func DefaultConfig() *Config {
 		MaxRequestBodySize:       DefaultRequestBodySize,
 		JSONRPCTimeout:           DefaultJSONRPCTimeout,
 		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
+		EnableTxPoolEndpoints:    false,
+		EnableAllDebugEndpoints:  false,
+	}
+}
+
+// ApplyDeprecatedEndpointFlags maps legacy disable_tx_pool_endpoints to enable_tx_pool_endpoints.
+func (c *Config) ApplyDeprecatedEndpointFlags() {
+	if c.DisableTxPoolEndpointsDeprecated {
+		c.EnableTxPoolEndpoints = false
 	}
 }
 
@@ -204,6 +217,8 @@ func ReadConfigFile(path string) (*Config, error) {
 	if err := unmarshalFunc(data, config); err != nil {
 		return nil, err
 	}
+
+	config.ApplyDeprecatedEndpointFlags()
 
 	return config, nil
 }

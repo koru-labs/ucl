@@ -39,6 +39,7 @@ type TestServerConfig struct {
 	TLSCertFile              string
 	TLSKeyFile               string
 	AllDebugEndpointsEnabled bool
+	TxPoolEndpointsEnabled   bool
 }
 
 type TestServerConfigCallback func(*TestServerConfig)
@@ -185,6 +186,10 @@ func (t *TestServer) Start() {
 
 	if config.AllDebugEndpointsEnabled {
 		args = append(args, "--enable-all-debug-endpoints")
+	}
+
+	if config.TxPoolEndpointsEnabled {
+		args = append(args, "--enable-tx-pool-endpoints")
 	}
 
 	// Start the server
