@@ -60,8 +60,11 @@ const (
 
 	metricsIntervalFlag = "metrics-interval"
 
-	DisableTxPoolEndpointsFlag  = "disable-tx-pool-endpoints"
+	EnableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
 	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+
+	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
+	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
 
 	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 )
@@ -105,7 +108,8 @@ type serverParams struct {
 	devInterval    uint64
 	isDevMode      bool
 
-	ibftBaseTimeoutLegacy uint64
+	ibftBaseTimeoutLegacy          uint64
+	disableTxPoolEndpointsLegacy bool
 
 	genesisConfig *chain.Chain
 	secretsConfig *secrets.SecretsManagerConfig
@@ -233,7 +237,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
 		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
-		DisableTxPoolEndpoints:  p.rawConfig.DisableTxPoolEndpoints,
+		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
