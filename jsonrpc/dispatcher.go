@@ -70,7 +70,7 @@ type dispatcherParams struct {
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
 
-	disableTxPoolEndpoints  bool
+	enableTxPoolEndpoints   bool
 	enableAllDebugEndpoints bool
 }
 
@@ -138,8 +138,7 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 		return err
 	}
 
-	// skip txpool endpoint registration if disabled
-	if !d.params.disableTxPoolEndpoints {
+	if d.params.enableTxPoolEndpoints {
 		if err = d.registerService("txpool", d.endpoints.TxPool); err != nil {
 			return err
 		}

@@ -328,16 +328,16 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().BoolVar(
-		&params.rawConfig.DisableTxPoolEndpoints,
-		DisableTxPoolEndpointsFlag,
-		false,
-		"disable all txpool JSON-RPC endpoints",
+		&params.rawConfig.EnableTxPoolEndpoints,
+		EnableTxPoolEndpointsFlag,
+		defaultConfig.EnableTxPoolEndpoints,
+		"enable all txpool JSON-RPC endpoints",
 	)
 
 	cmd.Flags().BoolVar(
 		&params.rawConfig.EnableAllDebugEndpoints,
 		EnableAllDebugEndpointsFlag,
-		false,
+		defaultConfig.EnableAllDebugEndpoints,
 		"enable all debug JSON-RPC endpoints",
 	)
 
@@ -366,6 +366,16 @@ func setLegacyFlags(cmd *cobra.Command) {
 	)
 
 	_ = cmd.Flags().MarkHidden(ibftBaseTimeoutFlagLEGACY)
+
+	// Legacy txpool endpoints flag (inverted semantics; use enable-tx-pool-endpoints).
+	cmd.Flags().BoolVar(
+		&params.disableTxPoolEndpointsLegacy,
+		disableTxPoolEndpointsFlagLEGACY,
+		false,
+		"",
+	)
+
+	_ = cmd.Flags().MarkHidden(disableTxPoolEndpointsFlagLEGACY)
 }
 
 func setDevFlags(cmd *cobra.Command) {
@@ -388,6 +398,15 @@ func setDevFlags(cmd *cobra.Command) {
 	_ = cmd.Flags().MarkHidden(devIntervalFlag)
 }
 
+func (p *serverParams) applyLegacyTxPoolEndpointsFlag(cmd *cobra.Command) {
+	if !cmd.Flags().Changed(disableTxPoolEndpointsFlagLEGACY) ||
+		cmd.Flags().Changed(EnableTxPoolEndpointsFlag) {
+		return
+	}
+
+	p.rawConfig.EnableTxPoolEndpoints = !p.disableTxPoolEndpointsLegacy
+}
+
 func runPreRun(cmd *cobra.Command, _ []string) error {
 	// Set the grpc and json ip:port bindings
 	// The config file will have precedence over --flag
@@ -402,6 +421,8 @@ func runPreRun(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
+
+	params.applyLegacyTxPoolEndpointsFlag(cmd)
 
 	if err := params.initRawParams(); err != nil {
 		return err

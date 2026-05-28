@@ -1125,7 +1125,7 @@ func (s *Server) setupJSONRPC() error {
 		SecretsManager:           s.secretsManager,
 		MaxRequestBodySize:       s.config.MaxRequestBodySize,
 		JSONRPCTimeout:           s.config.JSONRPCTimeout,
-		DisableTxPoolEndpoints:   s.config.DisableTxPoolEndpoints,
+		EnableTxPoolEndpoints:    s.config.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
 	}
 
