@@ -23,7 +23,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6.3.0
         with:
-          go-version: ${{ vars.GO_VERSION }}
+          go-version-file: "go.mod"
 
       - name: Install Dependencies
         run: ./setup-ci.sh
