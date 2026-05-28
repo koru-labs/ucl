@@ -55,6 +55,7 @@ type Config struct {
 	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
 
 	// Deprecated: use enable_tx_pool_endpoints (inverted). Honored when true.
+	//nolint:lll
 	DisableTxPoolEndpointsDeprecated bool `json:"disable_tx_pool_endpoints,omitempty" yaml:"disable_tx_pool_endpoints,omitempty"`
 
 	// JumpdestCacheSize is the number of distinct contract codes (keyed by
@@ -176,9 +177,9 @@ func DefaultConfig() *Config {
 		BlockCacheCapacity:       50,
 		MaxRequestBodySize:       DefaultRequestBodySize,
 		JSONRPCTimeout:           DefaultJSONRPCTimeout,
-		JumpdestCacheSize:         evm.DefaultJumpdestCacheSize,
-		EnableTxPoolEndpoints:     false,
-		EnableAllDebugEndpoints:   false,
+		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
+		EnableTxPoolEndpoints:    false,
+		EnableAllDebugEndpoints:  false,
 	}
 }
 
