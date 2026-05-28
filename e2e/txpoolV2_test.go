@@ -327,6 +327,7 @@ func TestE2E_TxPool_TestSync(t *testing.T) {
 			sender.Address(): ethgo.Ether(1),
 		}),
 		frameworkV2.WithBootnodeCount(1),
+		frameworkV2.WithTxPoolEndpoints(),
 	)
 	defer cluster.Stop()
 
