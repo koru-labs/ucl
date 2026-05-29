@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,11 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	dockerImg "github.com/docker/docker/api/types/image"
-	dockerclient "github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	mobyClient "github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 
 	"github.com/0xPolygon/polygon-edge/command"
@@ -36,7 +36,7 @@ const (
 
 var (
 	params            serverParams
-	dockerClient      *dockerclient.Client
+	client            *mobyClient.Client
 	dockerContainerID string
 )
 
@@ -129,8 +129,8 @@ func runCommand(cmd *cobra.Command, _ []string) {
 
 func runRootchain(ctx context.Context, outputter command.OutputFormatter, closeCh chan struct{}) error {
 	var err error
-	if dockerClient, err = dockerclient.NewClientWithOpts(dockerclient.FromEnv,
-		dockerclient.WithAPIVersionNegotiation()); err != nil {
+	if client, err = mobyClient.NewClientWithOpts(mobyClient.FromEnv,
+		mobyClient.WithAPIVersionNegotiation()); err != nil {
 		return err
 	}
 
@@ -145,7 +145,7 @@ func runRootchain(ctx context.Context, outputter command.OutputFormatter, closeC
 	}
 
 	// try to pull the image
-	reader, err := dockerClient.ImagePull(ctx, image, dockerImg.PullOptions{})
+	reader, err := client.ImagePull(ctx, image, mobyClient.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -195,28 +195,38 @@ func runRootchain(ctx context.Context, outputter command.OutputFormatter, closeC
 		}
 	}
 
-	port := nat.Port(fmt.Sprintf("%s/tcp", defaultHostPort))
+	port, err := network.ParsePort(fmt.Sprintf("%s/tcp", defaultHostPort))
+	if err != nil {
+		return fmt.Errorf("failed to parse port: %w", err)
+	}
+
 	hostConfig := &container.HostConfig{
 		Binds: []string{
 			mountDir + ":/eth1data",
 		},
-		PortBindings: nat.PortMap{
-			port: []nat.PortBinding{
+		PortBindings: network.PortMap{
+			port: []network.PortBinding{
 				{
-					HostIP:   defaultHostIP,
+					HostIP:   netip.AddrFrom4([4]byte{127, 0, 0, 1}),
 					HostPort: defaultHostPort,
 				},
 			},
 		},
 	}
 
-	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
+	options := mobyClient.ContainerCreateOptions{
+		Config:     config,
+		HostConfig: hostConfig,
+	}
+
+	resp, err := client.ContainerCreate(ctx, options)
 	if err != nil {
 		return err
 	}
 
 	// start the client
-	if err = dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	_, err = client.ContainerStart(ctx, resp.ID, mobyClient.ContainerStartOptions{})
+	if err != nil {
 		return err
 	}
 
@@ -224,11 +234,14 @@ func runRootchain(ctx context.Context, outputter command.OutputFormatter, closeC
 
 	// wait for it to finish
 	go func() {
-		statusCh, errCh := dockerClient.ContainerWait(ctx, dockerContainerID, container.WaitConditionNotRunning)
+		container := client.ContainerWait(ctx, dockerContainerID,
+			mobyClient.ContainerWaitOptions{
+				Condition: container.WaitConditionNotRunning,
+			})
 		select {
-		case err = <-errCh:
+		case err = <-container.Error:
 			outputter.SetError(err)
-		case status := <-statusCh:
+		case status := <-container.Result:
 			outputter.SetCommandResult(newContainerStopResult(status))
 		}
 		close(closeCh)
@@ -238,13 +251,13 @@ func runRootchain(ctx context.Context, outputter command.OutputFormatter, closeC
 }
 
 func gatherLogs(ctx context.Context, outputter command.OutputFormatter) error {
-	opts := container.LogsOptions{
+	opts := mobyClient.ContainerLogsOptions{
 		ShowStderr: true,
 		ShowStdout: true,
 		Follow:     true,
 	}
 
-	out, err := dockerClient.ContainerLogs(ctx, dockerContainerID, opts)
+	out, err := client.ContainerLogs(ctx, dockerContainerID, opts)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve container logs: %w", err)
 	}
@@ -290,7 +303,8 @@ func handleSignals(ctx context.Context, closeCh <-chan struct{}) error {
 
 	// close the container if possible
 	if stop {
-		if err := dockerClient.ContainerStop(ctx, dockerContainerID, container.StopOptions{}); err != nil {
+		_, err := client.ContainerStop(ctx, dockerContainerID, mobyClient.ContainerStopOptions{})
+		if err != nil {
 			return fmt.Errorf("failed to stop container: %w", err)
 		}
 	}

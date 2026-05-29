@@ -18,8 +18,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
 	"github.com/Ethernal-Tech/ethgo/wallet"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 const (
@@ -96,12 +96,12 @@ func GetRootchainID() (string, error) {
 		return "", fmt.Errorf("rootchain id error: %w", err)
 	}
 
-	containers, err := cli.ContainerList(context.Background(), container.ListOptions{})
+	container, err := cli.ContainerList(context.Background(), client.ContainerListOptions{})
 	if err != nil {
 		return "", fmt.Errorf("rootchain id error: %w", err)
 	}
 
-	for _, c := range containers {
+	for _, c := range container.Items {
 		if c.Labels["edge-type"] == "rootchain" {
 			return c.ID, nil
 		}
@@ -121,12 +121,17 @@ func ReadRootchainIP() (string, error) {
 		return "", err
 	}
 
-	inspect, err := cli.ContainerInspect(context.Background(), contID)
+	inspect, err := cli.ContainerInspect(context.Background(), contID, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("rootchain ip error: %w", err)
 	}
 
-	ports, ok := inspect.HostConfig.PortBindings["8545/tcp"]
+	port, err := network.ParsePort("8545/tcp")
+	if err != nil {
+		return "", fmt.Errorf("failed to parse port: %w", err)
+	}
+
+	ports, ok := inspect.Container.HostConfig.PortBindings[port]
 	if !ok || len(ports) == 0 {
 		return "", ErrRootchainPortBind
 	}
