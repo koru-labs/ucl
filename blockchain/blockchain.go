@@ -811,6 +811,12 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	}, nil
 }
 
+// method for proposer to add block receipts to the receipts cache
+// that way it doesn't have to execute transactions twice, once for the proposal and once for the cache update
+func (b *Blockchain) AddReceiptsToCache(hash types.Hash, receipts []*types.Receipt) {
+	b.receiptsCache.Add(hash, receipts)
+}
+
 // WriteFullBlock writes a single block to the local blockchain.
 // It doesn't do any kind of verification, only commits the block to the DB
 // This function is a copy of WriteBlock but with a full block which does not

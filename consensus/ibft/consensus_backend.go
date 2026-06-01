@@ -31,12 +31,14 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
-	block, err := i.buildBlock(latestHeader)
+	block, receipts, err := i.buildBlock(latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
 
 		return nil
 	}
+
+	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
 	return block.MarshalRLP()
 }
@@ -181,7 +183,7 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
+func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, error) {
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     parent.Number + 1,
@@ -198,7 +200,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	header.GasLimit = gasLimit
@@ -208,11 +210,11 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	if err != nil {
 		i.logger.Error("cannot get modules from fork manager for", "block number", header.Number, "err", err)
 
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := hooks.ModifyHeader(header, signer.Address()); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Set the header timestamp
@@ -221,14 +223,14 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
 	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Get the block transactions
@@ -245,12 +247,12 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	// provide dummy block instance to the PreCommitState
 	// (for the IBFT consensus, it is correct to have just a header, as only it is used)
 	if err := i.PreCommitState(&types.Block{Header: header}, transition); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	_, root, err := transition.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("failed to commit the state changes: %w", err)
+		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
 	header.StateRoot = root
@@ -266,7 +268,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 	// write the seal of the block after all the fields are completed
 	header, err = signer.WriteProposerSeal(header)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	block.Header = header
@@ -277,7 +279,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, error) {
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, nil
+	return block, transition.Receipts(), nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based
