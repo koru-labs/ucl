@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.19
 	github.com/aws/aws-sdk-go-v2/service/kms v1.52.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.3
-	github.com/btcsuite/btcd/btcec/v2 v2.3.6
+	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/consensys/gnark-crypto v0.20.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
