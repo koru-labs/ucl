@@ -72,6 +72,11 @@ func (txn *Txn) clearDeps() {
 	txn.txWriteAccessMap = map[Key]bool{}
 }
 
+func (txn *Txn) hasBalanceReads(burnContract, coinbase types.Address) bool {
+	return txn.txReadAccessMap[NewSubpathKey(burnContract, BalancePath)] ||
+		txn.txReadAccessMap[NewSubpathKey(coinbase, BalancePath)]
+}
+
 func (txn *Txn) calculateDeps(burnContract, coinbase types.Address) {
 	txId := txn.txIndexCounter
 	// prepare for next tx

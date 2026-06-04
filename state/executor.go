@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/contracts"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -507,6 +508,34 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	}
 
 	return result, err
+}
+
+func (t *Transition) HasBalanceReads() bool {
+	return t.state.hasBalanceReads(t.ctx.BurnContract, t.ctx.Coinbase)
+}
+
+func (t *Transition) GetTxReadWriteSet() blockstm.TxReadWriteSet {
+	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
+	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
+
+	for k := range t.state.txReadAccessMap {
+		readDescs = append(readDescs, blockstm.ReadDescriptor{
+			Path: blockstm.Key(k),
+		})
+	}
+
+	for k, v := range t.state.txWriteAccessMap {
+		writeDescs = append(writeDescs, blockstm.WriteDescriptor{
+			Path: blockstm.Key(k),
+			Val:  v,
+		})
+	}
+
+	return blockstm.TxReadWriteSet{
+		Index:     t.state.txIndexCounter - 1,
+		ReadList:  readDescs,
+		WriteList: writeDescs,
+	}
 }
 
 // ContextPtr returns reference of context
