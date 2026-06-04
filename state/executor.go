@@ -491,6 +491,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
+	t.state.clearDeps()
 
 	result, err := t.apply(msg)
 	if err != nil {
@@ -498,6 +499,8 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			return nil, revertErr
 		}
 	}
+
+	t.state.calculateDeps(NewAddressKey(t.ctx.Coinbase), NewAddressKey(t.ctx.BurnContract))
 
 	if t.PostHook != nil {
 		t.PostHook(t)

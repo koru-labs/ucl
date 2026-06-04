@@ -49,6 +49,15 @@ type Txn struct {
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
 	codeCache *lru.Cache
+
+	txIndexCounter    int
+	txReadAccessMap   map[Key]bool
+	txWriteAccessMap  map[Key]bool
+	allReadAccessMap  map[Key][]int
+	allWriteAccessMap map[Key][]int
+
+	deps    []int
+	depsMap map[int]bool
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -57,6 +66,91 @@ func NewTxn(snapshot Snapshot) *Txn {
 
 func (txn *Txn) GetRadix() *iradix.Txn {
 	return txn.txn
+}
+
+func (txn *Txn) clearDeps() {
+	txn.txReadAccessMap = map[Key]bool{}
+	txn.txWriteAccessMap = map[Key]bool{}
+}
+
+func (txn *Txn) appendDeps(index int) {
+	if !txn.depsMap[index] {
+		txn.deps = append(txn.deps, index)
+		txn.depsMap[index] = true
+	}
+}
+
+func (txn *Txn) calculateDeps(burnContract, coinbase Key) {
+	isDeps := false
+
+	// tx write <> all maps
+	for key, _ := range txn.txWriteAccessMap {
+		// skip burn contract and coinbase address for write-read deps
+		if key == burnContract || key == coinbase {
+			continue
+		}
+
+		// check previous read tx indexes if any on this key
+		indexes, ok := txn.allReadAccessMap[key]
+		if ok {
+			isDeps = true
+
+			if len(indexes) == 1 {
+				txn.appendDeps(indexes[0])
+			}
+			// not append yet to allWriteMap!!
+		}
+
+		// check previous write tx indexes if any
+		indexes, ok = txn.allWriteAccessMap[key]
+		if ok {
+			isDeps = true
+
+			if len(indexes) == 1 {
+				txn.appendDeps(indexes[0])
+			}
+
+			// now append to allWriteMap
+			txn.allWriteAccessMap[key] = append(indexes, txn.txIndexCounter)
+		} else {
+			// append to allWriteMap
+			txn.allWriteAccessMap[key] = []int{txn.txIndexCounter}
+		}
+	}
+
+	// tx read <> all write
+	for key, _ := range txn.txReadAccessMap {
+		// skip burn contract and coinbase address for write-read deps
+		if key == burnContract || key == coinbase {
+			continue
+		}
+
+		// check previous write tx indexes if any
+		indexes, ok := txn.allWriteAccessMap[key]
+		if ok {
+			// avoid self-deps, but if there are multiple indexes, then it's deps for sure
+			if len(indexes) > 1 {
+				isDeps = true
+			} else if indexes[0] != txn.txIndexCounter {
+				isDeps = true
+
+				txn.appendDeps(indexes[0])
+			}
+
+			// append to allReadMap
+			txn.allReadAccessMap[key] = append(indexes, txn.txIndexCounter)
+		} else {
+			// append to allReadMap
+			txn.allReadAccessMap[key] = []int{txn.txIndexCounter}
+		}
+	}
+
+	if isDeps {
+		txn.appendDeps(txn.txIndexCounter)
+	}
+
+	// prepare for next tx
+	txn.txIndexCounter++
 }
 
 func newTxn(snapshot readSnapshot) *Txn {
@@ -69,6 +163,14 @@ func newTxn(snapshot readSnapshot) *Txn {
 		snapshots: []*iradix.Tree{},
 		txn:       i.Txn(),
 		codeCache: codeCache,
+
+		allReadAccessMap:  map[Key][]int{},
+		allWriteAccessMap: map[Key][]int{},
+		txReadAccessMap:   map[Key]bool{},
+		txWriteAccessMap:  map[Key]bool{},
+
+		deps:    []int{},
+		depsMap: map[int]bool{},
 	}
 }
 
@@ -218,7 +320,7 @@ func (txn *Txn) StorageRangeAt(storageRangeResult *StorageRangeResult, addr *typ
 	keyStart []byte, maxResult int) error {
 	storageRangeResult.Storage = make(storageMap)
 
-	object, exists := txn.getStateObject(*addr)
+	object, exists := txn.getStateObject(*addr) // json rpc
 	if !exists {
 		return nil
 	}
@@ -283,6 +385,8 @@ func (txn *Txn) RevertToSnapshot(id int) error {
 
 // GetAccount returns an account
 func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
+	txn.txReadAccessMap[NewAddressKey(addr)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil, false
@@ -347,6 +451,9 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 		} else {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
+
+		txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
+		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 }
 
@@ -354,6 +461,8 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Add(object.Account.Balance, balance)
+
+		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 }
 
@@ -371,6 +480,8 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
+
+		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 
 	return nil
@@ -380,11 +491,15 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.SetBytes(balance.Bytes())
+
+		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 }
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -500,6 +615,8 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
+	txn.txWriteAccessMap[NewStateKey(addr, key)] = true
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Txn == nil {
 			object.Txn = iradix.New().Txn()
@@ -515,6 +632,8 @@ func (txn *Txn) SetState(
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
+	txn.txReadAccessMap[NewStateKey(addr, key)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -547,6 +666,8 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
+		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
+
 		if object.Account.Nonce+1 < object.Account.Nonce {
 			err = ErrNonceUintOverflow
 
@@ -563,11 +684,15 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
+
+		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
 	})
 }
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -584,6 +709,8 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.Account.CodeHash = crypto.Keccak256(code)
 		object.DirtyCode = true
 		object.Code = code
+
+		txn.txWriteAccessMap[NewSubpathKey(addr, CodePath)] = true
 	})
 }
 
@@ -600,6 +727,8 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -635,6 +764,8 @@ func (txn *Txn) GetCodeSize(addr types.Address) int {
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -650,13 +781,16 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 	txn.upsertAccount(addr, false, func(object *StateObject) {
 		if object == nil || object.Suicide {
 			suicided = false
+			txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
 		} else {
 			suicided = true
 			object.Suicide = true
+			txn.txWriteAccessMap[NewSubpathKey(addr, SuicidePath)] = true
 		}
 
 		if object != nil {
 			object.Account.Balance = new(big.Int)
+			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 		}
 	})
 
@@ -665,6 +799,8 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 
 // HasSuicided returns true if the account suicided
 func (txn *Txn) HasSuicided(addr types.Address) bool {
+	txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
+
 	object, exists := txn.getStateObject(addr)
 
 	return exists && object.Suicide
@@ -737,17 +873,21 @@ func (txn *Txn) SetFullStorage(addr types.Address, state map[types.Hash]types.Ha
 
 func (txn *Txn) TouchAccount(addr types.Address) {
 	txn.upsertAccount(addr, true, func(obj *StateObject) {
-
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 }
 
 func (txn *Txn) Exist(addr types.Address) bool {
+	txn.txReadAccessMap[NewAddressKey(addr)] = true
+
 	_, exists := txn.getStateObject(addr)
 
 	return exists
 }
 
 func (txn *Txn) Empty(addr types.Address) bool {
+	txn.txReadAccessMap[NewAddressKey(addr)] = true
+
 	obj, exists := txn.getStateObject(addr)
 	if !exists {
 		return true
@@ -779,6 +919,8 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	if ok {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
 	}
+
+	txn.txWriteAccessMap[NewAddressKey(addr)] = true
 
 	txn.txn.Insert(addr.Bytes(), obj)
 }
