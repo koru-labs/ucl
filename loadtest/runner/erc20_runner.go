@@ -276,8 +276,11 @@ func (e *ERC20Runner) createERC20Transaction(
 	e.txCounterMap[addr] = counter + 1
 	e.mu.Unlock()
 
+	receiver := addr
+	receiver[0] = addr[0] + byte(counter&255)
+
 	input, err := e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
-		"receiver":  types.Address{byte(counter & 255)},
+		"receiver":  receiver,
 		"numTokens": big.NewInt(1),
 	})
 	if err != nil {
