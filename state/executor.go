@@ -500,7 +500,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		}
 	}
 
-	t.state.calculateDeps(NewAddressKey(t.ctx.Coinbase), NewAddressKey(t.ctx.BurnContract))
+	t.state.calculateDeps(t.ctx.Coinbase, t.ctx.BurnContract)
 
 	if t.PostHook != nil {
 		t.PostHook(t)

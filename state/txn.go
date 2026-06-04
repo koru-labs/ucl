@@ -72,14 +72,14 @@ func (txn *Txn) clearDeps() {
 	txn.txWriteAccessMap = map[Key]bool{}
 }
 
-func (txn *Txn) calculateDeps(burnContract, coinbase Key) {
+func (txn *Txn) calculateDeps(burnContract, coinbase types.Address) {
 	txId := txn.txIndexCounter
 	// prepare for next tx
 	txn.txIndexCounter++
 
 	for key := range txn.txWriteAccessMap {
 		// skip burn contract and coinbase address for write-read deps
-		if key == burnContract || key == coinbase {
+		if addr := key.GetAddress(); addr == burnContract || addr == coinbase {
 			continue
 		}
 
@@ -92,7 +92,7 @@ func (txn *Txn) calculateDeps(burnContract, coinbase Key) {
 
 	for key := range txn.txReadAccessMap {
 		// skip burn contract and coinbase address for write-read deps
-		if key == burnContract || key == coinbase {
+		if addr := key.GetAddress(); addr == burnContract || addr == coinbase {
 			continue
 		}
 
@@ -484,9 +484,14 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 }
 
 // AddBalance adds balance
-func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
+func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
+	// If we try to reduce balance by 0, then it's a noop
+	if amount.Sign() == 0 {
+		return
+	}
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Add(object.Account.Balance, balance)
+		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
@@ -518,7 +523,9 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
-		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		if object.Account.Balance.Cmp(balance) != 0 {
+			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		}
 	})
 }
 
@@ -899,7 +906,9 @@ func (txn *Txn) SetFullStorage(addr types.Address, state map[types.Hash]types.Ha
 
 func (txn *Txn) TouchAccount(addr types.Address) {
 	txn.upsertAccount(addr, true, func(obj *StateObject) {
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		// this can create account, so maybe all paths should be marked as write access
+		// but only in case when new account is created
+		// txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 }
 
@@ -946,6 +955,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 		obj.Account.Balance.SetBytes(prev.Account.Balance.Bytes())
 	}
 
+	// should this add all subpaths too? for now we will just mark address as write access
 	txn.txWriteAccessMap[NewAddressKey(addr)] = true
 
 	txn.txn.Insert(addr.Bytes(), obj)
