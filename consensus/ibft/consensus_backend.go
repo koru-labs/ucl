@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"runtime"
 	"time"
 
 	"github.com/0xPolygon/go-ibft/messages"
@@ -184,6 +185,22 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
 func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, error) {
+	var (
+		m1, m2 runtime.MemStats
+		start  = time.Now()
+	)
+
+	runtime.GC() // optional, reduce noise
+	runtime.ReadMemStats(&m1)
+
+	defer func() {
+		runtime.ReadMemStats(&m2)
+
+		i.logger.Debug("Build block allocated bytes CREW", "value", m2.TotalAlloc-m1.TotalAlloc)
+		i.logger.Debug("Build block mallocs CREW", "value", m2.Mallocs-m1.Mallocs)
+		i.logger.Debug("Build block elapsed time CREW", "value", time.Since(start))
+	}()
+
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     parent.Number + 1,
@@ -253,6 +270,12 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	_, root, err := transition.Commit()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
+	}
+
+	dependencies := transition.GetDependencies(false)
+
+	for idx, dep := range dependencies {
+		i.logger.Debug("tx dependecies CREW", "txIndx", idx, "dependency", dep)
 	}
 
 	header.StateRoot = root

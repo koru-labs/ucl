@@ -834,6 +834,14 @@ func (t *Transition) run(contract *runtime.Contract, host runtime.Host) *runtime
 	}
 }
 
+func (t *Transition) GetDependencies(groupedBy bool) [][]int {
+	if groupedBy {
+		return t.state.GetDepsGroups()
+	}
+
+	return t.state.GetDepsMatrice()
+}
+
 func (t *Transition) Transfer(from, to types.Address, amount *big.Int) error {
 	if amount == nil {
 		return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
@@ -21,7 +22,8 @@ type ERC20Runner struct {
 
 	erc20Token         types.Address
 	erc20TokenArtifact *artifact.Artifact
-	txInput            []byte
+	mu                 sync.Mutex
+	txCounterMap       map[types.Address]uint64
 }
 
 // NewERC20Runner creates a new ERC20Runner instance with the given LoadTestConfig.
@@ -32,7 +34,7 @@ func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
 		return nil, err
 	}
 
-	return &ERC20Runner{BaseLoadTestRunner: runner}, nil
+	return &ERC20Runner{BaseLoadTestRunner: runner, txCounterMap: make(map[types.Address]uint64)}, nil
 }
 
 // Run executes the ERC20 load test.
@@ -175,16 +177,6 @@ func (e *ERC20Runner) deployERC20Token() error {
 	e.erc20Token = types.Address(receipt.ContractAddress)
 	e.erc20TokenArtifact = artifact
 
-	input, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
-		"receiver":  e.receivers.getReceiver(),
-		"numTokens": big.NewInt(1),
-	})
-	if err != nil {
-		return err
-	}
-
-	e.txInput = input
-
 	fmt.Printf("Deploying ERC20 token took %s\n", time.Since(start))
 
 	return nil
@@ -274,8 +266,24 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 }
 
 // createERC20Transaction creates an ERC20 transaction
-func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
-	chainID *big.Int) (*types.Transaction, error) {
+func (e *ERC20Runner) createERC20Transaction(
+	account *account, feeData *feeData, chainID *big.Int,
+) (*types.Transaction, error) {
+	addr := account.key.Address()
+
+	e.mu.Lock()
+	counter := e.txCounterMap[addr]
+	e.txCounterMap[addr] = counter + 1
+	e.mu.Unlock()
+
+	input, err := e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
+		"receiver":  types.Address{byte(counter & 255)},
+		"numTokens": big.NewInt(1),
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	if e.cfg.DynamicTxs {
 		return &types.Transaction{
 			Type:      types.DynamicFeeTx,
@@ -285,7 +293,7 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 			GasFeeCap: feeData.gasFeeCap,
 			GasTipCap: feeData.gasTipCap,
 			ChainID:   chainID,
-			Input:     e.txInput,
+			Input:     input,
 		}, nil
 	}
 
@@ -295,6 +303,6 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 		To:       &e.erc20Token,
 		GasPrice: feeData.gasPrice,
 		From:     account.key.Address(),
-		Input:    e.txInput,
+		Input:    input,
 	}, nil
 }
