@@ -260,13 +260,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		depsBuilder *blockstm.DepsBuilder        = blockstm.NewDepsBuilder()
 		chDeps      chan blockstm.TxReadWriteSet = make(chan blockstm.TxReadWriteSet)
 		depsWg      sync.WaitGroup
-		once        sync.Once
 	)
-
-	// Make sure we safely close the channel in case of interrupt
-	defer once.Do(func() {
-		close(chDeps)
-	})
 
 	depsWg.Add(1)
 
@@ -293,7 +287,6 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		header.Number,
 		transition,
 		chDeps,
-		&once,
 	)
 
 	// provide dummy block instance to the PreCommitState
@@ -307,9 +300,6 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
-	once.Do(func() {
-		close(chDeps)
-	})
 	depsWg.Wait()
 
 	deps := depsBuilder.GetDeps()
@@ -410,8 +400,9 @@ func (i *backendIBFT) writeTransactions(
 	blockNumber uint64,
 	transition transitionInterface,
 	chDeps chan blockstm.TxReadWriteSet,
-	once *sync.Once,
 ) (executed []*types.Transaction, hasBalanceReads bool) {
+	defer close(chDeps)
+
 	executed = make([]*types.Transaction, 0)
 
 	hooks := i.forkManager.GetHooks(blockNumber)
@@ -454,8 +445,6 @@ write:
 				break write
 			}
 
-			tx := result.tx
-
 			switch result.status {
 			case success:
 				// Send with timeout to prevent deadlock
@@ -464,14 +453,10 @@ write:
 					// Successfully sent
 				case <-time.After(1 * time.Second):
 					// Timeout after 1 second - channel is blocked
-					once.Do(func() {
-						close(chDeps)
-					})
-
 					return
 				}
 
-				executed = append(executed, tx)
+				executed = append(executed, result.tx)
 				successful++
 			case fail:
 				failed++
