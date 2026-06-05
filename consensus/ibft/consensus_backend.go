@@ -391,7 +391,7 @@ type txExeResult struct {
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) error
-	GetTxReadWriteSet() blockstm.TxReadWriteSet
+	GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -403,23 +403,20 @@ func (i *backendIBFT) writeTransactions(
 ) (executed []*types.Transaction, hasBalanceReads bool) {
 	defer close(chDeps)
 
-	executed = make([]*types.Transaction, 0)
-
 	hooks := i.forkManager.GetHooks(blockNumber)
 	if !hooks.ShouldWriteTransactions(blockNumber) {
 		return
 	}
 
 	var (
-		successful = 0
-		failed     = 0
-		skipped    = 0
+		failed  = 0
+		skipped = 0
 	)
 
 	defer func() {
 		i.logger.Info(
 			"executed txs",
-			"successful", successful,
+			"successful", len(executed),
 			"failed", failed,
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
@@ -449,7 +446,7 @@ write:
 			case success:
 				// Send with timeout to prevent deadlock
 				select {
-				case chDeps <- transition.GetTxReadWriteSet():
+				case chDeps <- transition.GetTxReadWriteSet(len(executed)):
 					// Successfully sent
 				case <-time.After(1 * time.Second):
 					// Timeout after 1 second - channel is blocked
@@ -457,7 +454,6 @@ write:
 				}
 
 				executed = append(executed, result.tx)
-				successful++
 			case fail:
 				failed++
 			case skip:

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sort"
 	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/crypto"
-	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 )
@@ -52,11 +50,8 @@ type Txn struct {
 	txn       *iradix.Txn
 	codeCache *lru.Cache
 
-	txIndexCounter    int
-	txReadAccessMap   map[Key]bool
-	txWriteAccessMap  map[Key]bool
-	allReadAccessMap  map[Key][]int
-	allWriteAccessMap map[Key][]int
+	txReadAccessMap  map[Key]bool
+	txWriteAccessMap map[Key]bool
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -77,116 +72,6 @@ func (txn *Txn) hasBalanceReads(burnContract, coinbase types.Address) bool {
 		txn.txReadAccessMap[NewSubpathKey(coinbase, BalancePath)]
 }
 
-func (txn *Txn) calculateDeps(burnContract, coinbase types.Address) {
-	txId := txn.txIndexCounter
-	// prepare for next tx
-	txn.txIndexCounter++
-
-	for key := range txn.txWriteAccessMap {
-		// skip burn contract and coinbase address for write-read deps
-		if addr := key.GetAddress(); addr == burnContract || addr == coinbase {
-			continue
-		}
-
-		if txn.allWriteAccessMap[key] == nil {
-			txn.allWriteAccessMap[key] = []int{}
-		}
-
-		txn.allWriteAccessMap[key] = append(txn.allWriteAccessMap[key], txId)
-	}
-
-	for key := range txn.txReadAccessMap {
-		// skip burn contract and coinbase address for write-read deps
-		if addr := key.GetAddress(); addr == burnContract || addr == coinbase {
-			continue
-		}
-
-		if txn.allReadAccessMap[key] == nil {
-			txn.allReadAccessMap[key] = []int{}
-		}
-
-		txn.allReadAccessMap[key] = append(txn.allReadAccessMap[key], txId)
-	}
-}
-
-func (txn *Txn) GetDepsMatrice() [][]int {
-	wam, ram := txn.allWriteAccessMap, txn.allReadAccessMap
-	writeList := make([]map[Key]bool, txn.txIndexCounter)
-	readList := make([]map[Key]bool, txn.txIndexCounter)
-	deps := make([][]int, txn.txIndexCounter)
-
-	for k, v := range wam {
-		for _, indx := range v {
-			if writeList[indx] == nil {
-				writeList[indx] = map[Key]bool{}
-			}
-
-			writeList[indx][k] = true
-		}
-	}
-
-	for k, v := range ram {
-		for _, indx := range v {
-			if readList[indx] == nil {
-				readList[indx] = map[Key]bool{}
-			}
-
-			readList[indx][k] = true
-		}
-	}
-
-	for txId := 0; txId < txn.txIndexCounter; txId++ {
-		currTxDeps := map[int]bool{}
-		readAccess, writeAccess := readList[txId], writeList[txId]
-
-		for k := range readAccess {
-			// if some other tx writes this key, add dependency
-			for _, indx := range wam[k] {
-				if indx != txId {
-					currTxDeps[indx] = true
-				}
-			}
-		}
-
-		for k := range writeAccess {
-			// if some other tx writes this key, add dependency
-			for _, indx := range wam[k] {
-				if indx != txId {
-					currTxDeps[indx] = true
-				}
-			}
-			// if some other tx reads this key, add dependency
-			for _, indx := range ram[k] {
-				if indx != txId {
-					currTxDeps[indx] = true
-				}
-			}
-		}
-
-		deps[txId] = make([]int, 0, len(currTxDeps))
-		for j := range currTxDeps {
-			deps[txId] = append(deps[txId], j)
-		}
-
-		sort.Ints(deps[txId]) // sort dependencies for deterministic order
-	}
-
-	return deps
-}
-
-func (txn *Txn) GetDepsGroups() (groups [][]int) {
-	deps := txn.GetDepsMatrice()
-	dsu := common.NewDisjointSetUnion(txn.txIndexCounter)
-
-	for txIndx, txDeps := range deps {
-		for _, otherTxIndx := range txDeps {
-			dsu.Union(txIndx, otherTxIndx)
-		}
-	}
-
-	return dsu.GetGroups()
-}
-
 func newTxn(snapshot readSnapshot) *Txn {
 	i := iradix.New()
 
@@ -198,10 +83,8 @@ func newTxn(snapshot readSnapshot) *Txn {
 		txn:       i.Txn(),
 		codeCache: codeCache,
 
-		allReadAccessMap:  map[Key][]int{},
-		allWriteAccessMap: map[Key][]int{},
-		txReadAccessMap:   map[Key]bool{},
-		txWriteAccessMap:  map[Key]bool{},
+		txReadAccessMap:  map[Key]bool{},
+		txWriteAccessMap: map[Key]bool{},
 	}
 }
 

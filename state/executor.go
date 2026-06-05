@@ -501,8 +501,6 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		}
 	}
 
-	t.state.calculateDeps(t.ctx.Coinbase, t.ctx.BurnContract)
-
 	if t.PostHook != nil {
 		t.PostHook(t)
 	}
@@ -514,7 +512,7 @@ func (t *Transition) HasBalanceReads() bool {
 	return t.state.hasBalanceReads(t.ctx.BurnContract, t.ctx.Coinbase)
 }
 
-func (t *Transition) GetTxReadWriteSet() blockstm.TxReadWriteSet {
+func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
 	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
 	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
 
@@ -532,7 +530,7 @@ func (t *Transition) GetTxReadWriteSet() blockstm.TxReadWriteSet {
 	}
 
 	return blockstm.TxReadWriteSet{
-		Index:     t.state.txIndexCounter - 1,
+		Index:     txIndx,
 		ReadList:  readDescs,
 		WriteList: writeDescs,
 	}
@@ -861,14 +859,6 @@ func (t *Transition) run(contract *runtime.Contract, host runtime.Host) *runtime
 	return &runtime.ExecutionResult{
 		Err: fmt.Errorf("runtime not found"),
 	}
-}
-
-func (t *Transition) GetDependencies(groupedBy bool) [][]int {
-	if groupedBy {
-		return t.state.GetDepsGroups()
-	}
-
-	return t.state.GetDepsMatrice()
 }
 
 func (t *Transition) Transfer(from, to types.Address, amount *big.Int) error {
