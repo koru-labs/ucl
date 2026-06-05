@@ -33,6 +33,7 @@ type IstanbulExtra struct {
 	CommittedSeals       Seals
 	ParentCommittedSeals Seals
 	RoundNumber          *uint64
+	TxDependency         [][]uint64
 }
 
 type Seals interface {
@@ -101,6 +102,7 @@ func (i *IstanbulExtra) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(i.ParentCommittedSeals.MarshalRLPWith(ar))
 	}
 
+	// RoundNumber
 	if i.RoundNumber == nil {
 		vv.Set(ar.NewNull())
 	} else {
@@ -108,6 +110,9 @@ func (i *IstanbulExtra) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 			toRoundBytes(*i.RoundNumber),
 		))
 	}
+
+	// TxDependency
+	vv.Set(marshalRLPTxDependencyWith(i.TxDependency, ar))
 
 	return vv
 }
@@ -158,6 +163,14 @@ func (i *IstanbulExtra) UnmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) er
 		}
 
 		i.RoundNumber = roundNumber
+	}
+
+	// TxDependency
+	if len(elems) >= 6 {
+		i.TxDependency, err = unmarshalRLPTxDependencyFrom(elems[5])
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -252,6 +265,49 @@ func packFieldsIntoExtra(
 	)
 }
 
+// PackTxDependencyIntoExtra updates only TxDependency in extra
+func PackTxDependencyIntoExtra(
+	extraBytes []byte,
+	txDependency [][]uint64,
+) []byte {
+	return packFieldsIntoExtra(
+		extraBytes,
+		func(
+			ar *fastrlp.Arena,
+			oldValues []*fastrlp.Value,
+			newArrayValue *fastrlp.Value,
+		) error {
+			// Validators
+			newArrayValue.Set(oldValues[0])
+
+			// Seal
+			newArrayValue.Set(oldValues[1])
+
+			// CommittedSeal
+			newArrayValue.Set(oldValues[2])
+
+			// ParentCommittedSeal
+			if len(oldValues) >= 4 {
+				newArrayValue.Set(oldValues[3])
+			} else {
+				newArrayValue.Set(ar.NewNullArray())
+			}
+
+			// Round
+			if len(oldValues) >= 5 {
+				newArrayValue.Set(oldValues[4])
+			} else {
+				newArrayValue.Set(ar.NewNull())
+			}
+
+			// TxDependency
+			newArrayValue.Set(marshalRLPTxDependencyWith(txDependency, ar))
+
+			return nil
+		},
+	)
+}
+
 // packProposerSealIntoExtra updates only Seal field in Extra
 func packProposerSealIntoExtra(
 	extraBytes []byte,
@@ -281,6 +337,11 @@ func packProposerSealIntoExtra(
 			// Round
 			if len(oldValues) >= 5 {
 				newArrayValue.Set(oldValues[4])
+			}
+
+			// TxDependency
+			if len(oldValues) >= 6 {
+				newArrayValue.Set(oldValues[5])
 			}
 
 			return nil
@@ -317,6 +378,7 @@ func packCommittedSealsAndRoundNumberIntoExtra(
 				newArrayValue.Set(ar.NewNullArray())
 			}
 
+			// RoundNumber
 			if roundNumber == nil {
 				newArrayValue.Set(ar.NewNull())
 			} else {
@@ -325,7 +387,65 @@ func packCommittedSealsAndRoundNumberIntoExtra(
 				))
 			}
 
+			// TxDependency
+			if len(oldValues) >= 6 {
+				newArrayValue.Set(oldValues[5])
+			}
+
 			return nil
 		},
 	)
+}
+
+// marshalRLPTxDependencyWith defines the marshal function implementation for CheckpointData
+func marshalRLPTxDependencyWith(txDependency [][]uint64, ar *fastrlp.Arena) *fastrlp.Value {
+	if len(txDependency) == 0 {
+		return ar.NewNullArray()
+	}
+
+	vv := ar.NewArray()
+
+	for _, deps := range txDependency {
+		subArray := ar.NewArray()
+
+		for _, indx := range deps {
+			subArray.Set(ar.NewUint(indx))
+		}
+
+		vv.Set(subArray)
+	}
+
+	return vv
+}
+
+func unmarshalRLPTxDependencyFrom(elem *fastrlp.Value) (result [][]uint64, err error) {
+	subElems, err := elem.GetElems()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(subElems) == 0 {
+		return nil, nil
+	}
+
+	result = make([][]uint64, len(subElems))
+
+	for i, sel := range subElems {
+		innerEls, err := sel.GetElems()
+		if err != nil {
+			return nil, err
+		}
+
+		result[i] = make([]uint64, len(innerEls))
+
+		for j, innerEl := range innerEls {
+			result[i][j], err = innerEl.GetUint64()
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return result, nil
+
 }

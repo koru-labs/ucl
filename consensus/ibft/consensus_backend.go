@@ -12,7 +12,7 @@ import (
 	"github.com/0xPolygon/go-ibft/messages/proto"
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
+	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -208,7 +208,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		Number:     parent.Number + 1,
 		Miner:      types.ZeroAddress.Bytes(),
 		Nonce:      types.Nonce{},
-		MixHash:    signer.IstanbulDigest,
+		MixHash:    sgn.IstanbulDigest,
 		// this is required because blockchain needs difficulty to organize blocks and forks
 		Difficulty: parent.Number + 1,
 		StateRoot:  types.EmptyRootHash, // this avoids needing state for now
@@ -307,7 +307,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
 	}
 
-	var dependencies [][]uint64
+	var txDependency [][]uint64
 
 	// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
 	if deps != nil && !hasBalanceReads {
@@ -317,23 +317,20 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 			tempDeps[0] = append(tempDeps[0], uint64(j))
 		}
 
-		delayFlag := true
-
 		for i := 1; i < len(txs); i++ {
 			for j := range deps[i] {
 				tempDeps[i] = append(tempDeps[i], uint64(j))
 			}
 		}
 
-		if delayFlag {
-			dependencies = tempDeps
-		}
+		txDependency = tempDeps
 	}
 
-	for idx, dep := range dependencies {
+	for idx, dep := range txDependency {
 		i.logger.Debug("tx dependecies CREW", "txIndx", idx, "dependency", dep)
 	}
 
+	header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
@@ -507,7 +504,7 @@ func (i *backendIBFT) writeTransaction(
 // extractCommittedSeals extracts CommittedSeals from header
 func (i *backendIBFT) extractCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	signer, err := i.forkManager.GetSigner(header.Number)
 	if err != nil {
 		return nil, err
@@ -524,7 +521,7 @@ func (i *backendIBFT) extractCommittedSeals(
 // extractParentCommittedSeals extracts ParentCommittedSeals from header
 func (i *backendIBFT) extractParentCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	if header.Number == 0 {
 		return nil, nil
 	}
