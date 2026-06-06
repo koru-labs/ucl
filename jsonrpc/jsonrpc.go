@@ -302,7 +302,7 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 				defer func() {
 					if r := recover(); r != nil {
 						// Log the panic details
-						j.logger.Error(fmt.Sprintf("Recovered from panic: %v\n", r))
+						j.logger.Error(fmt.Sprintf("Recovered from panic: %v", r))
 					}
 				}()
 
