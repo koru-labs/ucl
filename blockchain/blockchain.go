@@ -1054,6 +1054,7 @@ func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) error {
 		poolTx, ok := b.GetPendingTxHook(tx.Hash)
 		if ok {
 			tx.From = poolTx.From
+			tx.TxPoolTime = poolTx.TxPoolTime
 		} else {
 			sender, err := b.txSigner.Sender(tx)
 			if err != nil {

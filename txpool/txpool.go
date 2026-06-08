@@ -217,6 +217,8 @@ type TxPool struct {
 
 	// should compare transactions by gas price when IsGasPriceQueue is true, otherwise compare by arrival time
 	isGasPriceQueue bool
+
+	settlementHook func([]*types.Transaction)
 }
 
 const batchersNum = 1
@@ -666,6 +668,11 @@ func (p *TxPool) ResetWithBlock(block *types.Block) {
 	// Grab the latest state root now that the block has been inserted
 	stateRoot := p.store.Header().StateRoot
 	stateNonces := make(map[types.Address]uint64)
+
+	// hook za settlement observer — tx još u memoriji
+	if p.settlementHook != nil {
+		p.settlementHook(block.Transactions)
+	}
 
 	p.index.remove(block.Transactions...)
 
@@ -1256,4 +1263,8 @@ func toHash(txs ...*types.Transaction) (hashes []types.Hash) {
 	}
 
 	return
+}
+
+func (p *TxPool) SetSettlementHook(fn func([]*types.Transaction)) {
+	p.settlementHook = fn
 }

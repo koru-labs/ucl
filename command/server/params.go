@@ -67,6 +67,8 @@ const (
 	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
 
 	jumpdestCacheSizeFlag = "jumpdest-cache-size"
+
+	enableSettlementFlag = "settlement-metrics"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -108,7 +110,7 @@ type serverParams struct {
 	devInterval    uint64
 	isDevMode      bool
 
-	ibftBaseTimeoutLegacy          uint64
+	ibftBaseTimeoutLegacy        uint64
 	disableTxPoolEndpointsLegacy bool
 
 	genesisConfig *chain.Chain
@@ -118,6 +120,8 @@ type serverParams struct {
 	logFileLocation string
 
 	relayer bool
+
+	enableSettlement bool
 }
 
 func (p *serverParams) isMaxPeersSet() bool {
@@ -199,7 +203,8 @@ func (p *serverParams) generateConfig() *server.Config {
 		GRPCAddr:   p.grpcAddress,
 		LibP2PAddr: p.libp2pAddress,
 		Telemetry: &server.Telemetry{
-			PrometheusAddr: p.prometheusAddress,
+			PrometheusAddr:   p.prometheusAddress,
+			EnableSettlement: p.enableSettlement,
 		},
 		Network: &network.Config{
 			NoDiscover:        p.rawConfig.Network.NoDiscover,

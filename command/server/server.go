@@ -349,6 +349,13 @@ func setFlags(cmd *cobra.Command) {
 			"precomputed JUMPDEST bitmap in memory; set to 0 to disable",
 	)
 
+	cmd.Flags().BoolVar(
+		&params.enableSettlement,
+		enableSettlementFlag,
+		false,
+		"enable settlement metrics",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)
