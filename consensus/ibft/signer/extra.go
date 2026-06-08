@@ -447,5 +447,4 @@ func unmarshalRLPTxDependencyFrom(elem *fastrlp.Value) (result [][]uint64, err e
 	}
 
 	return result, nil
-
 }
