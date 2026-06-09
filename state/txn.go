@@ -385,6 +385,18 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 	})
 }
 
+// AddBalance adds balance but do not track write operation
+func (txn *Txn) AddBalanceDoNotTrack(addr types.Address, amount *big.Int) {
+	// If we try to reduce balance by 0, then it's a noop
+	if amount.Sign() == 0 {
+		return
+	}
+
+	txn.upsertAccount(addr, true, func(object *StateObject) {
+		object.Account.Balance.Add(object.Account.Balance, amount)
+	})
+}
+
 // SubBalance reduces the balance at address addr by amount
 func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	// If we try to reduce balance by 0, then it's a noop

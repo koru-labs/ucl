@@ -44,6 +44,29 @@ func (k Key) GetSubpath() byte {
 	return k[KeyLength-2]
 }
 
+func (k Key) String() string {
+	switch k[KeyLength-1] {
+	case stateType:
+		return fmt.Sprintf("StateKey: %s -> %s", k.GetAddress(), k.GetStateKey())
+	case subpathType:
+		subPath := ""
+		switch k.GetSubpath() {
+		case 1:
+			subPath = "Balance"
+		case 2:
+			subPath = "Nonce"
+		case 3:
+			subPath = "Code"
+		case 4:
+			subPath = "Suicide"
+		}
+
+		return fmt.Sprintf("SubPath: %s -> %v", k.GetAddress(), subPath)
+	default:
+		return fmt.Sprintf("AddressKey: %s", k.GetAddress())
+	}
+}
+
 func newKey(addr types.Address, hash types.Hash, subpath byte, keyType byte) Key {
 	var k Key
 

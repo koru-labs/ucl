@@ -767,14 +767,16 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	}
 
 	// Pay the coinbase fee as a miner reward using the calculated effective tip.
+	// each tx adds balance to proposer -> we should prevent updating this inside txWriteAccessMap
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
-	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
+	t.state.AddBalanceDoNotTrack(t.ctx.Coinbase, coinbaseFee)
 
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
+		// each tx adds balance to burn contract -> we should prevent updating this inside txWriteAccessMap
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
-		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
+		t.state.AddBalanceDoNotTrack(t.ctx.BurnContract, burnAmount)
 	}
 
 	// return gas to the pool
