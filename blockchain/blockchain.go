@@ -1055,6 +1055,7 @@ func (b *Blockchain) ReadTxLookup(hash types.Hash) (uint64, bool) {
 // return error if the invalid signature found
 func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, error) {
 	var settlementMetrics []float64
+
 	var includedAt time.Time
 
 	if b.settlementObserver != nil {
