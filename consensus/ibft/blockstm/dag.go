@@ -239,6 +239,7 @@ type TxReadWriteSet struct {
 // Transactions must be added in sequential order (0, 1, 2, ...).
 type DepsBuilder struct {
 	lastWriter map[Key]int   // inverted index: state key → latest tx that wrote it
+	lastReader map[Key]int   // inverted index: state key → latest tx that read it
 	directDeps []TxBitset    // per-tx direct dependencies (after transitive reduction)
 	reachable  []TxBitset    // per-tx transitive closure of all dependencies
 	width      int           // bitset width in transactions (grows dynamically)
@@ -250,6 +251,7 @@ type DepsBuilder struct {
 func NewDepsBuilder() *DepsBuilder {
 	return &DepsBuilder{
 		lastWriter: make(map[Key]int, 256),
+		lastReader: make(map[Key]int, 256),
 		width:      defaultBitsetWidth,
 		directDeps: make([]TxBitset, 0, defaultBitsetWidth),
 		reachable:  make([]TxBitset, 0, defaultBitsetWidth),
@@ -307,6 +309,22 @@ func (db *DepsBuilder) AddTransaction(index int, readList []ReadDescriptor, writ
 		if writer, ok := db.lastWriter[rd.Path]; ok && writer < index {
 			db.directDeps[index].Set(writer)
 		}
+		db.lastReader[rd.Path] = index
+	}
+
+	for _, wd := range writeList {
+		// Check write after read
+		if reader, ok := db.lastReader[wd.Path]; ok && reader < index {
+			db.directDeps[index].Set(reader)
+		}
+
+		// Check write after write
+		if writer, ok := db.lastWriter[wd.Path]; ok && writer < index {
+			db.directDeps[index].Set(writer)
+		}
+
+		// Update inverted index
+		db.lastWriter[wd.Path] = index
 	}
 
 	// reachable[j] is complete for all j < index.
@@ -319,14 +337,6 @@ func (db *DepsBuilder) AddTransaction(index int, readList []ReadDescriptor, writ
 
 	// Update reachability to include the remaining direct deps
 	db.reachable[index].Or(&db.directDeps[index])
-
-	// Update inverted index
-	for _, wd := range writeList {
-		if writer, ok := db.lastWriter[wd.Path]; ok && writer < index {
-			db.directDeps[index].Set(writer)
-		}
-		db.lastWriter[wd.Path] = index
-	}
 
 	return nil
 }

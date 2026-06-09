@@ -299,8 +299,6 @@ func (txn *Txn) RevertToSnapshot(id int) error {
 
 // GetAccount returns an account
 func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
-	txn.txReadAccessMap[NewAddressKey(addr)] = true
-
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil, false
@@ -366,7 +364,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 }
 
@@ -376,7 +374,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
-			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+			txn.txWriteAccessMap[NewAddressKey(addr)] = true
 		}
 	})
 }
@@ -403,7 +401,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
 
-		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 
 	return nil
@@ -415,15 +413,13 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
-			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+			txn.txWriteAccessMap[NewAddressKey(addr)] = true
 		}
 	})
 }
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
-	txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
-
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -590,8 +586,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
-		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 
 		if object.Account.Nonce+1 < object.Account.Nonce {
 			err = ErrNonceUintOverflow
@@ -610,15 +605,12 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
-		txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
-		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 }
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
-	txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
-
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -636,8 +628,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
-		txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
-		txn.txWriteAccessMap[NewSubpathKey(addr, CodePath)] = true
+		txn.txWriteAccessMap[NewAddressKey(addr)] = true
 	})
 }
 
@@ -654,8 +645,6 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
-	txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
-
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -691,8 +680,6 @@ func (txn *Txn) GetCodeSize(addr types.Address) int {
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
-	txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
-
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -706,19 +693,16 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 	var suicided bool
 
 	txn.upsertAccount(addr, false, func(object *StateObject) {
-		txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
-
 		if object == nil || object.Suicide {
 			suicided = false
 		} else {
 			suicided = true
 			object.Suicide = true
-			txn.txWriteAccessMap[NewSubpathKey(addr, SuicidePath)] = true
 		}
 
-		if object != nil {
+		if suicided {
 			object.Account.Balance = new(big.Int)
-			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+			txn.txWriteAccessMap[NewAddressKey(addr)] = true
 		}
 	})
 
@@ -727,8 +711,6 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 
 // HasSuicided returns true if the account suicided
 func (txn *Txn) HasSuicided(addr types.Address) bool {
-	txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
-
 	object, exists := txn.getStateObject(addr)
 
 	return exists && object.Suicide
@@ -808,16 +790,12 @@ func (txn *Txn) TouchAccount(addr types.Address) {
 }
 
 func (txn *Txn) Exist(addr types.Address) bool {
-	txn.txReadAccessMap[NewAddressKey(addr)] = true
-
 	_, exists := txn.getStateObject(addr)
 
 	return exists
 }
 
 func (txn *Txn) Empty(addr types.Address) bool {
-	txn.txReadAccessMap[NewAddressKey(addr)] = true
-
 	obj, exists := txn.getStateObject(addr)
 	if !exists {
 		return true
