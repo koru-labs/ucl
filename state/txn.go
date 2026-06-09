@@ -373,25 +373,17 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
-	// If we try to reduce balance by 0, then it's a noop
-	if amount.Sign() == 0 {
-		return
-	}
-
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
-		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		if amount.Sign() > 0 {
+			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
+		}
 	})
 }
 
 // AddBalance adds balance but do not track write operation
 func (txn *Txn) AddBalanceDoNotTrack(addr types.Address, amount *big.Int) {
-	// If we try to reduce balance by 0, then it's a noop
-	if amount.Sign() == 0 {
-		return
-	}
-
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 	})
