@@ -109,7 +109,7 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	}
 
 	for i := range receivers {
-		receivers[i] = types.Address{byte(i+1) & 255, byte((i + 1) >> 8)}
+		receivers[i] = types.Address{byte((i + 1) & 255), byte((i + 100) & 255)}
 	}
 
 	mySigner := signer.NewSigner(
@@ -155,11 +155,13 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	chainParams := &chain.Params{
 		ChainID:      100,
 		Forks:        forks,
-		BurnContract: map[uint64]types.Address{0: {}},
+		BurnContract: map[uint64]types.Address{0: types.ZeroAddress},
 	}
 	txSigner := crypto.NewFrontierSigner(true)
+	txs := [4]*types.Transaction{}
+	err := error(nil)
 
-	firstTx, err := txSigner.SignTx(&types.Transaction{
+	txs[0], err = txSigner.SignTx(&types.Transaction{
 		Nonce:    0,
 		From:     keys[0].Address(),
 		To:       &receivers[0],
@@ -170,35 +172,48 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	}, keys[0].PrivateKey())
 	require.NoError(t, err)
 
-	secondTx, err := txSigner.SignTx(&types.Transaction{
+	txs[1], err = txSigner.SignTx(&types.Transaction{
 		Nonce:    0,
 		From:     keys[1].Address(),
 		To:       &receivers[1],
-		Value:    big.NewInt(100),
+		Value:    big.NewInt(150),
 		Gas:      1000000,
 		GasPrice: big.NewInt(10000),
 		Input:    []byte{},
 	}, keys[1].PrivateKey())
 	require.NoError(t, err)
 
-	thirdTx, err := txSigner.SignTx(&types.Transaction{
+	txs[2], err = txSigner.SignTx(&types.Transaction{
 		Nonce:    0,
 		From:     keys[2].Address(),
 		To:       &receivers[0],
-		Value:    big.NewInt(100),
+		Value:    big.NewInt(200),
 		Gas:      1000000,
 		GasPrice: big.NewInt(10000),
 		Input:    []byte{},
 	}, keys[2].PrivateKey())
 	require.NoError(t, err)
 
+	txs[3], err = txSigner.SignTx(&types.Transaction{
+		Nonce:    1,
+		From:     keys[1].Address(),
+		To:       &receivers[2],
+		Value:    big.NewInt(250),
+		Gas:      1000000,
+		GasPrice: big.NewInt(10000),
+		Input:    []byte{},
+	}, keys[1].PrivateKey())
+	require.NoError(t, err)
+
 	txPool := &txPoolMock{}
 	txPool.On("Prepare", mock.Anything).Run(func(args mock.Arguments) {})
 	txPool.On("Length", mock.Anything).Return(uint64(0))
-	txPool.On("Pop", mock.Anything).Run(func(args mock.Arguments) {}).Times(3)
-	txPool.On("Peek").Return(firstTx).Once()
-	txPool.On("Peek").Return(secondTx).Once()
-	txPool.On("Peek").Return(thirdTx).Once()
+
+	for _, tx := range txs {
+		txPool.On("Peek").Return(tx).Once()
+		txPool.On("Pop", mock.Anything).Run(func(args mock.Arguments) {}).Once()
+	}
+
 	txPool.On("Peek").Return((*types.Transaction)(nil)).Once()
 
 	memStorage := itrie.NewMemoryStorage()
@@ -238,5 +253,6 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	require.Equal(t, parentBlockHeader.Number+1, block.Header.Number)
 	require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
 	require.NoError(t, parentExtraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
-	require.Equal(t, [][]uint64{{}, {}, {}}, parentExtraData.TxDependency)
+	// why tx no 2 does not depend on tx 0?
+	require.Equal(t, [][]uint64{{}, {}, {}, {1}}, parentExtraData.TxDependency)
 }
