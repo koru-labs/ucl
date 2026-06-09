@@ -98,7 +98,7 @@ func TestIBFTBackend_GetVotingPowers(t *testing.T) {
 func TestIBFTBackend_BuildBlock(t *testing.T) {
 	t.Parallel()
 
-	keys := [3]*crypto.ECDSAKey{}
+	keys := [10]*crypto.ECDSAKey{}
 	receivers := [10]types.Address{}
 
 	for i := range keys {
@@ -158,18 +158,18 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		BurnContract: map[uint64]types.Address{0: types.ZeroAddress},
 	}
 	txSigner := crypto.NewFrontierSigner(true)
-	txs := [4]*types.Transaction{}
+	txs := [5]*types.Transaction{}
 	err := error(nil)
 
 	txs[0], err = txSigner.SignTx(&types.Transaction{
 		Nonce:    0,
-		From:     keys[0].Address(),
+		From:     keys[9].Address(),
 		To:       &receivers[0],
 		Value:    big.NewInt(100),
 		Gas:      1000000,
 		GasPrice: big.NewInt(10000),
 		Input:    []byte{},
-	}, keys[0].PrivateKey())
+	}, keys[9].PrivateKey())
 	require.NoError(t, err)
 
 	txs[1], err = txSigner.SignTx(&types.Transaction{
@@ -203,6 +203,17 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		GasPrice: big.NewInt(10000),
 		Input:    []byte{},
 	}, keys[1].PrivateKey())
+	require.NoError(t, err)
+
+	txs[4], err = txSigner.SignTx(&types.Transaction{
+		Nonce:    0,
+		From:     keys[3].Address(),
+		To:       &receivers[0],
+		Value:    big.NewInt(300),
+		Gas:      1000000,
+		GasPrice: big.NewInt(10000),
+		Input:    []byte{},
+	}, keys[3].PrivateKey())
 	require.NoError(t, err)
 
 	txPool := &txPoolMock{}
@@ -254,5 +265,5 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
 	require.NoError(t, parentExtraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
 	// why tx no 2 does not depend on tx 0?
-	require.Equal(t, [][]uint64{{}, {}, {}, {1}}, parentExtraData.TxDependency)
+	require.Equal(t, [][]uint64{{}, {}, {0}, {1}, {2}}, parentExtraData.TxDependency)
 }

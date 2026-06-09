@@ -366,7 +366,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
+		txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
 		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 }
@@ -377,6 +377,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
+			txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
 			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 		}
 	})
@@ -404,6 +405,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
 
+		txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
 		txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 	})
 
@@ -416,6 +418,7 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
+			txn.txReadAccessMap[NewSubpathKey(addr, BalancePath)] = true
 			txn.txWriteAccessMap[NewSubpathKey(addr, BalancePath)] = true
 		}
 	})
@@ -591,6 +594,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
+		txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
 		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
 
 		if object.Account.Nonce+1 < object.Account.Nonce {
@@ -610,6 +614,7 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
+		txn.txReadAccessMap[NewSubpathKey(addr, NoncePath)] = true
 		txn.txWriteAccessMap[NewSubpathKey(addr, NoncePath)] = true
 	})
 }
@@ -635,6 +640,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
+		txn.txReadAccessMap[NewSubpathKey(addr, CodePath)] = true
 		txn.txWriteAccessMap[NewSubpathKey(addr, CodePath)] = true
 	})
 }
@@ -704,9 +710,10 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 	var suicided bool
 
 	txn.upsertAccount(addr, false, func(object *StateObject) {
+		txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
+
 		if object == nil || object.Suicide {
 			suicided = false
-			txn.txReadAccessMap[NewSubpathKey(addr, SuicidePath)] = true
 		} else {
 			suicided = true
 			object.Suicide = true
@@ -848,6 +855,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// should this add all subpaths too? for now we will just mark address as write access
+	txn.txReadAccessMap[NewAddressKey(addr)] = true
 	txn.txWriteAccessMap[NewAddressKey(addr)] = true
 
 	txn.txn.Insert(addr.Bytes(), obj)
