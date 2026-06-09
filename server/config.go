@@ -76,8 +76,8 @@ type Config struct {
 
 // Telemetry holds the config details for metric services
 type Telemetry struct {
-	PrometheusAddr   *net.TCPAddr
-	EnableSettlement bool
+	PrometheusAddr    *net.TCPAddr
+	SettlementMetrics bool
 }
 
 // JSONRPC holds the config details for the JSON-RPC server

@@ -68,7 +68,7 @@ const (
 
 	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 
-	enableSettlementFlag = "settlement-metrics"
+	settlementMetricsFlag = "settlement-metrics"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -120,8 +120,6 @@ type serverParams struct {
 	logFileLocation string
 
 	relayer bool
-
-	enableSettlement bool
 }
 
 func (p *serverParams) isMaxPeersSet() bool {
@@ -203,8 +201,8 @@ func (p *serverParams) generateConfig() *server.Config {
 		GRPCAddr:   p.grpcAddress,
 		LibP2PAddr: p.libp2pAddress,
 		Telemetry: &server.Telemetry{
-			PrometheusAddr:   p.prometheusAddress,
-			EnableSettlement: p.enableSettlement,
+			PrometheusAddr:    p.prometheusAddress,
+			SettlementMetrics: p.rawConfig.Telemetry.SettlementMetrics,
 		},
 		Network: &network.Config{
 			NoDiscover:        p.rawConfig.Network.NoDiscover,

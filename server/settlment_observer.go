@@ -1,9 +1,6 @@
 package server
 
 import (
-	"time"
-
-	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -32,31 +29,8 @@ func newSettlementObserver(logger hclog.Logger) *settlementObserver {
 	}
 }
 
-func (o *settlementObserver) OnTxsIncluded(txs []*types.Transaction) {
-	now := time.Now().UTC()
-
-	for _, tx := range txs {
-		if tx.Type == types.StateTx || tx.TxPoolTime == 0 {
-			continue
-		}
-
-		seenAt := time.Unix(tx.TxPoolTime, 0).UTC()
-		if seenAt.After(now) {
-			o.logger.Warn("tx seen after inclusion, skipping",
-				"hash", tx.Hash,
-				"seenAt", seenAt,
-				"now", now,
-			)
-
-			continue
-		}
-
-		delta := now.Sub(seenAt).Seconds()
-		o.histogram.WithLabelValues("unknown").Observe(delta)
-
-		o.logger.Debug("observed settlement time",
-			"hash", tx.Hash,
-			"delta_seconds", delta,
-		)
+func (o *settlementObserver) OnTxsIncluded(settlmentMetrics []float64) {
+	for _, metric := range settlmentMetrics {
+		o.histogram.WithLabelValues("unknown").Observe(metric)
 	}
 }

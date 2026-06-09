@@ -350,8 +350,8 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().BoolVar(
-		&params.enableSettlement,
-		enableSettlementFlag,
+		&params.rawConfig.Telemetry.SettlementMetrics,
+		settlementMetricsFlag,
 		false,
 		"enable settlement metrics",
 	)

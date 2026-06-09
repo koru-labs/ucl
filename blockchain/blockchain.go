@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -76,6 +77,8 @@ type Blockchain struct {
 	writeLock sync.Mutex
 
 	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
+
+	settlementObserver func(delta []float64)
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -1018,8 +1021,13 @@ func (b *Blockchain) writeBody(batchWriter *storage.Writer, block *types.Block) 
 	// Recover 'from' field in tx before saving
 	// Because the block passed from the consensus layer doesn't have from field in tx,
 	// due to missing encoding in RLP
-	if err := b.recoverFromFieldsInBlock(block); err != nil {
-		return err
+	settlementMetrics, err := b.recoverFromFieldsInBlock(block)
+	if err != nil {
+		return fmt.Errorf("failed to recover from fields in block: %w", err)
+	}
+
+	if len(settlementMetrics) > 0 {
+		go b.settlementObserver(settlementMetrics)
 	}
 
 	// Write the full body (txns + receipts)
@@ -1045,27 +1053,40 @@ func (b *Blockchain) ReadTxLookup(hash types.Hash) (uint64, bool) {
 
 // recoverFromFieldsInBlock recovers 'from' fields in the transactions of the given block
 // return error if the invalid signature found
-func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) error {
-	for _, tx := range block.Transactions {
+func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, error) {
+	var settlementMetrics []float64
+
+	if b.settlementObserver != nil {
+		settlementMetrics = make([]float64, 0, len(block.Transactions))
+	}
+
+	includedAt := time.Unix(int64(block.Header.Timestamp), 0).UTC()
+
+	for i, tx := range block.Transactions {
 		if tx.From != types.ZeroAddress || tx.Type == types.StateTx {
 			continue
 		}
 
 		poolTx, ok := b.GetPendingTxHook(tx.Hash)
 		if ok {
-			tx.From = poolTx.From
-			tx.TxPoolTime = poolTx.TxPoolTime
+			block.Transactions[i].From = poolTx.From
+
+			if settlementMetrics != nil && poolTx.IsLocal && poolTx.TxPoolTime != 0 {
+				seenAt := time.Unix(poolTx.TxPoolTime, 0).UTC()
+				delta := includedAt.Sub(seenAt).Seconds()
+				settlementMetrics = append(settlementMetrics, delta)
+			}
 		} else {
 			sender, err := b.txSigner.Sender(tx)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
-			tx.From = sender
+			block.Transactions[i].From = sender
 		}
 	}
 
-	return nil
+	return settlementMetrics, nil
 }
 
 // recoverFromFieldsInTransactions recovers 'from' fields in the transactions
@@ -1446,4 +1467,8 @@ func (b *Blockchain) writeBatchAndUpdate(
 	}
 
 	return nil
+}
+
+func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
+	b.settlementObserver = observer
 }

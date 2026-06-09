@@ -399,10 +399,10 @@ func NewServer(config *Config) (*Server, error) {
 		m.blockchain.GetPendingTxHook = m.txpool.GetPendingTx
 	}
 
-	if config.Telemetry.PrometheusAddr != nil && config.Telemetry.EnableSettlement {
+	if config.Telemetry.PrometheusAddr != nil && config.Telemetry.SettlementMetrics {
 		obs := newSettlementObserver(m.logger)
 		m.settlementObserver = obs
-		m.txpool.SetSettlementHook(obs.OnTxsIncluded)
+		m.blockchain.SetSettlementObserver(obs.OnTxsIncluded)
 	}
 
 	{
