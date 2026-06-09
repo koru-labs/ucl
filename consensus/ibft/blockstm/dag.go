@@ -322,6 +322,9 @@ func (db *DepsBuilder) AddTransaction(index int, readList []ReadDescriptor, writ
 
 	// Update inverted index
 	for _, wd := range writeList {
+		if writer, ok := db.lastWriter[wd.Path]; ok && writer < index {
+			db.directDeps[index].Set(writer)
+		}
 		db.lastWriter[wd.Path] = index
 	}
 
