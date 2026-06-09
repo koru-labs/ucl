@@ -1023,7 +1023,7 @@ func (b *Blockchain) writeBody(batchWriter *storage.Writer, block *types.Block) 
 	// due to missing encoding in RLP
 	settlementMetrics, err := b.recoverFromFieldsInBlock(block)
 	if err != nil {
-		return fmt.Errorf("failed to recover from fields in block: %w", err)
+		return err
 	}
 
 	if len(settlementMetrics) > 0 {
@@ -1055,12 +1055,12 @@ func (b *Blockchain) ReadTxLookup(hash types.Hash) (uint64, bool) {
 // return error if the invalid signature found
 func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, error) {
 	var settlementMetrics []float64
+	var includedAt time.Time
 
 	if b.settlementObserver != nil {
 		settlementMetrics = make([]float64, 0, len(block.Transactions))
+		includedAt = time.Unix(int64(block.Header.Timestamp), 0).UTC()
 	}
-
-	includedAt := time.Unix(int64(block.Header.Timestamp), 0).UTC()
 
 	for i, tx := range block.Transactions {
 		if tx.From != types.ZeroAddress || tx.Type == types.StateTx {
