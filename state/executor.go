@@ -508,10 +508,6 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	return result, err
 }
 
-func (t *Transition) HasBalanceReads() bool {
-	return t.state.hasBalanceReads(t.ctx.BurnContract, t.ctx.Coinbase)
-}
-
 func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
 	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
 	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
