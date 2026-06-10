@@ -535,8 +535,6 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.txWriteAccessMap[NewStateKey(addr, key)] = true
-
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Txn == nil {
 			object.Txn = iradix.New().Txn()
@@ -548,6 +546,8 @@ func (txn *Txn) SetState(
 			object.Txn.Insert(key.Bytes(), value.Bytes())
 		}
 	})
+
+	txn.txWriteAccessMap[NewStateKey(addr, key)] = true
 }
 
 // GetState returns the state of the address at a given key
@@ -783,9 +783,8 @@ func (txn *Txn) SetFullStorage(addr types.Address, state map[types.Hash]types.Ha
 
 func (txn *Txn) TouchAccount(addr types.Address) {
 	txn.upsertAccount(addr, true, func(obj *StateObject) {
-		// this can create account, so maybe all paths should be marked as write access
-		// but only in case when new account is created
-		// txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		// Intentionally ignoring writeAccessMap update here
+		// If account is being modified we will update writeAccessMap in the corresponding method
 	})
 }
 
