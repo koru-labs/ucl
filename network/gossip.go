@@ -108,6 +108,14 @@ func (t *Topic) readLoop(sub *pubsub.Subscription, handler func(obj interface{},
 		}
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.logger.Error("recovered from panic in gossip handler",
+						"topic", t.topic.String(), "from", msg.GetFrom(), "panic", r)
+					metrics.IncrCounter([]string{networkMetrics, "bad_messages"}, float32(1))
+				}
+			}()
+
 			t.logger.Trace("gossip message", "size", common.ToMB(msg.Data))
 
 			obj := t.createObj()
