@@ -241,7 +241,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	var (
 		depsBuilder *blockstm.DepsBuilder        = blockstm.NewDepsBuilder()
-		chDeps      chan blockstm.TxReadWriteSet = make(chan blockstm.TxReadWriteSet, 10)
+		chDeps      chan blockstm.TxReadWriteSet = make(chan blockstm.TxReadWriteSet)
 		depsWg      sync.WaitGroup
 	)
 

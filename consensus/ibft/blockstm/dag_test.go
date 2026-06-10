@@ -175,7 +175,7 @@ func TestDepsBuilder_LatestWriterWins(t *testing.T) {
 
 	deps := db.GetDeps()
 	assert.Empty(t, deps[0])
-	assert.Empty(t, deps[1])
+	assert.Equal(t, map[int]bool{0: true}, deps[1])
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
 }
 
@@ -377,7 +377,8 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 		}
 		newDeps := db.GetDeps()
 
-		// Compute raw latest-writer deps without transitive reduction
+		// Compute raw latest-writer & reader deps without transitive reduction
+		latestReader := make(map[Key]int)
 		latestWriter := make(map[Key]int)
 		rawDeps := make([]map[int]bool, numTx)
 
@@ -387,8 +388,19 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 				if writer, ok := latestWriter[rd.Path]; ok && writer < i {
 					rawDeps[i][writer] = true
 				}
+				latestReader[rd.Path] = i
 			}
 			for _, wd := range txs[i].writes {
+				// Check write after read
+				if reader, ok := latestReader[wd.Path]; ok && reader < i {
+					rawDeps[i][reader] = true
+				}
+
+				// Check write after write
+				if writer, ok := latestWriter[wd.Path]; ok && writer < i {
+					rawDeps[i][writer] = true
+				}
+
 				latestWriter[wd.Path] = i
 			}
 		}
