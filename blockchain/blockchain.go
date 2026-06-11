@@ -1070,7 +1070,7 @@ func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, er
 
 		poolTx, ok := b.GetPendingTxHook(tx.Hash)
 		if ok {
-			block.Transactions[i].From = poolTx.From
+			tx.From = poolTx.From
 
 			if settlementMetrics != nil && poolTx.IsLocal && poolTx.TxPoolTime != 0 {
 				seenAt := time.Unix(poolTx.TxPoolTime, 0).UTC()
