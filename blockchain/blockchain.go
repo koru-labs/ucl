@@ -1063,7 +1063,7 @@ func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, er
 		includedAt = time.Unix(int64(block.Header.Timestamp), 0).UTC()
 	}
 
-	for i, tx := range block.Transactions {
+	for _, tx := range block.Transactions {
 		if tx.From != types.ZeroAddress || tx.Type == types.StateTx {
 			continue
 		}
@@ -1083,7 +1083,7 @@ func (b *Blockchain) recoverFromFieldsInBlock(block *types.Block) ([]float64, er
 				return nil, err
 			}
 
-			block.Transactions[i].From = sender
+			tx.From = sender
 		}
 	}
 
