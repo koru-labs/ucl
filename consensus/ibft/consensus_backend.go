@@ -230,7 +230,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
-	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
+	transition, err := i.executor.BeginTxnWithTxAccessTracker(
+		parent.StateRoot, header, signer.Address(), state.TxAccessTrackerFactory(false))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -294,19 +295,13 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
 	if deps != nil && !hasBalanceReads {
-		tempDeps := make([][]uint64, len(txs))
+		txDependency = make([][]uint64, len(txs))
 
-		for j := range deps[0] {
-			tempDeps[0] = append(tempDeps[0], uint64(j))
-		}
-
-		for i := 1; i < len(txs); i++ {
+		for i := range len(txs) {
 			for j := range deps[i] {
-				tempDeps[i] = append(tempDeps[i], uint64(j))
+				txDependency[i] = append(txDependency[i], uint64(j))
 			}
 		}
-
-		txDependency = tempDeps
 	}
 
 	for idx, dep := range txDependency {

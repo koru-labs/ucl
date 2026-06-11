@@ -192,6 +192,15 @@ func (e *Executor) BeginTxn(
 	header *types.Header,
 	coinbaseReceiver types.Address,
 ) (*Transition, error) {
+	return e.BeginTxnWithTxAccessTracker(parentRoot, header, coinbaseReceiver, TxAccessTrackerFactory(true))
+}
+
+func (e *Executor) BeginTxnWithTxAccessTracker(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	txAccessTracker ITxAccessTracker,
+) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
 	auxSnap2, err := e.state.NewSnapshot(parentRoot)
@@ -207,7 +216,7 @@ func (e *Executor) BeginTxn(
 		}
 	}
 
-	newTxn := NewTxn(auxSnap2)
+	newTxn := NewTxnWithTxAccessTracker(auxSnap2, txAccessTracker)
 
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
@@ -509,27 +518,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 }
 
 func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
-	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
-
-	for k := range t.state.txReadAccessMap {
-		readDescs = append(readDescs, blockstm.ReadDescriptor{
-			Path: blockstm.Key(k),
-		})
-	}
-
-	for k, v := range t.state.txWriteAccessMap {
-		writeDescs = append(writeDescs, blockstm.WriteDescriptor{
-			Path: blockstm.Key(k),
-			Val:  v,
-		})
-	}
-
-	return blockstm.TxReadWriteSet{
-		Index:     txIndx,
-		ReadList:  readDescs,
-		WriteList: writeDescs,
-	}
+	return t.state.getReadWriteSet(txIndx)
 }
 
 // ContextPtr returns reference of context

@@ -13,6 +13,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -50,12 +51,15 @@ type Txn struct {
 	txn       *iradix.Txn
 	codeCache *lru.Cache
 
-	txReadAccessMap  map[Key]bool
-	txWriteAccessMap map[Key]bool
+	accessTracker ITxAccessTracker
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
 	return newTxn(snapshot)
+}
+
+func NewTxnWithTxAccessTracker(snapshot Snapshot, accessTracker ITxAccessTracker) *Txn {
+	return newTxnWithTxAccessTracker(snapshot, accessTracker)
 }
 
 func (txn *Txn) GetRadix() *iradix.Txn {
@@ -63,23 +67,28 @@ func (txn *Txn) GetRadix() *iradix.Txn {
 }
 
 func (txn *Txn) clearDeps() {
-	txn.txReadAccessMap = map[Key]bool{}
-	txn.txWriteAccessMap = map[Key]bool{}
+	txn.accessTracker.Clear()
+}
+
+func (txn *Txn) getReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+	return txn.accessTracker.GetReadWriteSet(txIndx)
 }
 
 func newTxn(snapshot readSnapshot) *Txn {
+	return newTxnWithTxAccessTracker(snapshot, TxAccessTrackerFactory(true))
+}
+
+func newTxnWithTxAccessTracker(snapshot readSnapshot, accessTracker ITxAccessTracker) *Txn {
 	i := iradix.New()
 
 	codeCache, _ := lru.New(20)
 
 	return &Txn{
-		snapshot:  snapshot,
-		snapshots: []*iradix.Tree{},
-		txn:       i.Txn(),
-		codeCache: codeCache,
-
-		txReadAccessMap:  map[Key]bool{},
-		txWriteAccessMap: map[Key]bool{},
+		snapshot:      snapshot,
+		snapshots:     []*iradix.Tree{},
+		txn:           i.Txn(),
+		codeCache:     codeCache,
+		accessTracker: accessTracker,
 	}
 }
 
@@ -359,7 +368,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		txn.accessTracker.AddWrite(NewAddressKey(addr), balance)
 	})
 }
 
@@ -369,7 +378,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
-			txn.txWriteAccessMap[NewAddressKey(addr)] = true
+			txn.accessTracker.AddWrite(NewAddressKey(addr), amount)
 		}
 	})
 }
@@ -396,7 +405,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
 
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		txn.accessTracker.AddWrite(NewAddressKey(addr), amount)
 	})
 
 	return nil
@@ -408,7 +417,7 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
-			txn.txWriteAccessMap[NewAddressKey(addr)] = true
+			txn.accessTracker.AddWrite(NewAddressKey(addr), balance)
 		}
 	})
 }
@@ -542,12 +551,12 @@ func (txn *Txn) SetState(
 		}
 	})
 
-	txn.txWriteAccessMap[NewStateKey(addr, key)] = true
+	txn.accessTracker.AddWrite(NewStateKey(addr, key), value)
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
-	txn.txReadAccessMap[NewStateKey(addr, key)] = true
+	txn.accessTracker.AddRead(NewStateKey(addr, key))
 
 	object, exists := txn.getStateObject(addr)
 	if !exists {
@@ -581,7 +590,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		txn.accessTracker.AddWrite(NewAddressKey(addr), object.Account.Nonce+1)
 
 		if object.Account.Nonce+1 < object.Account.Nonce {
 			err = ErrNonceUintOverflow
@@ -600,7 +609,7 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		txn.accessTracker.AddWrite(NewAddressKey(addr), nonce)
 	})
 }
 
@@ -623,7 +632,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
-		txn.txWriteAccessMap[NewAddressKey(addr)] = true
+		txn.accessTracker.AddWrite(NewAddressKey(addr), code)
 	})
 }
 
@@ -697,7 +706,7 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 
 		if suicided {
 			object.Account.Balance = new(big.Int)
-			txn.txWriteAccessMap[NewAddressKey(addr)] = true
+			txn.accessTracker.AddWrite(NewAddressKey(addr), false)
 		}
 	})
 
@@ -823,7 +832,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// should this add all subpaths too? for now we will just mark address as write access
-	txn.txWriteAccessMap[NewAddressKey(addr)] = true
+	txn.accessTracker.AddWrite(NewAddressKey(addr), true)
 
 	txn.txn.Insert(addr.Bytes(), obj)
 }

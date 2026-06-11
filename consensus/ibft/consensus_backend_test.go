@@ -179,6 +179,17 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		return i.buildBlock(parentHeader)
 	}
 
+	checkExtraData := func(t *testing.T, extraDataBytes []byte, expected [][]uint64) {
+		t.Helper()
+
+		extraData := &signer.IstanbulExtra{
+			Validators: validators.NewECDSAValidatorSet(), CommittedSeals: &signer.SerializedSeal{},
+		}
+
+		require.NoError(t, extraData.UnmarshalRLP(extraDataBytes[signer.IstanbulExtraVanity:]))
+		assert.Equal(t, expected, extraData.TxDependency)
+	}
+
 	t.Run("Test smart contract", func(t *testing.T) {
 		t.Parallel()
 
@@ -221,9 +232,6 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 
 		scAddress := deployTxResult.Address
 		parentBlockHeader.StateRoot = rootTrie
-		extraData := &signer.IstanbulExtra{
-			Validators: validators.NewECDSAValidatorSet(), CommittedSeals: &signer.SerializedSeal{},
-		}
 		txs := [8]*types.Transaction{}
 		inputs := [8][]byte{}
 
@@ -283,8 +291,8 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		require.NotNil(t, receipts)
 		require.Equal(t, parentBlockHeader.Number+1, block.Header.Number)
 		require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
-		require.NoError(t, extraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
-		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {3}, {}, {}, {5, 6}}, extraData.TxDependency)
+
+		checkExtraData(t, block.Header.ExtraData, [][]uint64{{}, {}, {0}, {1}, {3}, {}, {}, {5, 6}})
 
 		// check values directly
 		tran, err = executor.BeginTxn(block.Header.StateRoot, block.Header, types.ZeroAddress)
@@ -354,9 +362,6 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 
 		parentBlockHeader.StateRoot = rootTrie
 		txs := [5]*types.Transaction{}
-		extraData := &signer.IstanbulExtra{
-			Validators: validators.NewECDSAValidatorSet(), CommittedSeals: &signer.SerializedSeal{},
-		}
 		txs[0], err = txSigner.SignTx(&types.Transaction{
 			Nonce:    0,
 			From:     keys[9].Address(),
@@ -430,8 +435,8 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		require.NotNil(t, receipts)
 		require.Equal(t, parentBlockHeader.Number+1, block.Header.Number)
 		require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
-		require.NoError(t, extraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
-		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {2}}, extraData.TxDependency)
+
+		checkExtraData(t, block.Header.ExtraData, [][]uint64{{}, {}, {0}, {1}, {2}})
 
 		// check values directly
 		tran, err = executor.BeginTxn(block.Header.StateRoot, block.Header, types.ZeroAddress)
