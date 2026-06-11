@@ -118,14 +118,14 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		signer.NewECDSAKeyManagerFromKey(keys[0].PrivateKey()),
 	)
 	round := uint64(0)
-	validators := validators.NewECDSAValidatorSet(
+	validatorsSet := validators.NewECDSAValidatorSet(
 		validators.NewECDSAValidator(keys[0].Address()),
 		validators.NewECDSAValidator(types.StringToAddress("1")),
 		validators.NewECDSAValidator(types.StringToAddress("2")),
 		validators.NewECDSAValidator(types.StringToAddress("3")),
 	)
 	parentExtraData := &signer.IstanbulExtra{
-		Validators:           validators,
+		Validators:           validatorsSet,
 		ParentCommittedSeals: &signer.SerializedSeal{},
 		CommittedSeals:       &signer.AggregatedSeal{},
 		RoundNumber:          &round,
@@ -133,7 +133,7 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 	}
 
 	forkManagerMock := &forkManagerMock{}
-	forkManagerMock.On("GetValidators", mock.Anything).Return(validators)
+	forkManagerMock.On("GetValidators", mock.Anything).Return(validatorsSet)
 	forkManagerMock.On("GetSigner", mock.Anything).Return(mySigner)
 	forkManagerMock.On("GetHooks", mock.Anything).Return(&hook.Hooks{})
 
@@ -221,6 +221,9 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 
 		scAddress := deployTxResult.Address
 		parentBlockHeader.StateRoot = rootTrie
+		extraData := &signer.IstanbulExtra{
+			Validators: validators.NewECDSAValidatorSet(), CommittedSeals: &signer.SerializedSeal{},
+		}
 		txs := [8]*types.Transaction{}
 		inputs := [8][]byte{}
 
@@ -280,8 +283,8 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		require.NotNil(t, receipts)
 		require.Equal(t, parentBlockHeader.Number+1, block.Header.Number)
 		require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
-		require.NoError(t, parentExtraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
-		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {3}, {}, {}, {5, 6}}, parentExtraData.TxDependency)
+		require.NoError(t, extraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
+		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {3}, {}, {}, {5, 6}}, extraData.TxDependency)
 
 		// check values directly
 		tran, err = executor.BeginTxn(block.Header.StateRoot, block.Header, types.ZeroAddress)
@@ -351,7 +354,9 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 
 		parentBlockHeader.StateRoot = rootTrie
 		txs := [5]*types.Transaction{}
-
+		extraData := &signer.IstanbulExtra{
+			Validators: validators.NewECDSAValidatorSet(), CommittedSeals: &signer.SerializedSeal{},
+		}
 		txs[0], err = txSigner.SignTx(&types.Transaction{
 			Nonce:    0,
 			From:     keys[9].Address(),
@@ -425,8 +430,8 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 		require.NotNil(t, receipts)
 		require.Equal(t, parentBlockHeader.Number+1, block.Header.Number)
 		require.Equal(t, parentBlockHeader.Hash.String(), block.Header.ParentHash.String())
-		require.NoError(t, parentExtraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
-		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {2}}, parentExtraData.TxDependency)
+		require.NoError(t, extraData.UnmarshalRLP(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
+		assert.Equal(t, [][]uint64{{}, {}, {0}, {1}, {2}}, extraData.TxDependency)
 
 		// check values directly
 		tran, err = executor.BeginTxn(block.Header.StateRoot, block.Header, types.ZeroAddress)
