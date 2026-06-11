@@ -94,6 +94,8 @@ type Server struct {
 	gasHelper *gasprice.GasHelper
 
 	keyManagerFactory signer.KeyManagerFactory
+
+	settlementObserver *settlementObserver
 }
 
 // newFileLogger returns logger instance that writes all logs to a specified file.
@@ -395,6 +397,12 @@ func NewServer(config *Config) (*Server, error) {
 		m.txpool.SetSigner(signer)
 		m.executor.GetPendingTxHook = m.txpool.GetPendingTx
 		m.blockchain.GetPendingTxHook = m.txpool.GetPendingTx
+	}
+
+	if config.Telemetry.PrometheusAddr != nil && config.Telemetry.SettlementMetrics {
+		obs := newSettlementObserver(m.logger)
+		m.settlementObserver = obs
+		m.blockchain.SetSettlementObserver(obs.OnTxsIncluded)
 	}
 
 	{

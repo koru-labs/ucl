@@ -67,7 +67,8 @@ type Config struct {
 
 // Telemetry holds the config details for metric services.
 type Telemetry struct {
-	PrometheusAddr string `json:"prometheus_addr" yaml:"prometheus_addr"`
+	PrometheusAddr    string `json:"prometheus_addr" yaml:"prometheus_addr"`
+	SettlementMetrics bool   `json:"settlement_metrics" yaml:"settlement_metrics"`
 }
 
 // Network defines the network configuration params
