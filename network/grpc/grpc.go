@@ -127,11 +127,17 @@ func (g *GrpcStream) Close() error {
 // --- conn ---
 
 func WrapClient(s network.Stream) (*grpc.ClientConn, error) {
+	// Increase max size limits
+	maxSizeOption := grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(5*1024*1024), // Max receive size
+		grpc.MaxCallSendMsgSize(5*1024*1024), // Max send size
+	)
+
 	opts := grpc.WithContextDialer(func(ctx context.Context, peerIdStr string) (net.Conn, error) {
 		return &streamConn{s}, nil
 	})
 
-	return grpc.Dial("", grpc.WithTransportCredentials(insecure.NewCredentials()), opts)
+	return grpc.Dial("", grpc.WithTransportCredentials(insecure.NewCredentials()), opts, maxSizeOption)
 }
 
 // streamConn represents a net.Conn wrapped to be compatible with net.conn
