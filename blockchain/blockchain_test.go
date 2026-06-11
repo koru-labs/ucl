@@ -733,10 +733,8 @@ func Test_recoverFromFieldsInBlock(t *testing.T) {
 			},
 		}
 
-		assert.NoError(
-			t,
-			chain.recoverFromFieldsInBlock(block),
-		)
+		_, err := chain.recoverFromFieldsInBlock(block)
+		assert.NoError(t, err)
 	})
 
 	t.Run("should stop and return error if recovery fails", func(t *testing.T) {
@@ -772,11 +770,8 @@ func Test_recoverFromFieldsInBlock(t *testing.T) {
 			},
 		}
 
-		assert.ErrorIs(
-			t,
-			chain.recoverFromFieldsInBlock(block),
-			errRecoveryAddressFailed,
-		)
+		_, err := chain.recoverFromFieldsInBlock(block)
+		assert.ErrorIs(t, err, errRecoveryAddressFailed)
 
 		assert.Equal(t, addr1, tx1.From)
 		assert.Equal(t, types.ZeroAddress, tx2.From)

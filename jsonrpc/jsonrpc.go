@@ -299,6 +299,13 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 
 		if isSupportedWSType(msgType) {
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Log the panic details
+						j.logger.Error(fmt.Sprintf("Recovered from panic: %v", r))
+					}
+				}()
+
 				resp, handleErr := j.dispatcher.HandleWs(message, wrapConn)
 				if handleErr != nil {
 					j.logger.Error(fmt.Sprintf("Unable to handle WS request, %s", handleErr.Error()))
