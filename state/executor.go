@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/contracts"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -491,6 +492,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
+	t.state.clearDeps()
 
 	result, err := t.apply(msg)
 	if err != nil {
@@ -504,6 +506,30 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	}
 
 	return result, err
+}
+
+func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
+	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
+
+	for k := range t.state.txReadAccessMap {
+		readDescs = append(readDescs, blockstm.ReadDescriptor{
+			Path: blockstm.Key(k),
+		})
+	}
+
+	for k, v := range t.state.txWriteAccessMap {
+		writeDescs = append(writeDescs, blockstm.WriteDescriptor{
+			Path: blockstm.Key(k),
+			Val:  v,
+		})
+	}
+
+	return blockstm.TxReadWriteSet{
+		Index:     txIndx,
+		ReadList:  readDescs,
+		WriteList: writeDescs,
+	}
 }
 
 // ContextPtr returns reference of context
@@ -737,14 +763,16 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	}
 
 	// Pay the coinbase fee as a miner reward using the calculated effective tip.
+	// each tx adds balance to proposer -> we should prevent updating this inside txWriteAccessMap
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
-	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
+	t.state.AddBalanceDoNotTrack(t.ctx.Coinbase, coinbaseFee)
 
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
+		// each tx adds balance to burn contract -> we should prevent updating this inside txWriteAccessMap
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
-		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
+		t.state.AddBalanceDoNotTrack(t.ctx.BurnContract, burnAmount)
 	}
 
 	// return gas to the pool

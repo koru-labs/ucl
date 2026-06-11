@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/go-ibft/messages"
 	"github.com/0xPolygon/go-ibft/messages/proto"
 	"github.com/0xPolygon/polygon-edge/consensus"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
+	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -189,7 +191,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		Number:     parent.Number + 1,
 		Miner:      types.ZeroAddress.Bytes(),
 		Nonce:      types.Nonce{},
-		MixHash:    signer.IstanbulDigest,
+		MixHash:    sgn.IstanbulDigest,
 		// this is required because blockchain needs difficulty to organize blocks and forks
 		Difficulty: parent.Number + 1,
 		StateRoot:  types.EmptyRootHash, // this avoids needing state for now
@@ -237,11 +239,37 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	writeCtx, cancelFn := context.WithTimeout(context.Background(), i.blockTime)
 	defer cancelFn()
 
-	txs := i.writeTransactions(
+	var (
+		depsBuilder *blockstm.DepsBuilder        = blockstm.NewDepsBuilder()
+		chDeps      chan blockstm.TxReadWriteSet = make(chan blockstm.TxReadWriteSet, 10)
+		depsWg      sync.WaitGroup
+	)
+
+	depsWg.Add(1)
+
+	go func(chDeps chan blockstm.TxReadWriteSet) {
+		for t := range chDeps {
+			if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
+				// Non-sequential index indicates a systematic bug, not a transient error.
+				// Drain the channel so the sender never blocks, then stop processing.
+				i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint", "tx", t.Index, "err", err)
+
+				for range chDeps {
+				}
+
+				break
+			}
+		}
+
+		depsWg.Done()
+	}(chDeps)
+
+	txs, hasBalanceReads := i.writeTransactions(
 		writeCtx,
 		gasLimit,
 		header.Number,
 		transition,
+		chDeps,
 	)
 
 	// provide dummy block instance to the PreCommitState
@@ -255,6 +283,37 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
+	depsWg.Wait()
+
+	deps := depsBuilder.GetDeps()
+	if deps == nil {
+		i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
+	}
+
+	var txDependency [][]uint64
+
+	// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
+	if deps != nil && !hasBalanceReads {
+		tempDeps := make([][]uint64, len(txs))
+
+		for j := range deps[0] {
+			tempDeps[0] = append(tempDeps[0], uint64(j))
+		}
+
+		for i := 1; i < len(txs); i++ {
+			for j := range deps[i] {
+				tempDeps[i] = append(tempDeps[i], uint64(j))
+			}
+		}
+
+		txDependency = tempDeps
+	}
+
+	for idx, dep := range txDependency {
+		i.logger.Debug("tx dependecies CREW", "txIndx", idx, "dependency", dep)
+	}
+
+	header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
@@ -312,6 +371,7 @@ type txExeResult struct {
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) error
+	GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -319,8 +379,9 @@ func (i *backendIBFT) writeTransactions(
 	gasLimit,
 	blockNumber uint64,
 	transition transitionInterface,
-) (executed []*types.Transaction) {
-	executed = make([]*types.Transaction, 0)
+	chDeps chan blockstm.TxReadWriteSet,
+) (executed []*types.Transaction, hasBalanceReads bool) {
+	defer close(chDeps)
 
 	hooks := i.forkManager.GetHooks(blockNumber)
 	if !hooks.ShouldWriteTransactions(blockNumber) {
@@ -328,15 +389,14 @@ func (i *backendIBFT) writeTransactions(
 	}
 
 	var (
-		successful = 0
-		failed     = 0
-		skipped    = 0
+		failed  = 0
+		skipped = 0
 	)
 
 	defer func() {
 		i.logger.Info(
 			"executed txs",
-			"successful", successful,
+			"successful", len(executed),
 			"failed", failed,
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
@@ -362,12 +422,18 @@ write:
 				break write
 			}
 
-			tx := result.tx
-
 			switch result.status {
 			case success:
-				executed = append(executed, tx)
-				successful++
+				// Send with timeout to prevent deadlock
+				select {
+				case chDeps <- transition.GetTxReadWriteSet(len(executed)):
+					// Successfully sent
+				case <-time.After(1 * time.Second):
+					// Timeout after 1 second - channel is blocked
+					return
+				}
+
+				executed = append(executed, result.tx)
 			case fail:
 				failed++
 			case skip:
@@ -421,7 +487,7 @@ func (i *backendIBFT) writeTransaction(
 // extractCommittedSeals extracts CommittedSeals from header
 func (i *backendIBFT) extractCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	signer, err := i.forkManager.GetSigner(header.Number)
 	if err != nil {
 		return nil, err
@@ -438,7 +504,7 @@ func (i *backendIBFT) extractCommittedSeals(
 // extractParentCommittedSeals extracts ParentCommittedSeals from header
 func (i *backendIBFT) extractParentCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	if header.Number == 0 {
 		return nil, nil
 	}
