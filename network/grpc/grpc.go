@@ -26,9 +26,11 @@ type GrpcStream struct {
 
 func NewGrpcStream() *GrpcStream {
 	return &GrpcStream{
-		ctx:        context.Background(),
-		streamCh:   make(chan network.Stream),
-		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(interceptor)),
+		ctx:      context.Background(),
+		streamCh: make(chan network.Stream),
+		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(interceptor),
+			grpc.MaxRecvMsgSize(5*1024*1024),
+			grpc.MaxSendMsgSize(5*1024*1024)),
 	}
 }
 

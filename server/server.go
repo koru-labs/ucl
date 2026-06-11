@@ -147,10 +147,12 @@ func NewServer(config *Config) (*Server, error) {
 	}
 
 	m := &Server{
-		logger:             logger.Named("server"),
-		config:             config,
-		chain:              config.Chain,
-		grpcServer:         grpc.NewServer(grpc.UnaryInterceptor(unaryInterceptor)),
+		logger: logger.Named("server"),
+		config: config,
+		chain:  config.Chain,
+		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(unaryInterceptor),
+			grpc.MaxRecvMsgSize(5*1024*1024),
+			grpc.MaxSendMsgSize(5*1024*1024)),
 		restoreProgression: progress.NewProgressionWrapper(progress.ChainSyncRestore),
 	}
 
