@@ -810,7 +810,7 @@ func (j *jsonRPCHub) GetModifiedAccounts(startBlock, endBlock *types.Block) ([]t
 			return nil, fmt.Errorf("parent header for block %s not found", block.ParentHash().String())
 		}
 
-		txn, err := j.Executor.ProcessBlock(parentHeader.StateRoot, block, types.BytesToAddress(block.Header.Miner))
+		txn, _, err := j.Executor.ProcessBlock(parentHeader.StateRoot, block, types.BytesToAddress(block.Header.Miner))
 		if err != nil {
 			return nil, err
 		}

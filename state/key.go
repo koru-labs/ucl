@@ -13,6 +13,7 @@ const (
 
 	KeyLength = types.AddressLength + types.HashLength + 2
 
+	FullPath    byte = 0
 	BalancePath byte = 1
 	NoncePath   byte = 2
 	CodePath    byte = 3
@@ -79,4 +80,18 @@ func NewStateKey(addr types.Address, hash types.Hash) Key {
 
 func NewSubpathKey(addr types.Address, subpath byte) Key {
 	return newKey(addr, types.Hash{}, subpath, subpathType)
+}
+
+func NewGenericKey(addr types.Address, hash types.Hash, subpath byte) Key {
+	var keyType byte
+	//nolint:gocritic
+	if hash != types.ZeroHash {
+		keyType = stateType
+	} else if subpath != 0 {
+		keyType = subpathType
+	} else {
+		keyType = addressType
+	}
+
+	return newKey(addr, hash, subpath, keyType)
 }

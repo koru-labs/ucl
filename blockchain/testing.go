@@ -288,7 +288,7 @@ func (m *MockVerifier) HookPreCommitState(fn preStateCommitDelegate) {
 
 // Executor delegators
 
-type processBlockDelegate func(types.Hash, *types.Block, types.Address) (*state.Transition, error)
+type processBlockDelegate func(types.Hash, *types.Block, types.Address) (*state.Transition, []*types.Receipt, error)
 
 type mockExecutor struct {
 	processBlockFn processBlockDelegate
@@ -298,12 +298,12 @@ func (m *mockExecutor) ProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
 	blockCreator types.Address,
-) (*state.Transition, error) {
+) (*state.Transition, []*types.Receipt, error) {
 	if m.processBlockFn != nil {
 		return m.processBlockFn(parentRoot, block, blockCreator)
 	}
 
-	return nil, nil
+	return nil, nil, nil
 }
 
 func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {

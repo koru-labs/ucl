@@ -95,11 +95,15 @@ func (p *blockchainWrapper) ProcessBlock(parent *types.Header, block *types.Bloc
 		return nil, err
 	}
 
+	receipts := make([]*types.Receipt, 0, len(block.Transactions))
 	// apply transactions from block
 	for _, tx := range block.Transactions {
-		if err = transition.Write(tx); err != nil {
+		receipt, err := transition.Write(tx)
+		if err != nil {
 			return nil, fmt.Errorf("process block tx error, tx = %v, err = %w", tx.Hash, err)
 		}
+
+		receipts = append(receipts, receipt)
 	}
 
 	_, root, err := transition.Commit()
@@ -117,7 +121,7 @@ func (p *blockchainWrapper) ProcessBlock(parent *types.Header, block *types.Bloc
 	builtBlock := consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   header,
 		Txns:     block.Transactions,
-		Receipts: transition.Receipts(),
+		Receipts: receipts,
 	})
 
 	if builtBlock.Header.TxRoot != block.Header.TxRoot {
@@ -127,7 +131,7 @@ func (p *blockchainWrapper) ProcessBlock(parent *types.Header, block *types.Bloc
 
 	return &types.FullBlock{
 		Block:    builtBlock,
-		Receipts: transition.Receipts(),
+		Receipts: receipts,
 	}, nil
 }
 

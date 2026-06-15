@@ -70,8 +70,8 @@ func (txn *Txn) clearDeps() {
 	txn.accessTracker.Clear()
 }
 
-func (txn *Txn) getReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	return txn.accessTracker.GetReadWriteSet(txIndx)
+func (txn *Txn) getReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet {
+	return txn.accessTracker.GetReadWriteSet(txIndx, retrieveWrites)
 }
 
 func newTxn(snapshot readSnapshot) *Txn {
@@ -368,7 +368,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.accessTracker.AddWrite(NewAddressKey(addr), balance)
+		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
 	})
 }
 
@@ -378,7 +378,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
-			txn.accessTracker.AddWrite(NewAddressKey(addr), amount)
+			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
 		}
 	})
 }
@@ -405,7 +405,7 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.Sub(object.Account.Balance, amount)
 
-		txn.accessTracker.AddWrite(NewAddressKey(addr), amount)
+		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
 	})
 
 	return nil
@@ -417,7 +417,7 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
-			txn.accessTracker.AddWrite(NewAddressKey(addr), balance)
+			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, balance)
 		}
 	})
 }
@@ -551,12 +551,12 @@ func (txn *Txn) SetState(
 		}
 	})
 
-	txn.accessTracker.AddWrite(NewStateKey(addr, key), value)
+	txn.accessTracker.AddWrite(addr, key, 0, value)
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
-	txn.accessTracker.AddRead(NewStateKey(addr, key))
+	txn.accessTracker.AddRead(addr, key, 0)
 
 	object, exists := txn.getStateObject(addr)
 	if !exists {
@@ -590,8 +590,6 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	var err error
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		txn.accessTracker.AddWrite(NewAddressKey(addr), object.Account.Nonce+1)
-
 		if object.Account.Nonce+1 < object.Account.Nonce {
 			err = ErrNonceUintOverflow
 
@@ -599,6 +597,8 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 		}
 
 		object.Account.Nonce++
+
+		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, object.Account.Nonce+1)
 	})
 
 	return err
@@ -609,7 +609,7 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
-		txn.accessTracker.AddWrite(NewAddressKey(addr), nonce)
+		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, nonce)
 	})
 }
 
@@ -632,7 +632,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
-		txn.accessTracker.AddWrite(NewAddressKey(addr), code)
+		txn.accessTracker.AddWrite(addr, types.ZeroHash, CodePath, code)
 	})
 }
 
@@ -706,7 +706,8 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 
 		if suicided {
 			object.Account.Balance = new(big.Int)
-			txn.accessTracker.AddWrite(NewAddressKey(addr), false)
+
+			txn.accessTracker.AddWrite(addr, types.ZeroHash, SuicidePath, true)
 		}
 	})
 
@@ -832,7 +833,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// should this add all subpaths too? for now we will just mark address as write access
-	txn.accessTracker.AddWrite(NewAddressKey(addr), true)
+	txn.accessTracker.AddWrite(addr, types.ZeroHash, FullPath, true)
 
 	txn.txn.Insert(addr.Bytes(), obj)
 }
