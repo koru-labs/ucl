@@ -367,7 +367,7 @@ type txExeResult struct {
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) (*types.Receipt, error)
-	GetTxReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet
+	GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -422,9 +422,8 @@ write:
 			case success:
 				receipts = append(receipts, result.receipt)
 				// Send maps to dag with timeout to prevent deadlock
-				retrieveWrites := *result.receipt.Status == types.ReceiptSuccess
 				select {
-				case chDeps <- transition.GetTxReadWriteSet(len(executed), retrieveWrites):
+				case chDeps <- transition.GetTxReadWriteSet(len(executed)):
 					// Successfully sent
 				case <-time.After(1 * time.Second):
 					// Timeout after 1 second - channel is blocked

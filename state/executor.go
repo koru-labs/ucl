@@ -515,8 +515,8 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	return result, err
 }
 
-func (t *Transition) GetTxReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet {
-	return t.state.getReadWriteSet(txIndx, retrieveWrites)
+func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+	return t.state.getReadWriteSet(txIndx)
 }
 
 // ContextPtr returns reference of context

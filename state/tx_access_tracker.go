@@ -6,10 +6,10 @@ import (
 )
 
 type ITxAccessTracker interface {
-	Clear()
+	Clear(writesOnly bool)
 	AddWrite(addr types.Address, hash types.Hash, subpath byte, value any)
 	AddRead(addr types.Address, hash types.Hash, subpath byte)
-	GetReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet
+	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
 
 type txAccessTrackerMap struct {
@@ -20,8 +20,11 @@ type txAccessTrackerMap struct {
 var _ ITxAccessTracker = (*txAccessTrackerMap)(nil)
 
 // Clear resets the access maps
-func (a *txAccessTrackerMap) Clear() {
-	a.txReadAccessMap = make(map[Key]struct{})
+func (a *txAccessTrackerMap) Clear(writesOnly bool) {
+	if !writesOnly {
+		a.txReadAccessMap = make(map[Key]struct{})
+	}
+
 	a.txWriteAccessMap = make(map[Key]struct{})
 }
 
@@ -40,17 +43,21 @@ func (a *txAccessTrackerMap) AddRead(addr types.Address, hash types.Hash, subpat
 }
 
 // GetReadWriteSet returns a TxReadWriteSet for the requested transaction index.
-func (a *txAccessTrackerMap) GetReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet {
-	readDescs := make([]blockstm.ReadDescriptor, 0, len(a.txReadAccessMap))
+func (a *txAccessTrackerMap) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+	readDescs := ([]blockstm.ReadDescriptor)(nil)
 	writeDescs := ([]blockstm.WriteDescriptor)(nil)
 
-	for k := range a.txReadAccessMap {
-		readDescs = append(readDescs, blockstm.ReadDescriptor{
-			Path: blockstm.Key(k),
-		})
+	if len(a.txReadAccessMap) > 0 {
+		readDescs = make([]blockstm.ReadDescriptor, 0, len(a.txReadAccessMap))
+
+		for k := range a.txReadAccessMap {
+			readDescs = append(readDescs, blockstm.ReadDescriptor{
+				Path: blockstm.Key(k),
+			})
+		}
 	}
 
-	if retrieveWrites {
+	if len(a.txWriteAccessMap) > 0 {
 		writeDescs = make([]blockstm.WriteDescriptor, 0, len(a.txWriteAccessMap))
 
 		for k := range a.txWriteAccessMap {
@@ -72,7 +79,7 @@ type txAccessTrackerNoOp struct {
 
 var _ ITxAccessTracker = (*txAccessTrackerNoOp)(nil)
 
-func (e *txAccessTrackerNoOp) Clear() {}
+func (e *txAccessTrackerNoOp) Clear(writesOnly bool) {}
 
 func (a *txAccessTrackerNoOp) AddWrite(addr types.Address, hash types.Hash, subpath byte, _ any) {
 }
@@ -80,7 +87,7 @@ func (a *txAccessTrackerNoOp) AddWrite(addr types.Address, hash types.Hash, subp
 func (a *txAccessTrackerNoOp) AddRead(addr types.Address, hash types.Hash, subpath byte) {
 }
 
-func (e *txAccessTrackerNoOp) GetReadWriteSet(txIndx int, retrieveWrites bool) blockstm.TxReadWriteSet {
+func (e *txAccessTrackerNoOp) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
 	return blockstm.TxReadWriteSet{Index: txIndx}
 }
 
