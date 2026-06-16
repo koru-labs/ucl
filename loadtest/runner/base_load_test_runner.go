@@ -1574,7 +1574,7 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 			signedCh <- batch
 		}
 
-		acc.nonce = acc.nonce + uint64(totalBatches*numOfTxns)
+		acc.nonce += uint64(totalBatches * numOfTxns)
 	}()
 
 	firstBatch, ok := <-signedCh
