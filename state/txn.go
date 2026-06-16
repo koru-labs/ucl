@@ -79,6 +79,8 @@ func newTxn(snapshot readSnapshot) *Txn {
 }
 
 func newTxnWithTxAccessTracker(snapshot readSnapshot, accessTracker ITxAccessTracker) *Txn {
+	accessTracker.Clear(false)
+
 	i := iradix.New()
 
 	codeCache, _ := lru.New(20)
