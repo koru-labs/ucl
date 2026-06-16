@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -444,6 +445,8 @@ func unmarshalRLPTxDependencyFrom(elem *fastrlp.Value) (result [][]uint64, err e
 				return nil, err
 			}
 		}
+
+		slices.Sort(result[i]) // dependency indexes should be sorted after unmarshall
 	}
 
 	return result, nil
