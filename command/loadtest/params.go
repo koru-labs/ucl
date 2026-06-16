@@ -38,6 +38,8 @@ const (
 	tearDownFlag = "tear-down"
 
 	tokenContractAddressFlag = "token-sc-address"
+
+	txsPerSecondFlag = "txs-per-second"
 )
 
 var (
@@ -85,6 +87,8 @@ type loadTestParams struct {
 	tearDown bool
 
 	tokenContractAddress string
+
+	txsPerSecond int
 }
 
 func (ltp *loadTestParams) validateFlags() error {
@@ -130,6 +134,12 @@ func (ltp *loadTestParams) validateFlags() error {
 
 		if ltp.txPoolTimeout < ltp.executionTime {
 			return errInvalidExecutionTimeAndTxPoolTimeout
+		}
+	}
+
+	if ltp.txsPerSecond > 0 {
+		if ltp.executionTime < time.Second {
+			return errInvalidExecutionTime
 		}
 	}
 
