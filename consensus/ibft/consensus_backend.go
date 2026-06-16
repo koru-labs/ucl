@@ -230,7 +230,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
-	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
+	transition, err := i.executor.BeginTxnWithTxAccessTracker(
+		parent.StateRoot, header, signer.Address(), state.TxAccessTrackerFactory(false))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -264,7 +265,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		depsWg.Done()
 	}(chDeps)
 
-	txs, hasBalanceReads := i.writeTransactions(
+	txs, receipts, hasBalanceReads := i.writeTransactions(
 		writeCtx,
 		gasLimit,
 		header.Number,
@@ -294,19 +295,13 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
 	if deps != nil && !hasBalanceReads {
-		tempDeps := make([][]uint64, len(txs))
+		txDependency = make([][]uint64, len(txs))
 
-		for j := range deps[0] {
-			tempDeps[0] = append(tempDeps[0], uint64(j))
-		}
-
-		for i := 1; i < len(txs); i++ {
+		for i := range len(txs) {
 			for j := range deps[i] {
-				tempDeps[i] = append(tempDeps[i], uint64(j))
+				txDependency[i] = append(txDependency[i], uint64(j))
 			}
 		}
-
-		txDependency = tempDeps
 	}
 
 	for idx, dep := range txDependency {
@@ -321,7 +316,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	block := consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   header,
 		Txns:     txs,
-		Receipts: transition.Receipts(),
+		Receipts: receipts,
 	})
 
 	// write the seal of the block after all the fields are completed
@@ -338,7 +333,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, transition.Receipts(), nil
+	return block, receipts, nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based
@@ -365,12 +360,13 @@ const (
 )
 
 type txExeResult struct {
-	tx     *types.Transaction
-	status status
+	tx      *types.Transaction
+	receipt *types.Receipt
+	status  status
 }
 
 type transitionInterface interface {
-	Write(txn *types.Transaction) error
+	Write(txn *types.Transaction) (*types.Receipt, error)
 	GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
 
@@ -380,7 +376,7 @@ func (i *backendIBFT) writeTransactions(
 	blockNumber uint64,
 	transition transitionInterface,
 	chDeps chan blockstm.TxReadWriteSet,
-) (executed []*types.Transaction, hasBalanceReads bool) {
+) (executed []*types.Transaction, receipts []*types.Receipt, hasBalanceReads bool) {
 	defer close(chDeps)
 
 	hooks := i.forkManager.GetHooks(blockNumber)
@@ -424,7 +420,8 @@ write:
 
 			switch result.status {
 			case success:
-				// Send with timeout to prevent deadlock
+				receipts = append(receipts, result.receipt)
+				// Send maps to dag with timeout to prevent deadlock
 				select {
 				case chDeps <- transition.GetTxReadWriteSet(len(executed)):
 					// Successfully sent
@@ -461,27 +458,28 @@ func (i *backendIBFT) writeTransaction(
 		i.txpool.Drop(tx)
 
 		// continue processing
-		return &txExeResult{tx, fail}, true
+		return &txExeResult{tx, nil, fail}, true
 	}
 
-	if err := transition.Write(tx); err != nil {
+	receipt, err := transition.Write(tx)
+	if err != nil {
 		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
 			// stop processing
 			return nil, false
 		} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
 			i.txpool.Demote(tx)
 
-			return &txExeResult{tx, skip}, true
+			return &txExeResult{tx, nil, skip}, true
 		} else {
 			i.txpool.Drop(tx)
 
-			return &txExeResult{tx, fail}, true
+			return &txExeResult{tx, nil, fail}, true
 		}
 	}
 
 	i.txpool.Pop(tx)
 
-	return &txExeResult{tx, success}, true
+	return &txExeResult{tx, receipt, success}, true
 }
 
 // extractCommittedSeals extracts CommittedSeals from header

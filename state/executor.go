@@ -121,7 +121,7 @@ func (e *Executor) WriteGenesis(
 // GetDumpTree function returns accounts based on the selected criteria.
 func (e *Executor) GetDumpTree(dump *Dump, parentHash types.Hash,
 	block *types.Block, opts *DumpInfo) ([]byte, error) {
-	txn, err := e.ProcessBlock(parentHash, block, types.BytesToAddress(block.Header.Miner))
+	txn, _, err := e.ProcessBlock(parentHash, block, types.BytesToAddress(block.Header.Miner))
 	if err != nil {
 		return nil, err
 	}
@@ -157,15 +157,17 @@ func (e *Executor) ProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
 	blockCreator types.Address,
-) (*Transition, error) {
+) (*Transition, []*types.Receipt, error) {
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	receipts := make([]*types.Receipt, 0, len(block.Transactions))
 
 	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
-			return nil, runtime.ErrOutOfGas
+			return nil, nil, runtime.ErrOutOfGas
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -174,12 +176,15 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		if err = txn.Write(t); err != nil {
-			return nil, err
+		receipt, err := txn.Write(t)
+		if err != nil {
+			return nil, nil, err
 		}
+
+		receipts = append(receipts, receipt)
 	}
 
-	return txn, nil
+	return txn, receipts, nil
 }
 
 // GetForksInTime returns the active forks at the given block height
@@ -191,6 +196,15 @@ func (e *Executor) BeginTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
+) (*Transition, error) {
+	return e.BeginTxnWithTxAccessTracker(parentRoot, header, coinbaseReceiver, TxAccessTrackerFactory(true))
+}
+
+func (e *Executor) BeginTxnWithTxAccessTracker(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	txAccessTracker ITxAccessTracker,
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
@@ -207,7 +221,7 @@ func (e *Executor) BeginTxn(
 		}
 	}
 
-	newTxn := NewTxn(auxSnap2)
+	newTxn := NewTxnWithTxAccessTracker(auxSnap2, txAccessTracker)
 
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
@@ -230,7 +244,6 @@ func (e *Executor) BeginTxn(
 		config:   forkConfig,
 		gasPool:  uint64(txCtx.GasLimit),
 
-		receipts: []*types.Receipt{},
 		totalGas: 0,
 
 		evm:         evm.NewEVM(),
@@ -282,7 +295,6 @@ type Transition struct {
 	gasPool uint64
 
 	// result
-	receipts []*types.Receipt
 	totalGas uint64
 
 	PostHook func(t *Transition)
@@ -367,14 +379,10 @@ func (t *Transition) TotalGas() uint64 {
 	return t.totalGas
 }
 
-func (t *Transition) Receipts() []*types.Receipt {
-	return t.receipts
-}
-
 var emptyFrom = types.Address{}
 
 // Write writes another transaction to the executor
-func (t *Transition) Write(txn *types.Transaction) error {
+func (t *Transition) Write(txn *types.Transaction) (*types.Receipt, error) {
 	var err error
 
 	if txn.From == emptyFrom &&
@@ -384,7 +392,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 
 		txn.From, err = signer.Sender(txn)
 		if err != nil {
-			return NewTransitionApplicationError(err, false)
+			return nil, NewTransitionApplicationError(err, false)
 		}
 	}
 
@@ -395,7 +403,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	if e != nil {
 		t.logger.Error("failed to apply tx", "err", e)
 
-		return e
+		return nil, e
 	}
 
 	t.totalGas += result.GasUsed
@@ -411,7 +419,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 
 	// The suicided accounts are set as deleted for the next iteration
 	if err := t.state.CleanDeleteObjects(true); err != nil {
-		return fmt.Errorf("failed to clean deleted objects: %w", err)
+		return nil, fmt.Errorf("failed to clean deleted objects: %w", err)
 	}
 
 	if result.Failed() {
@@ -428,9 +436,8 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	// Set the receipt logs and create a bloom for filtering
 	receipt.Logs = logs
 	receipt.LogsBloom = types.CreateBloom([]*types.Receipt{receipt})
-	t.receipts = append(t.receipts, receipt)
 
-	return nil
+	return receipt, nil
 }
 
 // Commit commits the final result
@@ -492,10 +499,12 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
-	t.state.clearDeps()
+	t.state.clearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
+		t.state.clearAccessTracker(true) // clear writes if tx has been reverted
+
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
@@ -509,27 +518,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 }
 
 func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	readDescs := make([]blockstm.ReadDescriptor, 0, len(t.state.txReadAccessMap))
-	writeDescs := make([]blockstm.WriteDescriptor, 0, len(t.state.txWriteAccessMap))
-
-	for k := range t.state.txReadAccessMap {
-		readDescs = append(readDescs, blockstm.ReadDescriptor{
-			Path: blockstm.Key(k),
-		})
-	}
-
-	for k, v := range t.state.txWriteAccessMap {
-		writeDescs = append(writeDescs, blockstm.WriteDescriptor{
-			Path: blockstm.Key(k),
-			Val:  v,
-		})
-	}
-
-	return blockstm.TxReadWriteSet{
-		Index:     txIndx,
-		ReadList:  readDescs,
-		WriteList: writeDescs,
-	}
+	return t.state.getReadWriteSet(txIndx)
 }
 
 // ContextPtr returns reference of context

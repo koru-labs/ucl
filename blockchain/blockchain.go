@@ -97,7 +97,9 @@ type Verifier interface {
 }
 
 type Executor interface {
-	ProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (*state.Transition, error)
+	ProcessBlock(
+		parentRoot types.Hash, block *types.Block, blockCreator types.Address,
+	) (*state.Transition, []*types.Receipt, error)
 }
 
 type TxSigner interface {
@@ -790,7 +792,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
-	txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
+	txn, receipts, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
 	if err != nil {
 		return nil, err
 	}
@@ -805,11 +807,11 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	}
 
 	// Append the receipts to the receipts cache
-	b.receiptsCache.Add(header.Hash, txn.Receipts())
+	b.receiptsCache.Add(header.Hash, receipts)
 
 	return &BlockResult{
 		Root:     root,
-		Receipts: txn.Receipts(),
+		Receipts: receipts,
 		TotalGas: txn.TotalGas(),
 	}, nil
 }

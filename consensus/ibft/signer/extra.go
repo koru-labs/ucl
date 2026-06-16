@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -444,7 +445,30 @@ func unmarshalRLPTxDependencyFrom(elem *fastrlp.Value) (result [][]uint64, err e
 				return nil, err
 			}
 		}
+
+		slices.Sort(result[i]) // dependency indexes should be sorted after unmarshall
 	}
 
 	return result, nil
+}
+
+func (i *IstanbulExtra) UnmarshalRLPForTxDependecies(input []byte) error {
+	return types.UnmarshalRlp(i.unmarshalRLPForTxDependecies, input)
+}
+
+func (i *IstanbulExtra) unmarshalRLPForTxDependecies(p *fastrlp.Parser, v *fastrlp.Value) error {
+	elems, err := v.GetElems()
+	if err != nil {
+		return err
+	}
+
+	// TxDependency
+	if len(elems) >= 6 {
+		i.TxDependency, err = unmarshalRLPTxDependencyFrom(elems[5])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

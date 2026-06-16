@@ -64,6 +64,9 @@ type BlockBuilder struct {
 
 	// state is in memory state transition
 	state *state.Transition
+
+	// receipts
+	receipts []*types.Receipt
 }
 
 // Init initializes block builder before adding transactions and actual block building
@@ -126,14 +129,14 @@ func (b *BlockBuilder) Build(handler func(h *types.Header)) (*types.FullBlock, e
 	b.block = consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   b.header,
 		Txns:     b.txns,
-		Receipts: b.state.Receipts(),
+		Receipts: b.receipts,
 	})
 
 	b.block.Header.ComputeHash()
 
 	return &types.FullBlock{
 		Block:    b.block,
-		Receipts: b.state.Receipts(),
+		Receipts: b.receipts,
 	}, nil
 }
 
@@ -146,11 +149,13 @@ func (b *BlockBuilder) WriteTx(tx *types.Transaction) error {
 		return txpool.ErrBlockLimitExceeded
 	}
 
-	if err := b.state.Write(tx); err != nil {
+	receipt, err := b.state.Write(tx)
+	if err != nil {
 		return err
 	}
 
 	b.txns = append(b.txns, tx)
+	b.receipts = append(b.receipts, receipt)
 
 	return nil
 }
@@ -186,7 +191,7 @@ write:
 
 // Receipts returns the collection of transaction receipts for given block
 func (b *BlockBuilder) Receipts() []*types.Receipt {
-	return b.state.Receipts()
+	return b.receipts
 }
 
 func (b *BlockBuilder) writeTxPoolTransaction(tx *types.Transaction) (bool, error) {

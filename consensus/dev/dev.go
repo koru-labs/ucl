@@ -116,12 +116,12 @@ func (d *Dev) run() {
 }
 
 type transitionInterface interface {
-	Write(txn *types.Transaction) error
+	Write(txn *types.Transaction) (*types.Receipt, error)
 }
 
-func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface) []*types.Transaction {
-	var successful []*types.Transaction
-
+func (d *Dev) writeTransactions(
+	gasLimit uint64, transition transitionInterface,
+) (successful []*types.Transaction, receipts []*types.Receipt) {
 	d.txpool.Prepare()
 
 	for {
@@ -136,7 +136,8 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 			continue
 		}
 
-		if err := transition.Write(tx); err != nil {
+		receipt, err := transition.Write(tx)
+		if err != nil {
 			if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
 				break
 			} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
@@ -152,11 +153,12 @@ func (d *Dev) writeTransactions(gasLimit uint64, transition transitionInterface)
 		d.txpool.Pop(tx)
 
 		successful = append(successful, tx)
+		receipts = append(receipts, receipt)
 	}
 
 	d.logger.Info("picked out txns from pool", "num", len(successful), "remaining", d.txpool.Length())
 
-	return successful
+	return successful, receipts
 }
 
 // writeNewBLock generates a new block based on transactions from the pool,
@@ -190,7 +192,7 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 		return err
 	}
 
-	txns := d.writeTransactions(gasLimit, transition)
+	txns, receipts := d.writeTransactions(gasLimit, transition)
 
 	// Commit the changes
 	_, root, err := transition.Commit()
@@ -207,7 +209,7 @@ func (d *Dev) writeNewBlock(parent *types.Header) error {
 	block := consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   header,
 		Txns:     txns,
-		Receipts: transition.Receipts(),
+		Receipts: receipts,
 	})
 
 	if _, err := d.blockchain.VerifyFinalizedBlock(block); err != nil {
