@@ -3,23 +3,17 @@ package itrie
 import (
 	"fmt"
 
-	lru "github.com/hashicorp/golang-lru"
-
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
 type State struct {
 	storage Storage
-	cache   *lru.Cache
 }
 
 func NewState(storage Storage) *State {
-	cache, _ := lru.New(128)
-
 	s := &State{
 		storage: storage,
-		cache:   cache,
 	}
 
 	return s
@@ -103,16 +97,6 @@ func (s *State) newTrieAt(root types.Hash) (*Trie, error) {
 		return s.newTrie(), nil
 	}
 
-	tt, ok := s.cache.Get(root)
-	if ok {
-		t, ok := tt.(*Trie)
-		if !ok {
-			return nil, fmt.Errorf("invalid type assertion on root: %s", root)
-		}
-
-		return t, nil
-	}
-
 	n, ok, err := GetNode(root.Bytes(), s.storage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get storage root %s: %w", root, err)
@@ -127,8 +111,4 @@ func (s *State) newTrieAt(root types.Hash) (*Trie, error) {
 	}
 
 	return t, nil
-}
-
-func (s *State) AddState(root types.Hash, t *Trie) {
-	s.cache.Add(root, t)
 }

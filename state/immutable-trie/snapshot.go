@@ -125,11 +125,6 @@ func (s *Snapshot) Commit(objs []*state.Object) (state.Snapshot, []byte, error) 
 				}
 
 				accountStateRoot, _ := localTxn.Hash()
-				accountStateTrie := localTxn.Commit()
-
-				// Add this to the cache
-				s.state.AddState(types.BytesToHash(accountStateRoot), accountStateTrie)
-
 				account.Root = types.BytesToHash(accountStateRoot)
 			}
 
@@ -156,8 +151,6 @@ func (s *Snapshot) Commit(objs []*state.Object) (state.Snapshot, []byte, error) 
 	if err := batch.Write(); err != nil {
 		return nil, types.ZeroHash[:], fmt.Errorf("snapshot commit db write error: %w", err)
 	}
-
-	s.state.AddState(types.BytesToHash(root), nTrie)
 
 	return &Snapshot{trie: nTrie, state: s.state}, root, nil
 }
