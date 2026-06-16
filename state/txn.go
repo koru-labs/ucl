@@ -66,8 +66,8 @@ func (txn *Txn) GetRadix() *iradix.Txn {
 	return txn.txn
 }
 
-func (txn *Txn) clearDeps() {
-	txn.accessTracker.Clear(false)
+func (txn *Txn) clearAccessTracker(writesOnly bool) {
+	txn.accessTracker.Clear(writesOnly)
 }
 
 func (txn *Txn) getReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
@@ -297,8 +297,6 @@ func (txn *Txn) RevertToSnapshot(id int) error {
 
 	tree := txn.snapshots[id]
 	txn.txn = tree.Txn()
-	// clear writes tracks
-	txn.accessTracker.Clear(true)
 
 	return nil
 }

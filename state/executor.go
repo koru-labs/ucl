@@ -499,10 +499,12 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
-	t.state.clearDeps()
+	t.state.clearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
+		t.state.clearAccessTracker(true) // clear writes if tx has been reverted
+
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
