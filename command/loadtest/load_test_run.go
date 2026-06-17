@@ -167,6 +167,13 @@ func setFlags(cmd *cobra.Command) {
 		"token smart contract address",
 	)
 
+	cmd.Flags().IntVar(
+		&params.txsPerSecond,
+		txsPerSecondFlag,
+		0,
+		"number of transactions per second",
+	)
+
 	_ = cmd.MarkFlagRequired(MnemonicFlag)
 	_ = cmd.MarkFlagRequired(loadTestTypeFlag)
 
@@ -199,6 +206,7 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		BlockNumberDeadband:  params.blockNumberDeadband,
 		TearDown:             params.tearDown,
 		TokenContractAddress: types.StringToAddress(params.tokenContractAddress),
+		TxsPerSecond:         params.txsPerSecond,
 	})
 	if err != nil {
 		outputter.SetError(err)
