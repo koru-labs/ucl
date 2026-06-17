@@ -1612,6 +1612,8 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 		)
 
 		for attempt := 0; attempt < 3; attempt++ {
+			fmt.Println("sending batch...", time.Now())
+
 			hashes, err = batchSender.SendBatch(b.rawTxs)
 			if err == nil {
 				break
