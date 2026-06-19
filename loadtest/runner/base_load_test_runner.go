@@ -57,6 +57,8 @@ type BaseLoadTestRunner struct {
 	clients          ethClientList
 	receivers        receiversList
 	batchSenders     batchSendersList
+
+	finality *finalityTracker
 }
 
 // NewBaseLoadTestRunner creates a new instance of BaseLoadTestRunner with the provided LoadTestConfig.
@@ -101,6 +103,7 @@ func NewBaseLoadTestRunner(cfg LoadTestConfig) (*BaseLoadTestRunner, error) {
 		receivers:          receiversList,
 		vus:                make([]*account, cfg.VUs),
 		vusAddresses:       make([]types.Address, cfg.VUs),
+		finality:           newFinalityTracker(ethClientList, cfg.ReceiptsTimeout),
 	}, nil
 }
 
@@ -618,7 +621,11 @@ func (r *BaseLoadTestRunner) calculateResultsParallel() {
 		}
 	}
 
-	r.done <- r.calculateResults(stats.blockInfo, stats.totalTxs)
+	// sending has finished by the time gathering completes, so it is safe to
+	// stop the finality tracker and compute the latency distribution here.
+	fr := r.finality.stopAndCompute()
+
+	r.done <- r.calculateResults(stats.blockInfo, stats.totalTxs, fr)
 }
 
 // calculateResults calculates the results of a load test for a given set of
@@ -628,7 +635,11 @@ func (r *BaseLoadTestRunner) calculateResultsParallel() {
 // It also calculates the minimum and maximum TPS values, as well as the total time taken to mine the transactions.
 // The calculated TPS values are displayed in a table using the tablewriter package.
 // The function returns an error if there is any issue retrieving block information or calculating TPS.
-func (r *BaseLoadTestRunner) calculateResults(blockInfos map[uint64]*BlockInfo, totalTxs int) error {
+func (r *BaseLoadTestRunner) calculateResults(
+	blockInfos map[uint64]*BlockInfo,
+	totalTxs int,
+	finality finalityResult,
+) error {
 	fmt.Println("=============================================================")
 	fmt.Println("Calculating results...")
 
@@ -752,7 +763,7 @@ func (r *BaseLoadTestRunner) calculateResults(blockInfos map[uint64]*BlockInfo, 
 			totalTxs, totalTime, totalGasUsed,
 			maxTxsPerSecond, minTxsPerSecond, avgTxsPerSecond, avgGasPerTx,
 			minGasUtilization, maxGasUtilization, avgGasUtilization,
-			infos,
+			infos, finality,
 		)
 	}
 
@@ -760,7 +771,7 @@ func (r *BaseLoadTestRunner) calculateResults(blockInfos map[uint64]*BlockInfo, 
 		totalTxs, totalTime, totalGasUsed,
 		maxTxsPerSecond, minTxsPerSecond, avgTxsPerSecond, avgGasPerTx,
 		minGasUtilization, maxGasUtilization, avgGasUtilization,
-		infos)
+		infos, finality)
 }
 
 type NodeInfoResult struct {
@@ -889,7 +900,7 @@ func (r *BaseLoadTestRunner) saveResultsToJSONFile(
 	totalTxs int, totalTime float64, totalGasUsed *big.Int,
 	maxTxsPerSecond, minTxsPerSecond, avgTxsPerSecond float64, avgGasPerTx *big.Int,
 	minGasUtilization, maxGasUtilization, avgGasUtilization float64,
-	blockInfos []*BlockInfo) error {
+	blockInfos []*BlockInfo, finality finalityResult) error {
 	fmt.Println("Saving results to JSON file...")
 
 	type Result struct {
@@ -904,6 +915,11 @@ func (r *BaseLoadTestRunner) saveResultsToJSONFile(
 		MinGasUtilization float64      `json:"minGasUtilization"`
 		MaxGasUtilization float64      `json:"maxGasUtilization"`
 		AvgGasUtilization float64      `json:"avgGasUtilization"`
+		FinalityP50Ms     float64      `json:"finalityP50Ms"`
+		FinalityP95Ms     float64      `json:"finalityP95Ms"`
+		FinalityP99Ms     float64      `json:"finalityP99Ms"`
+		FinalityMeasured  int          `json:"finalityMeasured"`
+		FinalityDropped   uint64       `json:"finalityDropped"`
 		Blocks            []*BlockInfo `json:"blocks"`
 	}
 
@@ -920,6 +936,11 @@ func (r *BaseLoadTestRunner) saveResultsToJSONFile(
 		MinGasUtilization: minGasUtilization,
 		MaxGasUtilization: maxGasUtilization,
 		AvgGasUtilization: avgGasUtilization,
+		FinalityP50Ms:     float64(finality.p50.Microseconds()) / 1000.0,
+		FinalityP95Ms:     float64(finality.p95.Microseconds()) / 1000.0,
+		FinalityP99Ms:     float64(finality.p99.Microseconds()) / 1000.0,
+		FinalityMeasured:  finality.measured,
+		FinalityDropped:   finality.dropped,
 	}
 
 	jsonData, err := json.MarshalIndent(result, "", "   ")
@@ -946,6 +967,24 @@ func (r *BaseLoadTestRunner) saveResultsToJSONFile(
 // The transaction hashes are appended to the allTxnHashes slice.
 // Finally, the function prints the time taken to send the transactions
 // and returns the transaction hashes and nil error.
+// recordSubmitTimes feeds the finality tracker with submitted transaction hashes
+// and the wall-clock time each was sent. Hashes and times are produced in the same
+// order (one per successful send), so they are paired positionally.
+func (r *BaseLoadTestRunner) recordSubmitTimes(hashes []types.Hash, times []time.Time) {
+	if r.finality == nil {
+		return
+	}
+
+	n := len(hashes)
+	if len(times) < n {
+		n = len(times)
+	}
+
+	for i := 0; i < n; i++ {
+		r.finality.record(hashes[i], times[i])
+	}
+}
+
 func (r *BaseLoadTestRunner) sendTransactions(
 	createTxnFn func(*account, *feeData, *big.Int) (*types.Transaction, error),
 ) ([]types.Hash, error) {
@@ -1180,6 +1219,7 @@ func (r *BaseLoadTestRunner) sendTransactionsForUser(
 	}
 
 	sendErrs := make([]error, 0)
+	submitTimes := make([]time.Time, 0, r.cfg.TxsPerUser)
 	checkFeeDataNum := r.cfg.TxsPerUser / 5
 
 	for i := 0; i < r.cfg.TxsPerUser; i++ {
@@ -1198,9 +1238,13 @@ func (r *BaseLoadTestRunner) sendTransactionsForUser(
 			continue
 		}
 
+		sentAt := time.Now()
+
 		_, err = txRelayer.SendTransaction(txn, account.key)
 		if err != nil {
 			sendErrs = append(sendErrs, err)
+		} else {
+			submitTimes = append(submitTimes, sentAt)
 		}
 
 		r.resultsCollector.VUTxnCountCh <- VUTxnCount{account.id, 1}
@@ -1209,7 +1253,10 @@ func (r *BaseLoadTestRunner) sendTransactionsForUser(
 		_ = bar.Add(1)
 	}
 
-	return txRelayer.GetTxnHashes(), sendErrs, nil
+	hashes := txRelayer.GetTxnHashes()
+	r.recordSubmitTimes(hashes, submitTimes)
+
+	return hashes, sendErrs, nil
 }
 
 // sendTransactionsForUserInBatches sends user transactions in batches to the rpc node
@@ -1299,9 +1346,15 @@ func (r *BaseLoadTestRunner) sendTransactionsForUserInBatchesInternal(
 			totalTxs++
 		}
 
+		sentAt := time.Now()
+
 		hashes, err := batchSender.SendBatch(batchTxs)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		for _, h := range hashes {
+			r.finality.record(h, sentAt)
 		}
 
 		r.resultsCollector.VUTxnCountCh <- VUTxnCount{account.id, len(hashes)}
@@ -1421,7 +1474,7 @@ func getFeeData(client *jsonrpc.EthClient, dynamicTxs bool) (*feeData, error) {
 func printResults(totalTxs int, totalTime float64, totalGasUsed *big.Int,
 	maxTxsPerSecond, minTxsPerSecond, avgTxsPerSecond float64, avgGasPerTx *big.Int,
 	minGasUtilization, maxGasUtilization, avgGasUtilization float64,
-	blockInfos []*BlockInfo) error {
+	blockInfos []*BlockInfo, finality finalityResult) error {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.Header([]string{
 		"Block Number",
@@ -1486,7 +1539,37 @@ func printResults(totalTxs int, totalTime float64, totalGasUsed *big.Int,
 		return err
 	}
 
+	printFinalityResults(finality)
+
 	return nil
+}
+
+// printFinalityResults prints the submit->finalized latency distribution.
+func printFinalityResults(finality finalityResult) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.Header([]string{
+		"Finality p50 (ms)",
+		"Finality p95 (ms)",
+		"Finality p99 (ms)",
+		"Measured Txs",
+		"Dropped Samples",
+	})
+
+	if err := table.Append([]string{
+		fmt.Sprintf("%.2f", float64(finality.p50.Microseconds())/1000.0),
+		fmt.Sprintf("%.2f", float64(finality.p95.Microseconds())/1000.0),
+		fmt.Sprintf("%.2f", float64(finality.p99.Microseconds())/1000.0),
+		fmt.Sprintf("%d", finality.measured),
+		fmt.Sprintf("%d", finality.dropped),
+	}); err != nil {
+		fmt.Println("Error rendering finality results:", err)
+
+		return
+	}
+
+	if err := table.Render(); err != nil {
+		fmt.Println("Error rendering finality results:", err)
+	}
 }
 
 // sendTransactionsRateLimited sends transactions at a controlled rate defined by TxsPerSecond config.
@@ -1611,8 +1694,12 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 			err    error
 		)
 
+		var sentAt time.Time
+
 		for attempt := 0; attempt < 3; attempt++ {
 			fmt.Println("sending batch...", time.Now())
+
+			sentAt = time.Now()
 
 			hashes, err = batchSender.SendBatch(b.rawTxs)
 			if err == nil {
@@ -1644,6 +1731,10 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 
 		_ = bar.Add(len(b.rawTxs))
 		r.resultsCollector.VUTxnCountCh <- VUTxnCount{acc.id, len(hashes)}
+
+		for _, h := range hashes {
+			r.finality.record(h, sentAt)
+		}
 
 		mu.Lock()
 

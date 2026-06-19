@@ -79,6 +79,8 @@ func (e *PTokenRunner) Run(ctx context.Context) error {
 	go e.readState(cancelableCtx)
 	go e.readTxPool(cancelableCtx)
 
+	e.finality.start(finalityTrackerWorkers)
+
 	if !e.cfg.WaitForTxPoolToEmpty {
 		go e.waitForReceiptsParallel(cancelableCtx)
 		go e.calculateResultsParallel()
@@ -109,7 +111,10 @@ func (e *PTokenRunner) Run(ctx context.Context) error {
 		return err
 	}
 
-	if err := e.calculateResults(e.waitForReceipts(txHashes)); err != nil {
+	finality := e.finality.stopAndCompute()
+
+	blockInfos, totalTxs := e.waitForReceipts(txHashes)
+	if err := e.calculateResults(blockInfos, totalTxs, finality); err != nil {
 		return err
 	}
 
