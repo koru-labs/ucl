@@ -1238,7 +1238,7 @@ func (r *BaseLoadTestRunner) sendTransactionsForUser(
 			continue
 		}
 
-		sentAt := time.Now()
+		sentAt := time.Now().UTC()
 
 		_, err = txRelayer.SendTransaction(txn, account.key)
 		if err != nil {
@@ -1346,7 +1346,7 @@ func (r *BaseLoadTestRunner) sendTransactionsForUserInBatchesInternal(
 			totalTxs++
 		}
 
-		sentAt := time.Now()
+		sentAt := time.Now().UTC()
 
 		hashes, err := batchSender.SendBatch(batchTxs)
 		if err != nil {
@@ -1699,7 +1699,7 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 		for attempt := 0; attempt < 3; attempt++ {
 			fmt.Println("sending batch...", time.Now())
 
-			sentAt = time.Now()
+			sentAt = time.Now().UTC()
 
 			hashes, err = batchSender.SendBatch(b.rawTxs)
 			if err == nil {
