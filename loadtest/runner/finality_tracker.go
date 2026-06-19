@@ -179,6 +179,7 @@ func (f *finalityTracker) stopAndCompute() finalityResult {
 	// close an already-closed channel.
 	f.closeMu.Lock()
 	alreadyStopped := f.stopped
+
 	f.stopped = true
 	if !alreadyStopped {
 		close(f.in)

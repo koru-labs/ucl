@@ -37,6 +37,7 @@ func newSealTimeStore() *sealTimeStore {
 func (s *sealTimeStore) store(height uint64, hash types.Hash, start time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.starts[sealKey{height, hash}] = start
 }
 
@@ -59,7 +60,7 @@ func (s *sealTimeStore) take(height uint64, hash types.Hash) (time.Time, bool) {
 }
 
 func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
-	start := time.Now()
+	start := time.Now().UTC()
 
 	var (
 		latestHeader      = i.blockchain.Header()
@@ -160,7 +161,7 @@ func (i *backendIBFT) InsertProposal(
 	newBlock.Header = header
 
 	// Save the block locally
-	commitStart := time.Now()
+	commitStart := time.Now().UTC()
 
 	if err := i.blockchain.WriteBlock(newBlock, "consensus"); err != nil {
 		i.logger.Error("cannot write block", "err", err)
@@ -291,7 +292,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
-	execStart := time.Now()
+	execStart := time.Now().UTC()
 
 	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
