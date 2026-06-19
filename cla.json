@@ -55,6 +55,14 @@
       "created_at": "2026-05-28T13:33:27Z",
       "repoId": 1170508623,
       "pullRequestNo": 110
+    },
+    {
+      "name": "katarzynakawala",
+      "id": 14032922,
+      "comment_id": 4751411994,
+      "created_at": "2026-06-19T12:11:29Z",
+      "repoId": 1170508623,
+      "pullRequestNo": 138
     }
   ]
 }
