@@ -19,6 +19,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/precompiled"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 const (
@@ -162,7 +163,9 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	for _, t := range block.Transactions {
+	blockBAL := bal.NewConstructionBlockAccessList()
+
+	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
 		}
@@ -173,10 +176,17 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
+		txBAL := bal.NewConstructionBlockAccessList()
+		txn.balRecorder = NewBALRecorder(txBAL, uint32(i+1))
+
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
+
+		blockBAL.Merge(txBAL)
 	}
+
+	txn.blockBAL = blockBAL.ToEncodingObj()
 
 	return txn, nil
 }
@@ -235,6 +245,8 @@ func (e *Executor) BeginTxn(
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 		PostHook:    e.PostHook,
+
+		balRecorder: runtime.NoopBALRecorder{},
 	}
 
 	// enable contract deployment allow list (if any)
@@ -300,6 +312,10 @@ type Transition struct {
 
 	// transient storage
 	transientStorageTouched bool
+
+	balRecorder runtime.BALRecorder
+
+	blockBAL bal.BlockAccessList
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -750,6 +766,17 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
 
+	t.balRecorder.BalanceChange(msg.From, t.state.GetBalance(msg.From))
+	t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
+
+	if t.config.London && msg.Type != types.StateTx {
+		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
+	}
+
+	if !msg.IsContractCreation() {
+		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
+	}
+
 	return result, nil
 }
 
@@ -864,6 +891,8 @@ func (t *Transition) applyCall(
 	snapshot := t.state.Snapshot()
 	t.state.TouchAccount(c.Address)
 
+	t.balRecorder.AccountRead(c.Address)
+
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
@@ -871,6 +900,11 @@ func (t *Transition) applyCall(
 				GasLeft: c.Gas,
 				Err:     err,
 			}
+		}
+
+		if c.Value != nil && c.Value.Sign() != 0 {
+			t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
+			t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 		}
 	}
 
@@ -925,8 +959,12 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
+	t.balRecorder.NonceChange(c.Caller, t.state.GetNonce(c.Caller))
+
 	// Check if there is a collision and the address already exists
 	if t.hasCodeOrNonce(c.Address) {
+		t.balRecorder.AccountRead(c.Address)
+
 		return &runtime.ExecutionResult{
 			GasLeft: 0,
 			Err:     runtime.ErrContractAddressCollision,
@@ -943,6 +981,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		if err := t.state.IncrNonce(c.Address); err != nil {
 			return &runtime.ExecutionResult{Err: err}
 		}
+
+		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
 	}
 
 	// Transfer the value
@@ -951,6 +991,11 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			GasLeft: gasLimit,
 			Err:     err,
 		}
+	}
+
+	if c.Value != nil && c.Value.Sign() != 0 {
+		t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
+		t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 	}
 
 	var result *runtime.ExecutionResult
@@ -1059,6 +1104,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	result.Address = c.Address
 	t.state.SetCode(c.Address, result.ReturnValue)
 
+	t.balRecorder.CodeChange(c.Address, result.ReturnValue)
+
 	return result
 }
 
@@ -1159,8 +1206,18 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 		t.state.AddRefund(24000)
 	}
 
-	t.state.AddBalance(beneficiary, t.state.GetBalance(addr))
+	balance := t.state.GetBalance(addr)
+
+	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
+
+	if balance.Sign() != 0 {
+		t.BALRecorder().BalanceChange(addr, big.NewInt(0))
+		t.BALRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+	} else {
+		t.BALRecorder().AccountRead(addr)
+		t.BALRecorder().AccountRead(beneficiary)
+	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {
@@ -1384,4 +1441,20 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
+}
+
+func (t *Transition) BALRecorder() runtime.BALRecorder {
+	return t.balRecorder
+}
+
+func (t *Transition) BlockAccessList() bal.BlockAccessList {
+	return t.blockBAL
+}
+
+func (t *Transition) SetBALRecorder(recorder runtime.BALRecorder) {
+	t.balRecorder = recorder
+}
+
+func (t *Transition) SetBlockAccessList(b bal.BlockAccessList) {
+	t.blockBAL = b
 }

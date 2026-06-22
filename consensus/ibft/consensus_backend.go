@@ -12,7 +12,9 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
@@ -258,6 +260,14 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
+	finalBAL := transition.BlockAccessList()
+	if finalBAL != nil {
+		balHash := finalBAL.Hash()
+		header.BlockAccessListHash = &balHash
+	}
+
+	i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
+
 	// build the block
 	block := consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   header,
@@ -308,10 +318,14 @@ const (
 type txExeResult struct {
 	tx     *types.Transaction
 	status status
+	bal    *bal.ConstructionBlockAccessList
 }
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) error
+	SetBALRecorder(recorder runtime.BALRecorder)
+	SetBlockAccessList(b bal.BlockAccessList)
+	BlockAccessList() bal.BlockAccessList
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -333,6 +347,8 @@ func (i *backendIBFT) writeTransactions(
 		skipped    = 0
 	)
 
+	blockBAL := bal.NewConstructionBlockAccessList()
+
 	defer func() {
 		i.logger.Info(
 			"executed txs",
@@ -341,6 +357,12 @@ func (i *backendIBFT) writeTransactions(
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
 		)
+
+		transition.SetBlockAccessList(blockBAL.ToEncodingObj())
+
+		encoded := blockBAL.ToEncodingObj()
+		transition.SetBlockAccessList(encoded)
+
 	}()
 
 	i.txpool.Prepare()
@@ -356,6 +378,7 @@ write:
 				i.txpool.Peek(),
 				transition,
 				gasLimit,
+				uint32(successful+1),
 			)
 
 			if !ok {
@@ -368,6 +391,7 @@ write:
 			case success:
 				executed = append(executed, tx)
 				successful++
+				blockBAL.Merge(result.bal)
 			case fail:
 				failed++
 			case skip:
@@ -386,6 +410,7 @@ func (i *backendIBFT) writeTransaction(
 	tx *types.Transaction,
 	transition transitionInterface,
 	gasLimit uint64,
+	nextBALIndex uint32,
 ) (*txExeResult, bool) {
 	if tx == nil {
 		return nil, false
@@ -395,8 +420,12 @@ func (i *backendIBFT) writeTransaction(
 		i.txpool.Drop(tx)
 
 		// continue processing
-		return &txExeResult{tx, fail}, true
+		return &txExeResult{tx, fail, nil}, true
 	}
+
+	txBAL := bal.NewConstructionBlockAccessList()
+
+	transition.SetBALRecorder(state.NewBALRecorder(txBAL, nextBALIndex))
 
 	if err := transition.Write(tx); err != nil {
 		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
@@ -405,17 +434,17 @@ func (i *backendIBFT) writeTransaction(
 		} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
 			i.txpool.Demote(tx)
 
-			return &txExeResult{tx, skip}, true
+			return &txExeResult{tx, skip, nil}, true
 		} else {
 			i.txpool.Drop(tx)
 
-			return &txExeResult{tx, fail}, true
+			return &txExeResult{tx, fail, nil}, true
 		}
 	}
 
 	i.txpool.Pop(tx)
 
-	return &txExeResult{tx, success}, true
+	return &txExeResult{tx, success, txBAL}, true
 }
 
 // extractCommittedSeals extracts CommittedSeals from header

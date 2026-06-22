@@ -13,6 +13,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 
 	"github.com/hashicorp/go-hclog"
@@ -795,6 +796,10 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
+	if err := b.verifyBlockAccessList(block, txn.BlockAccessList()); err != nil {
+		return nil, err
+	}
+
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
 		return nil, err
 	}
@@ -1472,4 +1477,25 @@ func (b *Blockchain) writeBatchAndUpdate(
 
 func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
 	b.settlementObserver = observer
+}
+
+func (bc *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessList) error {
+	if block.Header.BlockAccessListHash == nil {
+		if computedBAL != nil && len(computedBAL) > 0 {
+			return errors.New("block produced BAL but header has no BAL hash")
+		}
+		return nil
+	}
+
+	computedHash := computedBAL.Hash()
+
+	bc.logger.Debug("computed BAL for verification", "block", block.Number(), "content", "\n"+computedBAL.PrettyPrint())
+
+	bc.logger.Error("COMPUTED HASH IS:", computedHash, "BLOCK HASH IS:", block.Header.BlockAccessListHash)
+
+	if computedHash != *block.Header.BlockAccessListHash {
+		return fmt.Errorf("BAL hash is not equal")
+	}
+
+	return nil
 }

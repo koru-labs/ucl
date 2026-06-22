@@ -150,6 +150,10 @@ func (m *mockHostF) SetTransientState(addr types.Address, key types.Hash, value 
 
 func (m *mockHostF) TouchTransientStorage() {}
 
+func (m *mockHostF) BALRecorder() runtime.BALRecorder {
+	return nil
+}
+
 func FuzzTestEVM(f *testing.F) {
 	seed := []byte{
 		PUSH1, 0x01, PUSH1, 0x02, ADD,
