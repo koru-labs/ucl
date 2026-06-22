@@ -176,8 +176,6 @@ func setFlags(cmd *cobra.Command) {
 
 	_ = cmd.MarkFlagRequired(MnemonicFlag)
 	_ = cmd.MarkFlagRequired(loadTestTypeFlag)
-
-	cmd.MarkFlagsMutuallyExclusive(executionTimeFlag, txsPerUserFlag)
 }
 
 func runCommand(cmd *cobra.Command, _ []string) {
