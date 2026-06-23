@@ -49,7 +49,7 @@ func (s *syncPeerService) Close() error {
 
 // setupGRPCServer setup GRPC server
 func (s *syncPeerService) setupGRPCServer() {
-	s.stream = grpc.NewGrpcStream()
+	s.stream = grpc.NewGrpcStream(s.network.GetMaxGrpcMsgSize())
 
 	proto.RegisterSyncPeerServer(s.stream.GrpcServer(), s)
 	s.stream.Serve()

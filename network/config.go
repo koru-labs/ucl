@@ -11,17 +11,18 @@ import (
 
 // Config details the params for the base networking server
 type Config struct {
-	NoDiscover        bool                   // flag indicating if the discovery mechanism should be turned on
-	Addr              *net.TCPAddr           // the base address
-	NatAddr           net.IP                 // the NAT address
-	DNS               multiaddr.Multiaddr    // the DNS address
-	DataDir           string                 // the base data directory for the client
-	MaxPeers          int64                  // the maximum number of peer connections
-	MaxInboundPeers   int64                  // the maximum number of inbound peer connections
-	MaxOutboundPeers  int64                  // the maximum number of outbound peer connections
-	Chain             *chain.Chain           // the reference to the chain configuration
-	SecretsManager    secrets.SecretsManager // the secrets manager used for key storage
-	GossipMessageSize int                    // the maximum size of a gossip message
+	NoDiscover         bool                   // flag indicating if the discovery mechanism should be turned on
+	Addr               *net.TCPAddr           // the base address
+	NatAddr            net.IP                 // the NAT address
+	DNS                multiaddr.Multiaddr    // the DNS address
+	DataDir            string                 // the base data directory for the client
+	MaxPeers           int64                  // the maximum number of peer connections
+	MaxInboundPeers    int64                  // the maximum number of inbound peer connections
+	MaxOutboundPeers   int64                  // the maximum number of outbound peer connections
+	Chain              *chain.Chain           // the reference to the chain configuration
+	SecretsManager     secrets.SecretsManager // the secrets manager used for key storage
+	GossipMessageSize  int                    // the maximum size of a gossip message
+	MaxGrpcMessageSize int                    // the maximum size of a grpc message
 }
 
 func DefaultConfig() *Config {
