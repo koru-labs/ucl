@@ -37,8 +37,9 @@ func DefaultConfig() *Config {
 		// The default ratio for outbound / max peer connections is 0.20
 		MaxPeers: 40,
 		// The default ratio for outbound / inbound connections is 0.25
-		MaxInboundPeers:   32,
-		MaxOutboundPeers:  8,
-		GossipMessageSize: pubsub.DefaultMaxMessageSize,
+		MaxInboundPeers:    32,
+		MaxOutboundPeers:   8,
+		GossipMessageSize:  pubsub.DefaultMaxMessageSize,
+		MaxGrpcMessageSize: 4 << 20, // set default for UTs, actual value is passed from server command when node starts
 	}
 }
