@@ -76,6 +76,8 @@ type LoadTestConfig struct {
 	TearDown bool // TearDown indicates whether to tear down the load test.
 
 	TokenContractAddress types.Address
+
+	TxsPerSecond int
 }
 
 // LoadTestRunner represents a runner for load tests.

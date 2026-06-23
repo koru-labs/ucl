@@ -74,7 +74,8 @@ type Blockchain struct {
 
 	gpAverage *gasPriceAverage // A reference to the average gas price
 
-	writeLock sync.Mutex
+	writeLock  sync.Mutex
+	curHdrLock sync.RWMutex
 
 	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
 
@@ -314,6 +315,9 @@ func (b *Blockchain) setCurrentHeader(h *types.Header, diff *big.Int) {
 
 // Header returns the current header (atomic)
 func (b *Blockchain) Header() *types.Header {
+	b.curHdrLock.RLock()
+	defer b.curHdrLock.RUnlock()
+
 	return b.currentHeader.Load()
 }
 
@@ -1458,6 +1462,12 @@ func (b *Blockchain) writeBatchAndUpdate(
 	header *types.Header,
 	newTD *big.Int,
 	isCanonnical bool) error {
+	// lock writebatch and setCurrentHeader in order to prevent getting receipts for
+	// the pending block while current hdr lru is still containing previous hdr
+	// this occurs when json rpc endpoint is called with LatestBlockNumberOrHash
+	b.curHdrLock.Lock()
+	defer b.curHdrLock.Unlock()
+
 	if err := batchWriter.WriteBatch(); err != nil {
 		return err
 	}
