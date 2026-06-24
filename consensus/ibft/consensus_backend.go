@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/go-ibft/messages"
@@ -13,9 +14,50 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/hashicorp/go-metrics"
 )
 
+type sealKey struct {
+	height uint64
+	hash   types.Hash
+}
+
+// sealTimeStore tracks per-proposal build start times across the
+// BuildProposal -> InsertProposal callbacks. It is safe for concurrent use,
+// tolerates lookup misses, and evicts stale entries to bound memory.
+type sealTimeStore struct {
+	mu     sync.Mutex
+	starts map[sealKey]time.Time
+}
+
+func newSealTimeStore() *sealTimeStore {
+	return &sealTimeStore{starts: make(map[sealKey]time.Time)}
+}
+
+func (s *sealTimeStore) store(height uint64, hash types.Hash, start time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.starts[sealKey{height, hash}] = start
+}
+
+// take returns the start time for (height, hash) if present, deleting it, and
+// also evicts any entries for heights at or below the committed height (those
+// belong to already-decided rounds and can never match again).
+func (s *sealTimeStore) take(height uint64, hash types.Hash) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	start, ok := s.starts[sealKey{height, hash}]
+
+	clear(s.starts)
+
+	return start, ok
+}
+
 func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
+	start := time.Now().UTC()
+
 	var (
 		latestHeader      = i.blockchain.Header()
 		latestBlockNumber = latestHeader.Number
@@ -40,6 +82,8 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
+	i.sealTimes.store(view.Height, block.Hash(), start)
+
 	return block.MarshalRLP()
 }
 
@@ -54,6 +98,11 @@ func (i *backendIBFT) InsertProposal(
 
 		return
 	}
+
+	// Capture the proposed identity before WriteCommittedSeals mutates the
+	// header (and therefore the hash); needed to match the BuildProposal start.
+	proposedNumber := newBlock.Number()
+	proposedHash := newBlock.Hash()
 
 	committedSealsMap := make(map[types.Address][]byte, len(committedSeals))
 
@@ -108,10 +157,19 @@ func (i *backendIBFT) InsertProposal(
 	newBlock.Header = header
 
 	// Save the block locally
+	commitStart := time.Now().UTC()
+
 	if err := i.blockchain.WriteBlock(newBlock, "consensus"); err != nil {
 		i.logger.Error("cannot write block", "err", err)
 
 		return
+	}
+
+	metrics.MeasureSince([]string{consensusMetrics, "span", "commit"}, commitStart)
+	metrics.SetGauge([]string{consensusMetrics, "block_size_bytes"}, float32(len(proposal.RawProposal)))
+
+	if start, ok := i.sealTimes.take(proposedNumber, proposedHash); ok {
+		metrics.MeasureSince([]string{consensusMetrics, "finality", "seal_total"}, start)
 	}
 
 	i.updateMetrics(newBlock)
@@ -184,6 +242,8 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
 func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, error) {
+	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
+
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     parent.Number + 1,
@@ -228,6 +288,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
+	execStart := time.Now().UTC()
+
 	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
 		return nil, nil, err
@@ -254,6 +316,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
+
+	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
 
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()

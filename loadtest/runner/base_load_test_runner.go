@@ -628,7 +628,10 @@ func (r *BaseLoadTestRunner) calculateResultsParallel() {
 // It also calculates the minimum and maximum TPS values, as well as the total time taken to mine the transactions.
 // The calculated TPS values are displayed in a table using the tablewriter package.
 // The function returns an error if there is any issue retrieving block information or calculating TPS.
-func (r *BaseLoadTestRunner) calculateResults(blockInfos map[uint64]*BlockInfo, totalTxs int) error {
+func (r *BaseLoadTestRunner) calculateResults(
+	blockInfos map[uint64]*BlockInfo,
+	totalTxs int,
+) error {
 	fmt.Println("=============================================================")
 	fmt.Println("Calculating results...")
 
