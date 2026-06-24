@@ -50,11 +50,7 @@ func (s *sealTimeStore) take(height uint64, hash types.Hash) (time.Time, bool) {
 
 	start, ok := s.starts[sealKey{height, hash}]
 
-	for k := range s.starts {
-		if k.height <= height {
-			delete(s.starts, k)
-		}
-	}
+	clear(s.starts)
 
 	return start, ok
 }
