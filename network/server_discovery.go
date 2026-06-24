@@ -253,7 +253,7 @@ func (s *Server) TemporaryDialPeer(peerAddrInfo *peer.AddrInfo) {
 
 // registerDiscoveryService registers the discovery protocol to be available
 func (s *Server) registerDiscoveryService(discovery *discovery.DiscoveryService) {
-	grpcStream := grpc.NewGrpcStream()
+	grpcStream := grpc.NewGrpcStream(s.config.MaxGrpcMessageSize)
 	proto.RegisterDiscoveryServer(grpcStream.GrpcServer(), discovery)
 	grpcStream.Serve()
 
