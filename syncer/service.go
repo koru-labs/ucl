@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/grpc"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-metrics"
 )
@@ -68,7 +69,17 @@ func (s *syncPeerService) GetBlocks(
 			return ErrBlockNotFound
 		}
 
-		resp := toProtoBlock(block)
+		receipts, err := s.blockchain.GetReceiptsByHash(block.Number(), block.Hash())
+		if err != nil {
+			receipts = nil
+		}
+
+		blockAccessList, err := s.blockchain.GetBlockAccessList(block.Number(), block.Hash())
+		if err != nil {
+			blockAccessList = nil
+		}
+
+		resp := toProtoBlock(block, receipts, blockAccessList)
 		metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(resp.Block)))
 
 		// if client closes stream, context.Canceled is given
@@ -136,8 +147,18 @@ func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServ
 }
 
 // toProtoBlock converts type.Block -> proto.Block
-func toProtoBlock(block *types.Block) *proto.Block {
-	return &proto.Block{
+func toProtoBlock(block *types.Block, receipts types.Receipts, blockAccessList bal.BlockAccessList) *proto.Block {
+	resp := &proto.Block{
 		Block: block.MarshalRLP(),
 	}
+
+	if len(receipts) > 0 {
+		resp.Receipts = receipts.MarshalRLPTo(nil)
+	}
+
+	if len(blockAccessList) > 0 {
+		resp.BlockAccessList = blockAccessList.MarshalRLP()
+	}
+
+	return resp
 }

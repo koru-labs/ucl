@@ -263,7 +263,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	finalBAL := transition.BlockAccessList()
 	if finalBAL != nil {
 		balHash := finalBAL.Hash()
-		header.BlockAccessListHash = &balHash
+		header.BlockAccessListHash = balHash
 	}
 
 	i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())

@@ -255,11 +255,8 @@ func (h *Header) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 			return err
 		}
 
-		h.BlockAccessListHash = &balHash
-	} else {
-		h.BlockAccessListHash = nil
+		h.BlockAccessListHash = balHash
 	}
-
 	// compute the hash after the decoding
 	h.ComputeHash()
 

@@ -23,8 +23,16 @@ message GetBlocksRequest {
 
 // Block contains a block data
 message Block {
-  // RLP Encoded Block Data
+  // RLP Encoded Block Data (Header, Transactions, Uncles)
   bytes block = 1;
+  // RLP Encoded BlockAccessList (EIP-7928). Allows sync peers to apply
+  // the finalized post-execution state directly, without re-executing
+  // transactions through the EVM.
+  bytes block_access_list = 2;
+  // RLP Encoded Receipts for the transactions in this block.
+  // Allows sync peers to skip local transaction re-execution and trust
+  // the finalized block's receipts directly (status, logs, gas used).
+  bytes receipts = 3;
 }
 
 // SyncPeerStatus contains peer status

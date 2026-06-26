@@ -494,15 +494,15 @@ func Test_syncPeerClient_GetBlocks(t *testing.T) {
 	blockStream, err := client.GetBlocks(peerSrv.AddrInfo().ID, syncFrom, 5*time.Second)
 	assert.NoError(t, err)
 
-	blocks := make([]*types.Block, 0, peerLatest)
+	blocks := make([]*SyncBlock, 0, peerLatest)
 	for block := range blockStream {
 		blocks = append(blocks, block)
 	}
 
 	// hash is calculated on unmarshaling
-	expected := createMockBlocks(10)
+	expected := createMockSyncerBlocks(10)
 	for _, b := range expected {
-		b.Header.ComputeHash()
+		b.Block.Header.ComputeHash()
 	}
 
 	assert.Equal(t, expected, blocks)

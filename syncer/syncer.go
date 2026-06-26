@@ -273,17 +273,17 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 
 	for {
 		select {
-		case block, ok := <-blockCh:
+		case syncBlock, ok := <-blockCh:
 			if !ok {
 				return lastReceivedNumber, shouldTerminate, nil
 			}
 
 			// safe check
-			if block.Number() == 0 {
+			if syncBlock.Block.Number() == 0 {
 				continue
 			}
 
-			fullBlock, err := s.blockchain.VerifyFinalizedBlock(block)
+			fullBlock, err := s.applyBlock(syncBlock)
 			if err != nil {
 				metrics.IncrCounter([]string{syncerMetrics, "bad_block"}, 1)
 
@@ -299,11 +299,40 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 			updateMetrics(fullBlock)
 			shouldTerminate = newBlockCallback(fullBlock)
 
-			lastReceivedNumber = block.Number()
+			lastReceivedNumber = syncBlock.Block.Number()
 		case <-time.After(s.blockTimeout):
 			return lastReceivedNumber, shouldTerminate, errTimeout
 		}
 	}
+}
+
+func (s *syncer) applyBlock(syncBlock *SyncBlock) (*types.FullBlock, error) {
+	canTrustBAL := true // TODO: change this
+
+	if !canTrustBAL {
+		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
+	}
+
+	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAL(
+		syncBlock.Block,
+		syncBlock.Receipts,
+		syncBlock.BlockAccessList,
+	)
+	if err != nil {
+		// Fall back to full re-execution rather than failing the sync
+		// outright; a malicious or buggy peer's bad BAL/receipts shouldn't
+		// be able to stall sync, only cost us the speed advantage for that
+		// one block
+		s.logger.Warn(
+			"failed to apply block from BAL, falling back to full re-execution",
+			"block", syncBlock.Block.Number(),
+			"err", err,
+		)
+
+		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
+	}
+
+	return fullBlock, nil
 }
 
 func updateMetrics(fullBlock *types.FullBlock) {

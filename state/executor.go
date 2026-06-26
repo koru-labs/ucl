@@ -279,6 +279,53 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
+func (e *Executor) ApplyBlockAccessList(
+	parentRoot types.Hash,
+	accessList bal.BlockAccessList,
+) (types.Hash, error) {
+	snap, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	txn := newTxn(snap)
+
+	for _, account := range accessList {
+		for _, slotChanges := range account.StorageChanges {
+			if len(slotChanges.SlotChanges) == 0 {
+				continue
+			}
+
+			final := slotChanges.SlotChanges[len(slotChanges.SlotChanges)-1]
+			txn.SetState(account.Address, slotChanges.Slot, final.PostValue)
+		}
+
+		if n := len(account.BalanceChanges); n > 0 {
+			txn.SetBalance(account.Address, account.BalanceChanges[n-1].PostBalance)
+		}
+
+		if n := len(account.NonceChanges); n > 0 {
+			txn.SetNonce(account.Address, account.NonceChanges[n-1].PostNonce)
+		}
+
+		if n := len(account.CodeChanges); n > 0 {
+			txn.SetCode(account.Address, account.CodeChanges[n-1].NewCode)
+		}
+	}
+
+	objs, err := txn.Commit(false)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	_, root, err := snap.Commit(objs)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	return types.BytesToHash(root), nil
+}
+
 type Transition struct {
 	logger hclog.Logger
 

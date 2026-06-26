@@ -29,17 +29,22 @@ const (
 )
 
 var (
-	ErrNoBlock              = errors.New("no block data passed in")
-	ErrParentNotFound       = errors.New("parent block not found")
-	ErrInvalidParentHash    = errors.New("parent block hash is invalid")
-	ErrParentHashMismatch   = errors.New("invalid parent block hash")
-	ErrInvalidBlockSequence = errors.New("invalid block sequence")
-	ErrInvalidSha3Uncles    = errors.New("invalid block sha3 uncles root")
-	ErrInvalidTxRoot        = errors.New("invalid block transactions root")
-	ErrInvalidReceiptsSize  = errors.New("invalid number of receipts")
-	ErrInvalidStateRoot     = errors.New("invalid block state root")
-	ErrInvalidGasUsed       = errors.New("invalid block gas used")
-	ErrInvalidReceiptsRoot  = errors.New("invalid block receipts root")
+	ErrNoBlock                     = errors.New("no block data passed in")
+	ErrParentNotFound              = errors.New("parent block not found")
+	ErrInvalidParentHash           = errors.New("parent block hash is invalid")
+	ErrParentHashMismatch          = errors.New("invalid parent block hash")
+	ErrInvalidBlockSequence        = errors.New("invalid block sequence")
+	ErrInvalidSha3Uncles           = errors.New("invalid block sha3 uncles root")
+	ErrInvalidTxRoot               = errors.New("invalid block transactions root")
+	ErrInvalidReceiptsSize         = errors.New("invalid number of receipts")
+	ErrInvalidStateRoot            = errors.New("invalid block state root")
+	ErrInvalidGasUsed              = errors.New("invalid block gas used")
+	ErrInvalidReceiptsRoot         = errors.New("invalid block receipts root")
+	ErrBlockAccessListNotFound     = errors.New("block access list not found")
+	ErrBALMissingForTrustMode      = errors.New("cannot apply block from BAL: BAL is empty")
+	ErrReceiptsMissingForTrustMode = errors.New("cannot apply block from BAL: receipts are empty")
+
+	EmptyBALHash = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 )
 
 // Blockchain is a blockchain reference
@@ -99,6 +104,11 @@ type Verifier interface {
 
 type Executor interface {
 	ProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (*state.Transition, error)
+
+	// ApplyBlockAccessList applies the final (post-execution) state recorded
+	// in accessList directly to the trie rooted at parentRoot, WITHOUT
+	// executing any transaction. Returns the resulting state root.
+	ApplyBlockAccessList(parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error)
 }
 
 type TxSigner interface {
@@ -800,6 +810,12 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
+	batchWriter := b.db.NewWriter()
+	batchWriter.PutBlockAccessList(block.Number(), block.Header.Hash, txn.BlockAccessList())
+	if err := batchWriter.WriteBatch(); err != nil {
+		return nil, err
+	}
+
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
 		return nil, err
 	}
@@ -1479,23 +1495,116 @@ func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
 	b.settlementObserver = observer
 }
 
-func (bc *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessList) error {
-	if block.Header.BlockAccessListHash == nil {
-		if computedBAL != nil && len(computedBAL) > 0 {
-			return errors.New("block produced BAL but header has no BAL hash")
-		}
-		return nil
-	}
-
+func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessList) error {
 	computedHash := computedBAL.Hash()
 
-	bc.logger.Debug("computed BAL for verification", "block", block.Number(), "content", "\n"+computedBAL.PrettyPrint())
+	b.logger.Debug("computed BAL for verification", "block", block.Number(), "content", "\n"+computedBAL.PrettyPrint())
 
-	bc.logger.Error("COMPUTED HASH IS:", computedHash, "BLOCK HASH IS:", block.Header.BlockAccessListHash)
+	b.logger.Error("COMPUTED HASH IS:", computedHash, "BLOCK HASH IS:", block.Header.BlockAccessListHash)
 
-	if computedHash != *block.Header.BlockAccessListHash {
+	if computedHash != block.Header.BlockAccessListHash {
 		return fmt.Errorf("BAL hash is not equal")
 	}
 
 	return nil
+}
+
+func (b *Blockchain) GetBlockAccessList(blockNumber uint64, hash types.Hash) (bal.BlockAccessList, error) {
+	return b.db.ReadBlockAccessList(blockNumber, hash)
+}
+
+func (b *Blockchain) ApplyFinalizedBlockFromBAL(
+	block *types.Block,
+	receipts []*types.Receipt,
+	accessList bal.BlockAccessList,
+) (*types.FullBlock, error) {
+	if err := b.consensus.VerifyHeader(block.Header); err != nil {
+		return nil, fmt.Errorf("failed to verify the header: %w", err)
+	}
+
+	if err := b.verifyBlockParent(block); err != nil {
+		return nil, err
+	}
+
+	if hash := buildroot.CalculateUncleRoot(block.Uncles); hash != block.Header.Sha3Uncles {
+		return nil, ErrInvalidSha3Uncles
+	}
+
+	if hash := buildroot.CalculateTransactionsRoot(block.Transactions, block.Number()); hash != block.Header.TxRoot {
+		return nil, ErrInvalidTxRoot
+	}
+
+	if block.Header.BlockAccessListHash == EmptyBALHash {
+		if len(block.Transactions) != 0 {
+			return nil, fmt.Errorf(
+				"block claims empty block access list but has %d transactions",
+				len(block.Transactions),
+			)
+		}
+
+		if len(receipts) != 0 {
+			return nil, fmt.Errorf(
+				"block claims empty block access list but %d receipts were supplied",
+				len(receipts),
+			)
+		}
+
+		return &types.FullBlock{Block: block, Receipts: receipts}, nil
+	}
+
+	if len(accessList) == 0 {
+		return nil, ErrBALMissingForTrustMode
+	}
+
+	if err := accessList.Validate(block.Header.GasLimit, len(block.Transactions)); err != nil {
+		return nil, fmt.Errorf("invalid block access list structure: %w", err)
+	}
+
+	computedBALHash := accessList.Hash()
+	if computedBALHash != block.Header.BlockAccessListHash {
+		return nil, errors.New("supplied block access list does not match header hash")
+	}
+
+	// receipts checks
+	if len(receipts) == 0 {
+		return nil, ErrReceiptsMissingForTrustMode
+	}
+
+	if len(receipts) != len(block.Transactions) {
+		return nil, ErrInvalidReceiptsSize
+	}
+
+	receiptsRoot := buildroot.CalculateReceiptsRoot(receipts)
+	if receiptsRoot != block.Header.ReceiptsRoot {
+		return nil, ErrInvalidReceiptsRoot
+	}
+
+	parent, ok := b.readHeader(block.Header.ParentHash)
+	if !ok {
+		return nil, ErrParentNotFound
+	}
+
+	computedStateRoot, err := b.executor.ApplyBlockAccessList(parent.StateRoot, accessList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply block access list to state: %w", err)
+	}
+
+	if computedStateRoot != block.Header.StateRoot {
+		return nil, fmt.Errorf(
+			"state root mismatch after applying block access list: got %s, want %s",
+			computedStateRoot, block.Header.StateRoot,
+		)
+	}
+
+	batchWriter := b.db.NewWriter()
+	batchWriter.PutBlockAccessList(block.Number(), block.Header.Hash, accessList)
+	batchWriter.PutReceipts(block.Number(), block.Header.Hash, receipts)
+
+	if err := batchWriter.WriteBatch(); err != nil {
+		return nil, fmt.Errorf("failed to persist block access list: %w", err)
+	}
+
+	b.receiptsCache.Add(block.Header.Hash, receipts)
+
+	return &types.FullBlock{Block: block, Receipts: receipts}, nil
 }

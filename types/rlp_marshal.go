@@ -99,9 +99,7 @@ func (h *Header) MarshalRLPWith(arena *fastrlp.Arena) *fastrlp.Value {
 
 	vv.Set(arena.NewUint(h.BaseFee))
 
-	if h.BlockAccessListHash != nil {
-		vv.Set(arena.NewCopyBytes(h.BlockAccessListHash.Bytes()))
-	}
+	vv.Set(arena.NewCopyBytes(h.BlockAccessListHash.Bytes()))
 
 	return vv
 }
