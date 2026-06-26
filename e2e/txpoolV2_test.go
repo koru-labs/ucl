@@ -220,9 +220,6 @@ func TestE2E_TxPool_TransactionWithHeaderInstructions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(types.ReceiptSuccess), receipt.Status)
 
-	// wait for state root update after contract deployment
-	time.Sleep(500 * time.Millisecond)
-
 	receipt, err = ABITransaction(relayer, sidechainKey, contractsapi.TestWriteBlockMetadata,
 		receipt.ContractAddress, "init", []interface{}{})
 	require.NoError(t, err)

@@ -50,6 +50,7 @@ const (
 	blockCacheTTLFlag       = "block-cache-ttl"
 	blockCacheCapacityFlag  = "block-cache-capacity"
 	MaxRequestBodySizeFlag  = "max-request-body-size"
+	MaxGrpcMsgSizeFlag      = "max-grpc-msg-size"
 	JSONRPCTimeoutFlag      = "json-rpc-timeout"
 
 	relayerFlag               = "relayer"
@@ -239,6 +240,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		BlockCacheTTL:           p.rawConfig.BlockCacheTTL,
 		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
 		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
+		MaxGrpcMsgSize:          p.rawConfig.MaxGrpcMsgSize,
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,

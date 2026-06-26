@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
+	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -552,6 +553,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	}
 
 	t.transientStorageTouched = false
+	t.state.snapshots = []*iradix.Tree{}
 
 	s := t.state.Snapshot()
 

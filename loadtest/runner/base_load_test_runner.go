@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -627,7 +628,10 @@ func (r *BaseLoadTestRunner) calculateResultsParallel() {
 // It also calculates the minimum and maximum TPS values, as well as the total time taken to mine the transactions.
 // The calculated TPS values are displayed in a table using the tablewriter package.
 // The function returns an error if there is any issue retrieving block information or calculating TPS.
-func (r *BaseLoadTestRunner) calculateResults(blockInfos map[uint64]*BlockInfo, totalTxs int) error {
+func (r *BaseLoadTestRunner) calculateResults(
+	blockInfos map[uint64]*BlockInfo,
+	totalTxs int,
+) error {
 	fmt.Println("=============================================================")
 	fmt.Println("Calculating results...")
 
@@ -979,7 +983,11 @@ func (r *BaseLoadTestRunner) sendTransactions(
 
 	sendFn := r.sendTransactionsForUser
 	if r.cfg.ExecutionTime > 0 {
-		sendFn = r.sendTransactionsInTime
+		if r.cfg.TxsPerSecond > 0 {
+			sendFn = r.sendTransactionsRateLimited
+		} else {
+			sendFn = r.sendTransactionsInTime
+		}
 	} else if r.cfg.BatchSize > 1 {
 		sendFn = r.sendTransactionsForUserInBatches
 	}
@@ -1482,4 +1490,194 @@ func printResults(totalTxs int, totalTime float64, totalGasUsed *big.Int,
 	}
 
 	return nil
+}
+
+// sendTransactionsRateLimited sends transactions at a controlled rate defined by TxsPerSecond config.
+// It pre-signs batches in a background goroutine to avoid signing overhead during send,
+// and uses a ticker to dispatch one batch per second per VU.
+// VUs are staggered to avoid thundering herd on the RPC node.
+func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
+	acc *account, chainID *big.Int,
+	bar *progressbar.ProgressBar,
+	createTxnFn func(*account, *feeData, *big.Int) (*types.Transaction, error),
+) ([]types.Hash, []error, error) {
+	numOfTxns := r.cfg.TxsPerSecond / r.cfg.VUs
+	if numOfTxns < 1 {
+		numOfTxns = 1
+	}
+
+	client := r.clients.getClientForAccount(acc.index)
+	signer := crypto.NewLondonSigner(chainID.Uint64(), true, crypto.NewEIP155Signer(chainID.Uint64(), true))
+
+	feeData, err := getFeeData(client, r.cfg.DynamicTxs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	txnExample, err := createTxnFn(acc, feeData, chainID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var gas uint64
+
+	if txnExample.Gas == 0 {
+		gasLimit, err := client.EstimateGas(txrelayerv2.ConvertTxnToCallMsg(txnExample))
+		if err != nil {
+			gasLimit = txrelayer.DefaultGasLimit
+		}
+
+		gas = gasLimit * 2
+	} else {
+		gas = txnExample.Gas
+	}
+
+	type signedBatch struct {
+		rawTxs []string
+	}
+
+	totalBatches := int(r.cfg.ExecutionTime.Seconds())
+
+	signedCh := make(chan signedBatch, 3)
+
+	go func() {
+		defer close(signedCh)
+
+		startNonce := acc.nonce
+
+		for i := 0; i < totalBatches; i++ {
+			feeData, err := getFeeData(client, r.cfg.DynamicTxs)
+			if err != nil {
+				return
+			}
+
+			batch := signedBatch{
+				rawTxs: make([]string, 0, numOfTxns),
+			}
+
+			for j := 0; j < numOfTxns; j++ {
+				txn, err := createTxnFn(acc, feeData, chainID)
+				if err != nil {
+					continue
+				}
+
+				txn.Nonce = startNonce + uint64(i*numOfTxns+j)
+				if txn.Gas == 0 {
+					txn.Gas = gas
+				}
+
+				signed, err := signer.SignTx(txn, acc.key.PrivateKey())
+				if err != nil {
+					continue
+				}
+
+				batch.rawTxs = append(batch.rawTxs, "0x"+hex.EncodeToString(signed.MarshalRLP()))
+			}
+
+			signedCh <- batch
+		}
+
+		acc.nonce += uint64(totalBatches * numOfTxns)
+	}()
+
+	firstBatch, ok := <-signedCh
+	if !ok {
+		return nil, nil, nil
+	}
+
+	// VU0=0ms, VU1=100ms, VU2=200ms... (for 10 VUs)
+	if r.cfg.VUs > 1 {
+		slotInterval := time.Second / time.Duration(r.cfg.VUs)
+		time.Sleep(slotInterval * time.Duration(acc.index))
+	}
+
+	batchSender := r.batchSenders.getBatchSenderForAccount(acc.index)
+
+	executionTimer := time.NewTimer(r.cfg.ExecutionTime)
+	defer executionTimer.Stop()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var (
+		mu         sync.Mutex
+		wg         sync.WaitGroup
+		txnHashes  []types.Hash
+		sendErrors []error
+	)
+
+	sendBatch := func(b signedBatch) {
+		defer wg.Done()
+
+		var (
+			hashes []types.Hash
+			err    error
+		)
+
+		for attempt := 0; attempt < 3; attempt++ {
+			fmt.Println("sending batch...", time.Now())
+
+			hashes, err = batchSender.SendBatch(b.rawTxs)
+			if err == nil {
+				break
+			}
+
+			// retry only on transient connection errors the node may close
+			// idle keep-alive connections, especially on long test runs
+			if strings.Contains(err.Error(), "server closed connection") ||
+				strings.Contains(err.Error(), "connection reset by peer") ||
+				strings.Contains(err.Error(), "EOF") {
+				time.Sleep(50 * time.Millisecond)
+
+				continue
+			}
+
+			break
+		}
+
+		if err != nil {
+			mu.Lock()
+
+			sendErrors = append(sendErrors, err)
+
+			mu.Unlock()
+
+			return
+		}
+
+		_ = bar.Add(len(b.rawTxs))
+		r.resultsCollector.VUTxnCountCh <- VUTxnCount{acc.id, len(hashes)}
+
+		mu.Lock()
+
+		txnHashes = append(txnHashes, hashes...)
+
+		mu.Unlock()
+	}
+
+	// send the first batch immediately without waiting for the ticker
+	wg.Add(1)
+
+	go sendBatch(firstBatch)
+
+	for {
+		select {
+		case <-executionTimer.C:
+			wg.Wait()
+
+			return txnHashes, sendErrors, nil
+
+		case <-ticker.C:
+			batch, ok := <-signedCh
+			if !ok {
+				wg.Wait()
+
+				return txnHashes, sendErrors, nil
+			}
+
+			wg.Add(1)
+
+			go sendBatch(batch)
+		}
+	}
 }

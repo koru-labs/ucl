@@ -49,7 +49,7 @@ func newTestSyncPeerClient(network Network, blockchain Blockchain) *syncPeerClie
 	}
 
 	// need to register protocol
-	network.RegisterProtocol(syncerProto, grpc.NewGrpcStream())
+	network.RegisterProtocol(syncerProto, grpc.NewGrpcStream(4<<20))
 
 	return client
 }

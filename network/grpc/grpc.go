@@ -24,11 +24,13 @@ type GrpcStream struct {
 	grpcServer *grpc.Server
 }
 
-func NewGrpcStream() *GrpcStream {
+func NewGrpcStream(maxMsgSize int) *GrpcStream {
 	return &GrpcStream{
-		ctx:        context.Background(),
-		streamCh:   make(chan network.Stream),
-		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(interceptor)),
+		ctx:      context.Background(),
+		streamCh: make(chan network.Stream),
+		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(interceptor),
+			grpc.MaxRecvMsgSize(maxMsgSize),
+			grpc.MaxSendMsgSize(maxMsgSize)),
 	}
 }
 
@@ -74,8 +76,8 @@ func interceptor(
 	)
 }
 
-func (g *GrpcStream) Client(stream network.Stream) (*grpc.ClientConn, error) {
-	return WrapClient(stream)
+func (g *GrpcStream) Client(stream network.Stream, maxGrpcMsgSize int) (*grpc.ClientConn, error) {
+	return WrapClient(stream, maxGrpcMsgSize)
 }
 
 func (g *GrpcStream) Serve() {
@@ -124,12 +126,18 @@ func (g *GrpcStream) Close() error {
 
 // --- conn ---
 
-func WrapClient(s network.Stream) (*grpc.ClientConn, error) {
+func WrapClient(s network.Stream, maxGrpcMsgSize int) (*grpc.ClientConn, error) {
+	// Increase max size limits
+	maxSizeOption := grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(maxGrpcMsgSize), // Max receive size
+		grpc.MaxCallSendMsgSize(maxGrpcMsgSize), // Max send size
+	)
+
 	opts := grpc.WithContextDialer(func(ctx context.Context, peerIdStr string) (net.Conn, error) {
 		return &streamConn{s}, nil
 	})
 
-	return grpc.Dial("", grpc.WithTransportCredentials(insecure.NewCredentials()), opts)
+	return grpc.Dial("", grpc.WithTransportCredentials(insecure.NewCredentials()), opts, maxSizeOption)
 }
 
 // streamConn represents a net.Conn wrapped to be compatible with net.conn
