@@ -400,7 +400,7 @@ func opSload(c *state) {
 	val := c.host.GetStorage(c.msg.Address, slot)
 	loc.SetBytes(val.Bytes())
 
-	c.host.BALRecorder().StorageRead(c.msg.Address, slot)
+	c.host.BlockAccessListRecorder().StorageRead(c.msg.Address, slot)
 }
 
 func opSStore(c *state) {
@@ -462,9 +462,9 @@ func opSStore(c *state) {
 	}
 
 	if status == runtime.StorageUnchanged {
-		c.host.BALRecorder().StorageRead(c.msg.Address, key) // no-op write → read
+		c.host.BlockAccessListRecorder().StorageRead(c.msg.Address, key)
 	} else {
-		c.host.BALRecorder().StorageWrite(c.msg.Address, key, val)
+		c.host.BlockAccessListRecorder().StorageWrite(c.msg.Address, key, val)
 	}
 }
 
@@ -533,7 +533,7 @@ func opBalance(c *state) {
 
 	c.push(*uintBalance)
 
-	c.host.BALRecorder().AccountRead(addr)
+	c.host.BlockAccessListRecorder().AccountRead(addr)
 }
 
 func opSelfBalance(c *state) {
@@ -631,7 +631,7 @@ func opExtCodeSize(c *state) {
 	x := uint256.NewInt(uint64(c.host.GetCodeSize(addr)))
 	c.push(*x)
 
-	c.host.BALRecorder().AccountRead(addr)
+	c.host.BlockAccessListRecorder().AccountRead(addr)
 }
 
 func opGasPrice(c *state) {
@@ -676,7 +676,7 @@ func opExtCodeHash(c *state) {
 
 	c.push(v)
 
-	c.host.BALRecorder().AccountRead(address)
+	c.host.BlockAccessListRecorder().AccountRead(address)
 }
 
 func opPC(c *state) {
@@ -750,7 +750,7 @@ func opExtCodeCopy(c *state) {
 		c.setBytes(c.memory[memOffset.Uint64():], code, size, codeOffset)
 	}
 
-	c.host.BALRecorder().AccountRead(address)
+	c.host.BlockAccessListRecorder().AccountRead(address)
 }
 
 func opCallDataCopy(c *state) {
@@ -1386,7 +1386,7 @@ func (c *state) buildCallContract(op OpCode) (*runtime.Contract, uint64, uint64,
 		return nil, 0, 0, nil
 	}
 
-	c.host.BALRecorder().AccountRead(addr)
+	c.host.BlockAccessListRecorder().AccountRead(addr)
 
 	if transfersValue {
 		gas += 2300

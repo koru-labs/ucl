@@ -74,7 +74,7 @@ func (h *benchHost) GetRefund() uint64                                       { r
 func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash  { return types.Hash{} }
 func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash) {}
 func (h *benchHost) TouchTransientStorage()
-func (h *benchHost) BALRecorder() runtime.BALRecorder { return nil }
+func (h *benchHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder { return nil }
 
 func benchmarkRun(b *testing.B, codeSize int, cacheSize int) {
 	b.Helper()

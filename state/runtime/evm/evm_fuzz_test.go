@@ -150,7 +150,7 @@ func (m *mockHostF) SetTransientState(addr types.Address, key types.Hash, value 
 
 func (m *mockHostF) TouchTransientStorage() {}
 
-func (m *mockHostF) BALRecorder() runtime.BALRecorder {
+func (m *mockHostF) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
 	return nil
 }
 

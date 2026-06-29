@@ -8,43 +8,41 @@ import (
 	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
-// concreteBALRecorder wraps a ConstructionAccountAccess-backed list and
-// the access index for the current execution phase (0, 1..n, or n+1).
-type concreteBALRecorder struct {
-	bal   *bal.ConstructionBlockAccessList
+type BlockAccessListRecorder struct {
+	bal   *bal.BlockAccessListRecord
 	index uint32
 }
 
-func NewBALRecorder(b *bal.ConstructionBlockAccessList, index uint32) runtime.BALRecorder {
-	return &concreteBALRecorder{bal: b, index: index}
+func NewBlockAccessListRecorder(b *bal.BlockAccessListRecord, index uint32) runtime.BlockAccessListRecorder {
+	return &BlockAccessListRecorder{bal: b, index: index}
 }
 
-func (r *concreteBALRecorder) getOrCreate(addr types.Address) *bal.ConstructionAccountAccess {
+func (r *BlockAccessListRecorder) getOrCreate(addr types.Address) *bal.AccountAccessRecord {
 	return r.bal.GetOrCreate(addr)
 }
 
-func (r *concreteBALRecorder) AccountRead(addr types.Address) {
+func (r *BlockAccessListRecorder) AccountRead(addr types.Address) {
 	r.getOrCreate(addr) // touch only, no-op if already present
 }
 
-func (r *concreteBALRecorder) StorageRead(addr types.Address, slot types.Hash) {
+func (r *BlockAccessListRecorder) StorageRead(addr types.Address, slot types.Hash) {
 	r.getOrCreate(addr).RecordStorageRead(slot)
 }
 
-func (r *concreteBALRecorder) StorageWrite(addr types.Address, slot, val types.Hash) {
+func (r *BlockAccessListRecorder) StorageWrite(addr types.Address, slot, val types.Hash) {
 	r.getOrCreate(addr).RecordStorageWrite(r.index, slot, val)
 }
 
-func (r *concreteBALRecorder) BalanceChange(addr types.Address, balance *big.Int) {
+func (r *BlockAccessListRecorder) BalanceChange(addr types.Address, balance *big.Int) {
 	r.getOrCreate(addr).RecordBalanceChange(r.index, balance)
 }
 
-func (r *concreteBALRecorder) NonceChange(addr types.Address, nonce uint64) {
+func (r *BlockAccessListRecorder) NonceChange(addr types.Address, nonce uint64) {
 	r.getOrCreate(addr).RecordNonceChange(r.index, nonce)
 }
 
-func (r *concreteBALRecorder) CodeChange(addr types.Address, code []byte) {
+func (r *BlockAccessListRecorder) CodeChange(addr types.Address, code []byte) {
 	r.getOrCreate(addr).RecordCodeChange(r.index, code)
 }
 
-var _ runtime.BALRecorder = &concreteBALRecorder{}
+var _ runtime.BlockAccessListRecorder = &BlockAccessListRecorder{}

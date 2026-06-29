@@ -164,7 +164,7 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	blockBAL := bal.NewConstructionBlockAccessList()
+	blockBAL := bal.NewBlockAccessListRecord()
 
 	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
@@ -177,8 +177,8 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		txBAL := bal.NewConstructionBlockAccessList()
-		txn.balRecorder = NewBALRecorder(txBAL, uint32(i+1))
+		txBAL := bal.NewBlockAccessListRecord()
+		txn.balRecorder = NewBlockAccessListRecorder(txBAL, uint32(i+1))
 
 		if err = txn.Write(t); err != nil {
 			return nil, err
@@ -361,7 +361,7 @@ type Transition struct {
 	// transient storage
 	transientStorageTouched bool
 
-	balRecorder runtime.BALRecorder
+	balRecorder runtime.BlockAccessListRecorder
 
 	blockBAL bal.BlockAccessList
 }
@@ -1261,11 +1261,11 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 	t.state.Suicide(addr)
 
 	if balance.Sign() != 0 {
-		t.BALRecorder().BalanceChange(addr, big.NewInt(0))
-		t.BALRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
+		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
 	} else {
-		t.BALRecorder().AccountRead(addr)
-		t.BALRecorder().AccountRead(beneficiary)
+		t.BlockAccessListRecorder().AccountRead(addr)
+		t.BlockAccessListRecorder().AccountRead(beneficiary)
 	}
 }
 
@@ -1492,7 +1492,7 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	return nil
 }
 
-func (t *Transition) BALRecorder() runtime.BALRecorder {
+func (t *Transition) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
 	return t.balRecorder
 }
 
@@ -1500,7 +1500,7 @@ func (t *Transition) BlockAccessList() bal.BlockAccessList {
 	return t.blockBAL
 }
 
-func (t *Transition) SetBALRecorder(recorder runtime.BALRecorder) {
+func (t *Transition) SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder) {
 	t.balRecorder = recorder
 }
 

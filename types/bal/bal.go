@@ -10,39 +10,77 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-type ConstructionAccountAccess struct {
+// AccountAccessRecord records all state elements of an account that were touched
+// during block execution as defined in EIP-7928.
+type AccountAccessRecord struct {
+	// StorageWrites holds the values of storage slots that were modified during
+	// block execution, indexed by slot key and the tx index at which each modification
+	// occurred.
 	StorageWrites map[types.Hash]map[uint32]types.Hash `json:"storageWrites,omitempty"`
 
+	// StorageReads is the set of slot keys that were read during block execution
+	// but never written. Once a slot is written, it is removed from this set and
+	// tracked exclusively in StorageWrites.
+	//
+	// Note: reads are not keyed by tx index, so this field cannot be used to detect
+	// R/W conflicts between transactions. It is retained for IO prefetching purposes
+	// only.
+	//
+	// Required for paralelization:
+	// StorageReads map[types.Hash]map[uint32]struct{} `json:"storageReads,omitempty"`
 	StorageReads map[types.Hash]struct{} `json:"storageReads,omitempty"`
 
-	BalanceChanges map[uint32]*big.Int `json:"balanceChanges,omitempty"`
+	// BalanceChanges contains all the changes of the account balance during the
+	// block execution, keyed by transaction indices where the balance was changed.
+	//
+	// Note: balance reads (e.g. via the BALANCE opcode) are not tracked, so R/W
+	// conflicts on balance between transactions cannot be detected from this field
+	// alone.
+	//
+	// Additional field is required for paralelization:
+	// BalanceReads  map[uint32]struct{} `json:"balanceReads,omitempty"`
+	BalanceChanges map[uint32]*big.Int `json:"balanceChange,omitempty"`
 
+	// NonceChanges contains all the changes of the account nonce during the block
+	// execution, keyed by transaction indices where the nonce was changed. Since nonce
+	// reads are not possible from within the EVM (no opcode exists), so R/W conflict
+	// detection is not applicable here.
 	NonceChanges map[uint32]uint64 `json:"nonceChanges,omitempty"`
 
-	CodeChange map[uint32][]byte `json:"codeChange,omitempty"`
+	// CodeChanges contains all the changes of the account code during the block
+	// execution, keyed by transaction indices where the code was changed.
+	//
+	// Note: code reads (e.g. via EXTCODECOPY) are not tracked, so R/W conflicts on
+	// code between transactions cannot be detected from this field alone.
+	//
+	// Additional field is required for parallelization:
+	// CodeReads map[uint32]struct{} `json:"codeReads,omitempty"`
+	CodeChanges map[uint32][]byte `json:"codeChanges,omitempty"`
 }
 
-func NewConstructionAccountAccess() *ConstructionAccountAccess {
-	return &ConstructionAccountAccess{
+func NewAccountAccessRecord() *AccountAccessRecord {
+	return &AccountAccessRecord{
 		StorageWrites:  make(map[types.Hash]map[uint32]types.Hash),
 		StorageReads:   make(map[types.Hash]struct{}),
 		BalanceChanges: make(map[uint32]*big.Int),
 		NonceChanges:   make(map[uint32]uint64),
-		CodeChange:     make(map[uint32][]byte),
+		CodeChanges:    make(map[uint32][]byte),
 	}
 }
 
-type ConstructionBlockAccessList struct {
-	Accounts map[types.Address]*ConstructionAccountAccess
+// BlockAccessListRecord holds all accounts and their state accesses during block
+// execution as defined in EIP-7928.
+type BlockAccessListRecord struct {
+	Accounts map[types.Address]*AccountAccessRecord
 }
 
-func NewConstructionBlockAccessList() *ConstructionBlockAccessList {
-	return &ConstructionBlockAccessList{
-		Accounts: make(map[types.Address]*ConstructionAccountAccess),
+func NewBlockAccessListRecord() *BlockAccessListRecord {
+	return &BlockAccessListRecord{
+		Accounts: make(map[types.Address]*AccountAccessRecord),
 	}
 }
 
-func (b *ConstructionBlockAccessList) Merge(other *ConstructionBlockAccessList) {
+func (b *BlockAccessListRecord) Merge(other *BlockAccessListRecord) {
 	if other == nil {
 		return
 	}
@@ -78,22 +116,22 @@ func (b *ConstructionBlockAccessList) Merge(other *ConstructionBlockAccessList) 
 
 		maps.Copy(acc.BalanceChanges, otherAcc.BalanceChanges)
 		maps.Copy(acc.NonceChanges, otherAcc.NonceChanges)
-		maps.Copy(acc.CodeChange, otherAcc.CodeChange)
+		maps.Copy(acc.CodeChanges, otherAcc.CodeChanges)
 	}
 }
 
-func (b *ConstructionBlockAccessList) Copy() *ConstructionBlockAccessList {
-	res := &ConstructionBlockAccessList{
-		Accounts: make(map[types.Address]*ConstructionAccountAccess, len(b.Accounts)),
+func (b *BlockAccessListRecord) Copy() *BlockAccessListRecord {
+	res := &BlockAccessListRecord{
+		Accounts: make(map[types.Address]*AccountAccessRecord, len(b.Accounts)),
 	}
 
 	for addr, aa := range b.Accounts {
-		aaCopy := &ConstructionAccountAccess{
+		aaCopy := &AccountAccessRecord{
 			StorageWrites:  make(map[types.Hash]map[uint32]types.Hash, len(aa.StorageWrites)),
 			StorageReads:   maps.Clone(aa.StorageReads),
 			BalanceChanges: make(map[uint32]*big.Int, len(aa.BalanceChanges)),
 			NonceChanges:   maps.Clone(aa.NonceChanges),
-			CodeChange:     make(map[uint32][]byte, len(aa.CodeChange)),
+			CodeChanges:    make(map[uint32][]byte, len(aa.CodeChanges)),
 		}
 
 		for key, sw := range aa.StorageWrites {
@@ -104,8 +142,8 @@ func (b *ConstructionBlockAccessList) Copy() *ConstructionBlockAccessList {
 			aaCopy.BalanceChanges[index] = new(big.Int).Set(balance)
 		}
 
-		for index, code := range aa.CodeChange {
-			aaCopy.CodeChange[index] = bytes.Clone(code)
+		for index, code := range aa.CodeChanges {
+			aaCopy.CodeChanges[index] = bytes.Clone(code)
 		}
 
 		res.Accounts[addr] = aaCopy
@@ -114,14 +152,14 @@ func (b *ConstructionBlockAccessList) Copy() *ConstructionBlockAccessList {
 	return res
 }
 
-func (a *ConstructionAccountAccess) toEncodingObj(addr types.Address) AccountAccess {
+func (a *AccountAccessRecord) toEncodingObj(addr types.Address) AccountAccess {
 	res := AccountAccess{
 		Address:        addr,
 		StorageChanges: make([]SlotChanges, 0, len(a.StorageWrites)),
 		StorageReads:   make([]types.Hash, 0, len(a.StorageReads)),
 		BalanceChanges: make([]BalanceChange, 0, len(a.BalanceChanges)),
 		NonceChanges:   make([]NonceChange, 0, len(a.NonceChanges)),
-		CodeChanges:    make([]CodeChange, 0, len(a.CodeChange)),
+		CodeChanges:    make([]CodeChange, 0, len(a.CodeChanges)),
 	}
 
 	// storage_changes: slots lexicographic; writes ascending by index
@@ -180,20 +218,20 @@ func (a *ConstructionAccountAccess) toEncodingObj(addr types.Address) AccountAcc
 	}
 
 	// code_changes: ascending by index
-	codeIndices := slices.Collect(maps.Keys(a.CodeChange))
+	codeIndices := slices.Collect(maps.Keys(a.CodeChanges))
 	slices.SortFunc(codeIndices, cmp.Compare)
 
 	for _, idx := range codeIndices {
 		res.CodeChanges = append(res.CodeChanges, CodeChange{
 			BlockAccessIndex: idx,
-			NewCode:          bytes.Clone(a.CodeChange[idx]),
+			NewCode:          bytes.Clone(a.CodeChanges[idx]),
 		})
 	}
 
 	return res
 }
 
-func (b *ConstructionBlockAccessList) ToEncodingObj() BlockAccessList {
+func (b *BlockAccessListRecord) ToEncodingObj() BlockAccessList {
 	addresses := slices.Collect(maps.Keys(b.Accounts))
 	slices.SortFunc(addresses, func(x, y types.Address) int {
 		return bytes.Compare(x[:], y[:])
@@ -207,23 +245,23 @@ func (b *ConstructionBlockAccessList) ToEncodingObj() BlockAccessList {
 	return res
 }
 
-func (b *ConstructionBlockAccessList) GetOrCreate(addr types.Address) *ConstructionAccountAccess {
+func (b *BlockAccessListRecord) GetOrCreate(addr types.Address) *AccountAccessRecord {
 	acc, ok := b.Accounts[addr]
 	if !ok {
-		acc = NewConstructionAccountAccess()
+		acc = NewAccountAccessRecord()
 		b.Accounts[addr] = acc
 	}
 	return acc
 }
 
-func (a *ConstructionAccountAccess) RecordStorageRead(slot types.Hash) {
+func (a *AccountAccessRecord) RecordStorageRead(slot types.Hash) {
 	if _, written := a.StorageWrites[slot]; written {
 		return
 	}
 	a.StorageReads[slot] = struct{}{}
 }
 
-func (a *ConstructionAccountAccess) RecordStorageWrite(idx uint32, slot, val types.Hash) {
+func (a *AccountAccessRecord) RecordStorageWrite(idx uint32, slot, val types.Hash) {
 	if _, ok := a.StorageWrites[slot]; !ok {
 		a.StorageWrites[slot] = make(map[uint32]types.Hash)
 	}
@@ -231,14 +269,14 @@ func (a *ConstructionAccountAccess) RecordStorageWrite(idx uint32, slot, val typ
 	delete(a.StorageReads, slot)
 }
 
-func (a *ConstructionAccountAccess) RecordBalanceChange(idx uint32, balance *big.Int) {
+func (a *AccountAccessRecord) RecordBalanceChange(idx uint32, balance *big.Int) {
 	a.BalanceChanges[idx] = new(big.Int).Set(balance)
 }
 
-func (a *ConstructionAccountAccess) RecordNonceChange(idx uint32, nonce uint64) {
+func (a *AccountAccessRecord) RecordNonceChange(idx uint32, nonce uint64) {
 	a.NonceChanges[idx] = nonce
 }
 
-func (a *ConstructionAccountAccess) RecordCodeChange(idx uint32, code []byte) {
-	a.CodeChange[idx] = bytes.Clone(code)
+func (a *AccountAccessRecord) RecordCodeChange(idx uint32, code []byte) {
+	a.CodeChanges[idx] = bytes.Clone(code)
 }

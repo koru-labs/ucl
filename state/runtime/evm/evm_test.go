@@ -152,7 +152,7 @@ func (m *mockHost) TouchTransientStorage() {
 	m.transientStorageTouched = true
 }
 
-func (m *mockHost) BALRecorder() runtime.BALRecorder {
+func (m *mockHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
 	panic("Not implemented in tests") // TODO:
 }
 

@@ -84,7 +84,7 @@ type Host interface {
 	GetTransientState(addr types.Address, key types.Hash) types.Hash        // transient storage (TLOAD)
 	SetTransientState(addr types.Address, key types.Hash, value types.Hash) // transient storage (TSTORE)
 	TouchTransientStorage()                                                 // transient storage
-	BALRecorder() BALRecorder
+	BlockAccessListRecorder() BlockAccessListRecorder
 }
 
 type VMTracer interface {

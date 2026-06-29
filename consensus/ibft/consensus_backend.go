@@ -382,12 +382,12 @@ const (
 type txExeResult struct {
 	tx     *types.Transaction
 	status status
-	bal    *bal.ConstructionBlockAccessList
+	bal    *bal.BlockAccessListRecord
 }
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) error
-	SetBALRecorder(recorder runtime.BALRecorder)
+	SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder)
 	SetBlockAccessList(b bal.BlockAccessList)
 	BlockAccessList() bal.BlockAccessList
 }
@@ -411,7 +411,7 @@ func (i *backendIBFT) writeTransactions(
 		skipped    = 0
 	)
 
-	blockBAL := bal.NewConstructionBlockAccessList()
+	balRecorder := bal.NewBlockAccessListRecord()
 
 	defer func() {
 		i.logger.Info(
@@ -422,9 +422,9 @@ func (i *backendIBFT) writeTransactions(
 			"remaining", i.txpool.Length(),
 		)
 
-		transition.SetBlockAccessList(blockBAL.ToEncodingObj())
+		transition.SetBlockAccessList(balRecorder.ToEncodingObj())
 
-		encoded := blockBAL.ToEncodingObj()
+		encoded := balRecorder.ToEncodingObj()
 		transition.SetBlockAccessList(encoded)
 
 	}()
@@ -442,7 +442,7 @@ write:
 				i.txpool.Peek(),
 				transition,
 				gasLimit,
-				uint32(successful+1),
+				uint32(successful+1), // We start from index 1, since 0 is reserved for pre-execution system calls.
 			)
 
 			if !ok {
@@ -455,7 +455,7 @@ write:
 			case success:
 				executed = append(executed, tx)
 				successful++
-				blockBAL.Merge(result.bal)
+				balRecorder.Merge(result.bal)
 			case fail:
 				failed++
 			case skip:
@@ -474,7 +474,7 @@ func (i *backendIBFT) writeTransaction(
 	tx *types.Transaction,
 	transition transitionInterface,
 	gasLimit uint64,
-	nextBALIndex uint32,
+	nextBalIndex uint32,
 ) (*txExeResult, bool) {
 	if tx == nil {
 		return nil, false
@@ -487,9 +487,9 @@ func (i *backendIBFT) writeTransaction(
 		return &txExeResult{tx, fail, nil}, true
 	}
 
-	txBAL := bal.NewConstructionBlockAccessList()
+	txBalRecord := bal.NewBlockAccessListRecord()
 
-	transition.SetBALRecorder(state.NewBALRecorder(txBAL, nextBALIndex))
+	transition.SetBlockAccessListRecorder(state.NewBlockAccessListRecorder(txBalRecord, nextBalIndex))
 
 	if err := transition.Write(tx); err != nil {
 		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
@@ -508,7 +508,7 @@ func (i *backendIBFT) writeTransaction(
 
 	i.txpool.Pop(tx)
 
-	return &txExeResult{tx, success, txBAL}, true
+	return &txExeResult{tx, success, txBalRecord}, true
 }
 
 // extractCommittedSeals extracts CommittedSeals from header

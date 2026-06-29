@@ -204,7 +204,7 @@ func (d dummyHost) GetTransientState(addr types.Address, key types.Hash) types.H
 
 func (d dummyHost) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {}
 
-func (d dummyHost) BALRecorder() runtime.BALRecorder {
+func (d dummyHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
 	return nil
 }
 
