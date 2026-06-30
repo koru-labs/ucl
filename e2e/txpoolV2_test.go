@@ -424,6 +424,15 @@ loop:
 func sendTransaction(t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key, txn *types.Transaction) {
 	t.Helper()
 
+	_ = sendTransactionHash(t, client, sender, txn)
+}
+
+// sendTransactionHash is a helper function which signs transaction with provided private key and sends it
+func sendTransactionHash(
+	t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key, txn *types.Transaction,
+) types.Hash {
+	t.Helper()
+
 	chainID, err := client.ChainID()
 	require.NoError(t, err)
 
@@ -456,8 +465,10 @@ func sendTransaction(t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key
 
 	txnRlp := txn.MarshalRLPTo(nil)
 
-	_, err = client.SendRawTransaction(txnRlp)
+	hash, err = client.SendRawTransaction(txnRlp)
 	require.NoError(t, err)
+
+	return hash
 }
 
 func txCost(t *types.Transaction) *big.Int {
@@ -470,4 +481,72 @@ func txCost(t *types.Transaction) *big.Int {
 	}
 
 	return new(big.Int).Mul(factor, new(big.Int).SetUint64(t.Gas))
+}
+
+func TestE2E_TxPool_TransferBug(t *testing.T) {
+	// premine an account in the genesis file
+	sender, err := wallet.GenerateKey()
+	require.NoError(t, err)
+
+	cluster := frameworkV2.NewTestCluster(t, 5,
+		frameworkV2.WithPremine(map[types.Address]*big.Int{
+			types.Address(sender.Address()): ethgo.Ether(5),
+		}),
+		frameworkV2.WithBlockTime(10*time.Second),
+		frameworkV2.WithBootnodeCount(1),
+	)
+	defer cluster.Stop()
+
+	cluster.WaitForReady(t)
+
+	client := cluster.Servers[0].JSONRPC()
+
+	wg := sync.WaitGroup{}
+	txs := [2]types.Hash{}
+
+	for id := range len(txs) {
+		wg.Add(1)
+
+		key, err := wallet.GenerateKey()
+		require.NoError(t, err)
+
+		go func(id int, to ethgo.Address) {
+			defer wg.Done()
+
+			toAddr := types.Address(to)
+
+			txn := &types.Transaction{
+				From:     types.Address(sender.Address()),
+				To:       &toAddr,
+				Gas:      21000,
+				Value:    ethgo.Ether(4),
+				Nonce:    uint64(id),
+				Type:     types.LegacyTx,
+				GasPrice: ethgo.Gwei(2),
+			}
+
+			txs[id] = sendTransactionHash(t, client, sender, txn)
+		}(id, key.Address())
+	}
+
+	wg.Wait()
+
+	states := make([]bool, len(txs))
+
+	err = cluster.WaitUntil(2*time.Minute, 2*time.Second, func() bool {
+		for i, tx := range txs {
+			receipt, err := client.GetTransactionReceipt(tx)
+			if err != nil || receipt == nil {
+				return err != nil
+			}
+
+			states[i] = receipt.Status == uint64(types.ReceiptSuccess)
+		}
+
+		return true
+	})
+	require.NoError(t, err)
+	// both in block but second one is failed
+	require.True(t, states[0])
+	require.False(t, states[1])
 }
