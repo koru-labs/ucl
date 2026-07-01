@@ -7,7 +7,7 @@ import (
 
 type ITxAccessTracker interface {
 	Clear(writesOnly bool)
-	AddWrite(addr types.Address, hash types.Hash, subpath byte, value any)
+	AddWrite(addr types.Address, hash types.Hash, subpath byte, val any)
 	AddRead(addr types.Address, hash types.Hash, subpath byte)
 	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 }
@@ -30,7 +30,7 @@ func (a *txAccessTrackerMap) Clear(writesOnly bool) {
 
 // AddWrite records a write access for a given key. The value is ignored here.
 func (a *txAccessTrackerMap) AddWrite(addr types.Address, hash types.Hash, subpath byte, _ any) {
-	key := NewGenericKey(addr, hash, subpath)
+	key := NewGenericKey(addr, hash, FullPath)
 
 	a.txWriteAccessMap[key] = struct{}{}
 }

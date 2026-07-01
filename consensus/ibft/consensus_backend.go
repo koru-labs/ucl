@@ -230,8 +230,10 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
 
-	transition, err := i.executor.BeginTxnWithTxAccessTracker(
-		parent.StateRoot, header, signer.Address(), state.TxAccessTrackerFactory(false))
+	transition, err := i.executor.BeginTxnWithCustomTxn(
+		parent.StateRoot, header, signer.Address(), func(s state.Snapshot) state.ITransitionTxn {
+			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(false))
+		})
 	if err != nil {
 		return nil, nil, err
 	}

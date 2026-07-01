@@ -23,7 +23,6 @@ type TxDependancyPool struct {
 }
 
 func NewTxDependancyPool(
-	workersCnt int,
 	txs []*types.Transaction,
 	depsMatrice [][]uint64,
 ) *TxDependancyPool {

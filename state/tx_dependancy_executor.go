@@ -2,37 +2,55 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
+	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
-type TransitionFactory func(id int) *Transition
-
 type TxDependancyExecutor struct {
-	pool       *TxDependancyPool
 	workersCnt int
 }
 
-func NewTxDependancyExecutorWithWorkers(
-	pool *TxDependancyPool, workersCnt int,
+func NewTxDependancyExecutor(
+	workersCnt int,
 ) *TxDependancyExecutor {
 	return &TxDependancyExecutor{
-		pool:       pool,
 		workersCnt: workersCnt,
 	}
 }
 
 func (t *TxDependancyExecutor) Execute(
-	transitionFactory TransitionFactory,
+	pool *TxDependancyPool,
+	executor *Executor,
+	parentRoot types.Hash,
+	blockHeader *types.Header,
+	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
 	wg := sync.WaitGroup{}
 	trans := make([]*Transition, t.workersCnt)
-	receipts := make([]*types.Receipt, t.pool.Len())
+	receipts := make([]*types.Receipt, pool.Len())
 	errs := make([]error, t.workersCnt)
+	baseRadix := createBlockRadix()
+	baseMutex := &sync.RWMutex{} // all transitions using this mutex for accessing/updating baseRadix
+
+	addError := func(id int, err error) {
+		errs[id] = err
+
+		pool.Close() // failed to process one tx -> quit
+	}
 
 	for i := range trans {
-		trans[i] = transitionFactory(i)
+		tran, err := executor.BeginTxnWithCustomTxn(
+			parentRoot, blockHeader, blockCreator, func(s Snapshot) ITransitionTxn {
+				return NewTxnVerifier(s, baseRadix, baseMutex)
+			})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create transition: %w", err)
+		}
+
+		trans[i] = tran
 	}
 
 	wg.Add(t.workersCnt)
@@ -42,22 +60,39 @@ func (t *TxDependancyExecutor) Execute(
 			defer wg.Done()
 
 			for {
-				tx, alive := t.pool.GetTx()
+				tx, alive := pool.GetTx()
 				if !alive {
 					return
 				}
 
+				if tx.Tx.Gas > blockHeader.GasLimit {
+					addError(id, runtime.ErrOutOfGas)
+
+					return
+				}
+
+				if tx.Tx.From == emptyFrom && tx.Tx.Type != types.StateTx {
+					if poolTx, ok := executor.GetPendingTxHook(tx.Tx.Hash); ok {
+						tx.Tx.From = poolTx.From
+					}
+				}
+
 				receipt, err := tran.Write(tx.Tx)
 				if err != nil {
-					errs[id] = err
+					addError(id, err)
 
-					t.pool.Close() // failed to process one tx -> quit
+					return
+				}
+
+				// write local changes to global baseRadix
+				if err := tran.PopulateBlockRadix(); err != nil {
+					addError(id, err)
 
 					return
 				}
 
 				receipts[tx.Indx] = receipt
-				t.pool.FinishTx(tx)
+				pool.FinishTx(tx)
 			}
 		}(i, trans[i])
 	}
@@ -67,8 +102,6 @@ func (t *TxDependancyExecutor) Execute(
 	if err := errors.Join(errs...); err != nil {
 		return nil, nil, err
 	}
-
-	// TODO: merge all transitions into one
 
 	return trans[0], receipts, nil
 }

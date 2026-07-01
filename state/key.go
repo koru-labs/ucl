@@ -7,9 +7,12 @@ import (
 )
 
 const (
-	addressType byte = 1
-	stateType   byte = 2
-	subpathType byte = 3
+	addressType        byte = 1
+	stateType               = 2
+	subpathType             = 3
+	transientStateType      = 4
+	logIndexType            = 5
+	refundIndexType         = 6
 
 	KeyLength = types.AddressLength + types.HashLength + 2
 
@@ -34,6 +37,18 @@ func (k Key) IsSubpath() bool {
 	return k[KeyLength-1] == subpathType
 }
 
+func (k Key) IsTransientState() bool {
+	return k[KeyLength-1] == transientStateType
+}
+
+func (k Key) IsLogIndex() bool {
+	return k[KeyLength-1] == logIndexType
+}
+
+func (k Key) IsRefundIndex() bool {
+	return k[KeyLength-1] == refundIndexType
+}
+
 func (k Key) GetAddress() types.Address {
 	return types.BytesToAddress(k[:types.AddressLength])
 }
@@ -54,6 +69,12 @@ func (k Key) String() string {
 		return fmt.Sprintf("StateKey(%s, %s)", k.GetAddress(), k.GetStateKey())
 	case k.IsSubpath():
 		return fmt.Sprintf("SubpathKey(%s, %d)", k.GetAddress(), k.GetSubpath())
+	case k.IsTransientState():
+		return fmt.Sprintf("TransientState(%s, %s)", k.GetAddress(), k.GetStateKey())
+	case k.IsLogIndex():
+		return "LogIndex"
+	case k.IsRefundIndex():
+		return "RefundIndex"
 	default:
 		return "UnknownKey"
 	}
@@ -71,7 +92,7 @@ func newKey(addr types.Address, hash types.Hash, subpath byte, keyType byte) Key
 }
 
 func NewAddressKey(addr types.Address) Key {
-	return newKey(addr, types.Hash{}, 0, addressType)
+	return newKey(addr, types.ZeroHash, 0, addressType)
 }
 
 func NewStateKey(addr types.Address, hash types.Hash) Key {
@@ -79,7 +100,19 @@ func NewStateKey(addr types.Address, hash types.Hash) Key {
 }
 
 func NewSubpathKey(addr types.Address, subpath byte) Key {
-	return newKey(addr, types.Hash{}, subpath, subpathType)
+	return newKey(addr, types.ZeroHash, subpath, subpathType)
+}
+
+func NewTransientStateKey(addr types.Address, slot types.Hash) Key {
+	return newKey(addr, slot, 0, transientStateType)
+}
+
+func NewLogIndexKey() Key {
+	return newKey(types.ZeroAddress, types.ZeroHash, 0, logIndexType)
+}
+
+func NewRefundIndexKey() Key {
+	return newKey(types.ZeroAddress, types.ZeroHash, 0, refundIndexType)
 }
 
 func NewGenericKey(addr types.Address, hash types.Hash, subpath byte) Key {

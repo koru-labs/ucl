@@ -45,6 +45,7 @@ type Executor struct {
 	PostHook         func(txn *Transition)
 	GenesisPostHook  func(*Transition) error
 	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
+	GetTxDependency  func(*types.Header) [][]uint64
 }
 
 // NewExecutor creates a new executor
@@ -158,6 +159,16 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
+	if e.GetTxDependency != nil {
+		txDependency := e.GetTxDependency(block.Header)
+		if len(txDependency) > 0 {
+			exc := NewTxDependancyExecutor(10)
+			txp := NewTxDependancyPool(block.Transactions, txDependency)
+
+			return exc.Execute(txp, e, parentRoot, block.Header, blockCreator)
+		}
+	}
+
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
 		return nil, nil, err
@@ -197,14 +208,16 @@ func (e *Executor) BeginTxn(
 	header *types.Header,
 	coinbaseReceiver types.Address,
 ) (*Transition, error) {
-	return e.BeginTxnWithTxAccessTracker(parentRoot, header, coinbaseReceiver, TxAccessTrackerFactory(true))
+	return e.BeginTxnWithCustomTxn(parentRoot, header, coinbaseReceiver, func(s Snapshot) ITransitionTxn {
+		return newTxnWithTxAccessTracker(s, TxAccessTrackerFactory(true))
+	})
 }
 
-func (e *Executor) BeginTxnWithTxAccessTracker(
+func (e *Executor) BeginTxnWithCustomTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
-	txAccessTracker ITxAccessTracker,
+	txnFactory func(Snapshot) ITransitionTxn,
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
@@ -221,8 +234,6 @@ func (e *Executor) BeginTxnWithTxAccessTracker(
 		}
 	}
 
-	newTxn := NewTxnWithTxAccessTracker(auxSnap2, txAccessTracker)
-
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
 		Timestamp:    int64(header.Timestamp),
@@ -237,7 +248,7 @@ func (e *Executor) BeginTxnWithTxAccessTracker(
 	txn := &Transition{
 		logger:   e.logger,
 		ctx:      txCtx,
-		state:    newTxn,
+		state:    txnFactory(auxSnap2),
 		snap:     auxSnap2,
 		getHash:  e.GetHash(header),
 		auxState: e.state,
@@ -289,7 +300,7 @@ type Transition struct {
 	snap     Snapshot
 
 	config  chain.ForksInTime
-	state   *Txn
+	state   ITransitionTxn
 	getHash GetHashByNumber
 	ctx     runtime.TxContext
 	gasPool uint64
@@ -469,7 +480,7 @@ func (t *Transition) addGasPool(amount uint64) {
 	t.gasPool += amount
 }
 
-func (t *Transition) Txn() *Txn {
+func (t *Transition) Txn() ITransitionTxn {
 	return t.state
 }
 
@@ -499,11 +510,11 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	t.transientStorageTouched = false
 
 	s := t.state.Snapshot()
-	t.state.clearAccessTracker(false)
+	t.state.ClearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
-		t.state.clearAccessTracker(true) // clear writes if tx has been reverted
+		t.state.ClearAccessTracker(true) // clear writes if tx has been reverted
 
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
@@ -518,7 +529,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 }
 
 func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	return t.state.getReadWriteSet(txIndx)
+	return t.state.GetReadWriteSet(txIndx)
 }
 
 // ContextPtr returns reference of context
@@ -1401,4 +1412,8 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
+}
+
+func (txn *Transition) PopulateBlockRadix() error {
+	return txn.state.PopulateBlockRadix()
 }

@@ -19,6 +19,76 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
+type ITransitionTxn interface {
+	// Account
+	GetAccount(addr types.Address) (*Account, bool)
+	CreateAccount(addr types.Address)
+	TouchAccount(addr types.Address)
+	Exist(addr types.Address) bool
+	Empty(addr types.Address) bool
+
+	// Balance
+	GetBalance(addr types.Address) *big.Int
+	AddBalance(addr types.Address, amount *big.Int)
+	AddBalanceDoNotTrack(addr types.Address, amount *big.Int)
+	SubBalance(addr types.Address, amount *big.Int) error
+	SetBalance(addr types.Address, balance *big.Int)
+
+	// Nonce
+	GetNonce(addr types.Address) uint64
+	SetNonce(addr types.Address, nonce uint64)
+	IncrNonce(addr types.Address) error
+
+	// Code
+	GetCode(addr types.Address) []byte
+	GetCodeHash(addr types.Address) types.Hash
+	GetCodeSize(addr types.Address) int
+	SetCode(addr types.Address, code []byte)
+
+	// Storage
+	GetState(addr types.Address, key types.Hash) types.Hash
+	SetState(addr types.Address, key, value types.Hash)
+	SetStorage(addr types.Address, key types.Hash, value types.Hash, config *chain.ForksInTime) runtime.StorageStatus
+	GetStorageRoot(addr types.Address) types.Hash
+	SetFullStorage(addr types.Address, state map[types.Hash]types.Hash)
+
+	// Suicide
+	Suicide(addr types.Address) bool
+	HasSuicided(addr types.Address) bool
+
+	// Refund
+	GetRefund() uint64
+	AddRefund(gas uint64)
+	AddSealingReward(addr types.Address, balance *big.Int)
+
+	// Logs
+	Logs() []*types.Log
+	EmitLog(addr types.Address, topics []types.Hash, data []byte)
+
+	// Transient storage (EIP-1153)
+	GetTransientState(addr types.Address, slot types.Hash) types.Hash
+	SetTransientState(addr types.Address, slot types.Hash, value types.Hash)
+	ClearTransientStorage()
+
+	// Snapshots
+	Snapshot() int
+	RevertToSnapshot(id int) error
+
+	// Lifecycle
+	CleanDeleteObjects(deleteEmptyObjects bool) error
+	Commit(deleteEmptyObjects bool) ([]*Object, error)
+
+	// Access tracking (block-STM)
+	ClearAccessTracker(writesOnly bool)
+	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
+
+	// Debug / RPC helpers
+	GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error)
+	StorageRangeAt(storageRangeResult *StorageRangeResult, addr *types.Address, keyStart []byte, maxResult int) error
+
+	PopulateBlockRadix() error
+}
+
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
 const (
@@ -66,11 +136,11 @@ func (txn *Txn) GetRadix() *iradix.Txn {
 	return txn.txn
 }
 
-func (txn *Txn) clearAccessTracker(writesOnly bool) {
+func (txn *Txn) ClearAccessTracker(writesOnly bool) {
 	txn.accessTracker.Clear(writesOnly)
 }
 
-func (txn *Txn) getReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+func (txn *Txn) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
 	return txn.accessTracker.GetReadWriteSet(txIndx)
 }
 
@@ -455,8 +525,6 @@ func (txn *Txn) EmitLog(addr types.Address, topics []types.Hash, data []byte) {
 	txn.txn.Insert(logIndex, logs)
 }
 
-// State
-
 // SetStorage sets the storage of an address
 func (txn *Txn) SetStorage(
 	addr types.Address,
@@ -464,75 +532,7 @@ func (txn *Txn) SetStorage(
 	value types.Hash,
 	config *chain.ForksInTime,
 ) runtime.StorageStatus {
-	oldValue := txn.GetState(addr, key)
-	if oldValue == value {
-		return runtime.StorageUnchanged
-	}
-
-	current := oldValue                          // current - storage dirtied by previous lines of this contract
-	original := txn.GetCommittedState(addr, key) // storage slot before this transaction started
-
-	txn.SetState(addr, key, value)
-
-	legacyGasMetering := !config.Istanbul && (config.Petersburg || !config.Constantinople)
-
-	if legacyGasMetering {
-		if oldValue == types.ZeroHash {
-			return runtime.StorageAdded
-		} else if value == types.ZeroHash {
-			txn.AddRefund(15000)
-
-			return runtime.StorageDeleted
-		}
-
-		return runtime.StorageModified
-	}
-
-	clearingRefund := DefaultClearingRefund
-	if config.London {
-		clearingRefund = LondonClearingRefund
-	}
-
-	if original == current {
-		if original == types.ZeroHash { // create slot (2.1.1)
-			return runtime.StorageAdded
-		}
-
-		if value == types.ZeroHash { // delete slot (2.1.2b)
-			txn.AddRefund(clearingRefund)
-
-			return runtime.StorageDeleted
-		}
-
-		return runtime.StorageModified
-	}
-
-	if original != types.ZeroHash { // Storage slot was populated before this transaction started
-		if current == types.ZeroHash { // recreate slot (2.2.1.1)
-			txn.SubRefund(clearingRefund)
-		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
-			txn.AddRefund(clearingRefund)
-		}
-	}
-
-	if original == value {
-		if original == types.ZeroHash { // reset to original nonexistent slot (2.2.2.1)
-			// Storage was used as memory (allocation and deallocation occurred within the same contract)
-			if config.Istanbul {
-				txn.AddRefund(19200)
-			} else {
-				txn.AddRefund(19800)
-			}
-		} else { // reset to original existing slot (2.2.2.2)
-			if config.Istanbul {
-				txn.AddRefund(4200)
-			} else {
-				txn.AddRefund(4800)
-			}
-		}
-	}
-
-	return runtime.StorageModifiedAgain
+	return setStorage(txn, addr, key, value, config)
 }
 
 // SetState change the state of an address
@@ -841,9 +841,21 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 }
 
 func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
+	return cleanDeleteObjects(txn.txn, deleteEmptyObjects)
+}
+
+func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
+	return commitTxn(txn.txn, deleteEmptyObjects)
+}
+
+func (txn *Txn) PopulateBlockRadix() error {
+	return nil
+}
+
+func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 	remove := [][]byte{}
 
-	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
+	txn.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
 		if !ok {
 			return false
@@ -857,7 +869,7 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 	})
 
 	for _, k := range remove {
-		v, ok := txn.txn.Get(k)
+		v, ok := txn.Get(k)
 		if !ok {
 			return fmt.Errorf("failed to retrieve value for %s key", string(k))
 		}
@@ -869,21 +881,21 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 
 		obj2 := obj.Copy()
 		obj2.Deleted = true
-		txn.txn.Insert(k, obj2)
+		txn.Insert(k, obj2)
 	}
 
 	// delete refunds
-	txn.txn.Delete(refundIndex)
+	txn.Delete(refundIndex)
 
 	return nil
 }
 
-func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
-	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
+func commitTxn(txn *iradix.Txn, deleteEmptyObjects bool) ([]*Object, error) {
+	if err := cleanDeleteObjects(txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
-	x := txn.txn.Commit()
+	x := txn.Commit()
 
 	// Do a more complex thing for now
 	objs := []*Object{}
@@ -927,4 +939,86 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	})
 
 	return objs, nil
+}
+
+type storageRefunder interface {
+	GetState(addr types.Address, key types.Hash) types.Hash
+	GetCommittedState(addr types.Address, key types.Hash) types.Hash
+	SetState(addr types.Address, key, value types.Hash)
+	AddRefund(gas uint64)
+	SubRefund(gas uint64)
+}
+
+func setStorage(
+	s storageRefunder, addr types.Address, key, value types.Hash, config *chain.ForksInTime,
+) runtime.StorageStatus {
+	oldValue := s.GetState(addr, key)
+	if oldValue == value {
+		return runtime.StorageUnchanged
+	}
+
+	current := oldValue                        // current - storage dirtied by previous lines of this contract
+	original := s.GetCommittedState(addr, key) // storage slot before this transaction started
+
+	s.SetState(addr, key, value)
+
+	legacyGasMetering := !config.Istanbul && (config.Petersburg || !config.Constantinople)
+
+	if legacyGasMetering {
+		if oldValue == types.ZeroHash {
+			return runtime.StorageAdded
+		} else if value == types.ZeroHash {
+			s.AddRefund(15000)
+
+			return runtime.StorageDeleted
+		}
+
+		return runtime.StorageModified
+	}
+
+	clearingRefund := DefaultClearingRefund
+	if config.London {
+		clearingRefund = LondonClearingRefund
+	}
+
+	if original == current {
+		if original == types.ZeroHash { // create slot (2.1.1)
+			return runtime.StorageAdded
+		}
+
+		if value == types.ZeroHash { // delete slot (2.1.2b)
+			s.AddRefund(clearingRefund)
+
+			return runtime.StorageDeleted
+		}
+
+		return runtime.StorageModified
+	}
+
+	if original != types.ZeroHash { // Storage slot was populated before this transaction started
+		if current == types.ZeroHash { // recreate slot (2.2.1.1)
+			s.SubRefund(clearingRefund)
+		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
+			s.AddRefund(clearingRefund)
+		}
+	}
+
+	if original == value {
+		if original == types.ZeroHash { // reset to original nonexistent slot (2.2.2.1)
+			// Storage was used as memory (allocation and deallocation occurred within the same contract)
+			if config.Istanbul {
+				s.AddRefund(19200)
+			} else {
+				s.AddRefund(19800)
+			}
+		} else { // reset to original existing slot (2.2.2.2)
+			if config.Istanbul {
+				s.AddRefund(4200)
+			} else {
+				s.AddRefund(4800)
+			}
+		}
+	}
+
+	return runtime.StorageModifiedAgain
 }
