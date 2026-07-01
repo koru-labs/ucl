@@ -770,6 +770,8 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 			return nil, err
 		}
 
+		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
+
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
 
@@ -805,26 +807,21 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
+	t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
+
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
+
+		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
 	}
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
 
 	t.balRecorder.BalanceChange(msg.From, t.state.GetBalance(msg.From))
-	t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
-
-	if t.config.London && msg.Type != types.StateTx {
-		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
-	}
-
-	if !msg.IsContractCreation() {
-		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
-	}
 
 	return result, nil
 }
@@ -941,6 +938,12 @@ func (t *Transition) applyCall(
 	t.state.TouchAccount(c.Address)
 
 	t.balRecorder.AccountRead(c.Address)
+	balIndex := t.balRecorder.GetIndex()
+	oldBalRecorder := t.balRecorder
+	callBalRecorder := NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
+	callBalRecorder.AccountRead(c.Address)
+
+	t.balRecorder = callBalRecorder
 
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
@@ -962,6 +965,7 @@ func (t *Transition) applyCall(
 	t.captureCallStart(c, callType)
 
 	result = t.run(c, host)
+	t.balRecorder = oldBalRecorder
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -970,6 +974,8 @@ func (t *Transition) applyCall(
 			}
 		}
 	}
+
+	t.balRecorder.Merge(callBalRecorder)
 
 	t.captureCallEnd(c, result)
 
@@ -1034,6 +1040,10 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
 	}
 
+	callBalRecorder := NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
+	oldBalRecorder := t.balRecorder
+	t.balRecorder = callBalRecorder
+
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
 		return &runtime.ExecutionResult{
@@ -1090,6 +1100,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	}
 
 	result = t.run(c, host)
+	t.balRecorder = oldBalRecorder
+
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -1146,12 +1158,16 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			result.GasLeft = 0
 		}
 
+		t.balRecorder.Merge(callBalRecorder)
+
 		return result
 	}
 
 	result.GasLeft -= gasCost
 	result.Address = c.Address
 	t.state.SetCode(c.Address, result.ReturnValue)
+
+	t.balRecorder.Merge(callBalRecorder)
 
 	t.balRecorder.CodeChange(c.Address, result.ReturnValue)
 

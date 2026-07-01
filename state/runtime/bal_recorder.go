@@ -15,6 +15,8 @@ type BlockAccessListRecorder interface {
 	BalanceChange(addr types.Address, balance *big.Int)
 	NonceChange(addr types.Address, nonce uint64)
 	CodeChange(addr types.Address, code []byte)
+	Merge(balRecorder BlockAccessListRecorder)
+	GetIndex() uint32
 }
 
 // NoopBALRecorder is used for blocks prior to the BAL fork activation, so
@@ -27,5 +29,7 @@ func (NoopBALRecorder) StorageWrite(types.Address, types.Hash, types.Hash) {}
 func (NoopBALRecorder) BalanceChange(types.Address, *big.Int)              {}
 func (NoopBALRecorder) NonceChange(types.Address, uint64)                  {}
 func (NoopBALRecorder) CodeChange(types.Address, []byte)                   {}
+func (NoopBALRecorder) Merge(BlockAccessListRecorder)                      {}
+func (NoopBALRecorder) GetIndex() uint32                                   { return 0 }
 
 var _ BlockAccessListRecorder = NoopBALRecorder{}

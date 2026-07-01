@@ -251,6 +251,7 @@ func (b *BlockAccessListRecord) GetOrCreate(addr types.Address) *AccountAccessRe
 		acc = NewAccountAccessRecord()
 		b.Accounts[addr] = acc
 	}
+
 	return acc
 }
 

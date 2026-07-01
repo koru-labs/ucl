@@ -45,4 +45,14 @@ func (r *BlockAccessListRecorder) CodeChange(addr types.Address, code []byte) {
 	r.getOrCreate(addr).RecordCodeChange(r.index, code)
 }
 
+func (r *BlockAccessListRecorder) Merge(balRecorder runtime.BlockAccessListRecorder) {
+	balRcd := balRecorder.(*BlockAccessListRecorder)
+
+	r.bal.Merge(balRcd.bal)
+}
+
+func (r *BlockAccessListRecorder) GetIndex() uint32 {
+	return r.index
+}
+
 var _ runtime.BlockAccessListRecorder = &BlockAccessListRecorder{}
