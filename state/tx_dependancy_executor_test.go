@@ -9,10 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/contracts/staking"
+	stakingHelper "github.com/0xPolygon/polygon-edge/helper/staking"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/validators"
 )
 
 var (
@@ -432,4 +435,222 @@ func TestTxDependancyExecutor_Execute_DirectMutationAfterExecuteIsCommitted(t *t
 	require.Equal(t, []byte{0x60, 0x01}, code)
 
 	require.Equal(t, types.Hash{2}, snap.GetStorage(deployedAddr, account.Root, types.Hash{1}))
+}
+
+func TestTxDependancyExecutor_StakingChain_RootMatchesSequential(t *testing.T) {
+	const numStakers = 4
+
+	senders := make([]types.Address, numStakers)
+	alloc := map[types.Address]*chain.GenesisAccount{}
+
+	for i := range numStakers {
+		senders[i] = types.BytesToAddress([]byte{0x50, byte(i + 1)})
+		alloc[senders[i]] = &chain.GenesisAccount{Balance: big.NewInt(0).Mul(big.NewInt(100), big.NewInt(1e18))}
+	}
+
+	header1 := &types.Header{Number: 1, GasLimit: 5_000_000, Timestamp: 1}
+	header2 := &types.Header{Number: 2, GasLimit: 30_000_000, Timestamp: 2}
+
+	newExecutor := func(t *testing.T) *state.Executor {
+		t.Helper()
+
+		mstate := itrie.NewState(itrie.NewMemoryStorage())
+		executor := state.NewExecutor(&chain.Params{
+			ChainID:      100,
+			Forks:        chain.AllForksEnabled,
+			BurnContract: map[uint64]types.Address{0: types.ZeroAddress},
+		}, mstate, hclog.NewNullLogger())
+		executor.GetHash = func(*types.Header) func(uint64) types.Hash {
+			return func(uint64) types.Hash { return types.Hash{} }
+		}
+
+		return executor
+	}
+
+	genesisValidators := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(types.BytesToAddress([]byte{0x60, 1})),
+		validators.NewECDSAValidator(types.BytesToAddress([]byte{0x60, 2})),
+		validators.NewECDSAValidator(types.BytesToAddress([]byte{0x60, 3})),
+		validators.NewECDSAValidator(types.BytesToAddress([]byte{0x60, 4})),
+	)
+
+	stakingAccount, err := stakingHelper.PredeployStakingSC(genesisValidators, stakingHelper.PredeployParams{
+		MinValidatorCount: 1,
+		MaxValidatorCount: 20,
+	})
+	require.NoError(t, err)
+
+	stakeTxs := make([]*types.Transaction, numStakers)
+	deps := make([][]uint64, numStakers)
+
+	for i := range numStakers {
+		stakeTxs[i] = &types.Transaction{
+			Hash:     types.Hash{byte(i + 1)},
+			From:     senders[i],
+			To:       &staking.AddrStakingContract,
+			Value:    big.NewInt(0).Mul(big.NewInt(1), big.NewInt(1e18)),
+			Gas:      1_000_000,
+			GasPrice: big.NewInt(1),
+			Nonce:    0,
+			Type:     types.LegacyTx,
+		}
+
+		if i == 0 {
+			deps[i] = nil
+		} else {
+			deps[i] = []uint64{uint64(i - 1)}
+		}
+	}
+
+	// --- reference: everything sequential ---
+	refExecutor := newExecutor(t)
+	genesisRoot, err := refExecutor.WriteGenesis(alloc, types.ZeroHash)
+	require.NoError(t, err)
+
+	refTxn1, err := refExecutor.BeginTxn(genesisRoot, header1, types.ZeroAddress)
+	require.NoError(t, err)
+	require.NoError(t, refTxn1.SetAccountDirectly(staking.AddrStakingContract, stakingAccount))
+	_, block1Root, err := refTxn1.Commit()
+	require.NoError(t, err)
+
+	refTxn2, err := refExecutor.BeginTxn(block1Root, header2, types.ZeroAddress)
+	require.NoError(t, err)
+
+	for i, tx := range stakeTxs {
+		receipt, err := refTxn2.Write(tx)
+		require.NoError(t, err)
+		require.Equal(t, types.ReceiptSuccess, *receipt.Status, "sequential: stake tx %d must succeed", i)
+	}
+
+	_, block2RootSequential, err := refTxn2.Commit()
+	require.NoError(t, err)
+
+	// --- block 2 via the parallel dependency executor, matching the real log's dep chain ---
+	parExecutor := newExecutor(t)
+	parGenesisRoot, err := parExecutor.WriteGenesis(alloc, types.ZeroHash)
+	require.NoError(t, err)
+	require.Equal(t, genesisRoot, parGenesisRoot)
+
+	parTxn1, err := parExecutor.BeginTxn(parGenesisRoot, header1, types.ZeroAddress)
+	require.NoError(t, err)
+	require.NoError(t, parTxn1.SetAccountDirectly(staking.AddrStakingContract, stakingAccount))
+	_, parBlock1Root, err := parTxn1.Commit()
+	require.NoError(t, err)
+	require.Equal(t, block1Root, parBlock1Root)
+
+	pool := state.NewTxDependancyPool(stakeTxs, deps)
+	exec := state.NewTxDependancyExecutor(4, hclog.NewNullLogger())
+	parTran, parReceipts, err := exec.Execute(pool, parExecutor, parBlock1Root, header2, types.ZeroAddress)
+	require.NoError(t, err)
+	require.Len(t, parReceipts, numStakers)
+
+	for i, r := range parReceipts {
+		require.Equal(t, types.ReceiptSuccess, *r.Status, "parallel: stake tx %d must succeed", i)
+	}
+
+	_, block2RootParallel, err := parTran.Commit()
+	require.NoError(t, err)
+
+	t.Logf("sequential root: %s", block2RootSequential)
+	t.Logf("parallel   root: %s", block2RootParallel)
+
+	require.Equal(t, block2RootSequential, block2RootParallel,
+		"parallel verifier must compute the same state root as sequential execution for a chain of stake() calls")
+}
+
+// TestTxDependancyExecutor_Execute_RevertedCallDoesNotPersistWrites is a regression test for
+// TxnVerifier.Snapshot()/RevertToSnapshot() having been no-ops. applyCall/applyCreate rely on
+// them to undo a failed call's writes (executor.go: "if result.Failed() { RevertToSnapshot }"),
+// which is a completely normal, common outcome - any require()/revert inside a contract call
+// hits this, not just malformed transactions. With no-op revert, TxnVerifier kept a failed
+// call's partial writes (e.g. a value transfer made before the revert point) while the
+// sequential path correctly discarded them, producing different roots for a transaction that
+// is entirely valid and gets included either way (ReceiptStatus: Failed, not rejected).
+func TestTxDependancyExecutor_Execute_RevertedCallDoesNotPersistWrites(t *testing.T) {
+	t.Parallel()
+
+	sender := types.StringToAddress("5ec")
+	alloc := map[types.Address]*chain.GenesisAccount{
+		sender: {Balance: big.NewInt(1_000_000_000)},
+	}
+
+	header1 := &types.Header{Number: 1, GasLimit: 5_000_000, Timestamp: 1}
+	header2 := &types.Header{Number: 2, GasLimit: 5_000_000, Timestamp: 2}
+
+	// init code: SSTORE(slot0, 5) - baseline value set once during construction.
+	// runtime code: SSTORE(slot0, 1); REVERT(0,0) - every call writes then reverts.
+	runtimeCode := []byte{
+		0x60, 0x01, 0x60, 0x00, 0x55, // SSTORE(0, 1)
+		0x60, 0x00, 0x60, 0x00, 0xfd, // REVERT(0,0)
+	}
+	initCode := append([]byte{
+		0x60, 0x05, 0x60, 0x00, 0x55, // SSTORE(0, 5)
+		0x60, byte(len(runtimeCode)), // PUSH1 len(runtime)
+		0x60, 0x11, // PUSH1 offset=17 (start of runtime code below)
+		0x60, 0x00, // PUSH1 destOffset=0
+		0x39,                         // CODECOPY
+		0x60, byte(len(runtimeCode)), // PUSH1 len
+		0x60, 0x00, // PUSH1 offset=0
+		0xf3, // RETURN
+	}, runtimeCode...)
+
+	deployTx := &types.Transaction{
+		Hash: types.Hash{1}, From: sender, To: nil, Value: big.NewInt(0),
+		Gas: 1_000_000, GasPrice: big.NewInt(1), Nonce: 0, Type: types.LegacyTx,
+		Input: initCode,
+	}
+
+	// --- reference: sequential ---
+	refExecutor, genesisRoot := newDepExecExecutor(t, alloc)
+
+	refTxn1, err := refExecutor.BeginTxn(genesisRoot, header1, types.ZeroAddress)
+	require.NoError(t, err)
+	deployReceipt, err := refTxn1.Write(deployTx)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptSuccess, *deployReceipt.Status)
+	contractAddr := *deployReceipt.ContractAddress
+	_, block1Root, err := refTxn1.Commit()
+	require.NoError(t, err)
+
+	callTx := &types.Transaction{
+		Hash: types.Hash{2}, From: sender, To: &contractAddr, Value: big.NewInt(0),
+		Gas: 1_000_000, GasPrice: big.NewInt(1), Nonce: 1, Type: types.LegacyTx,
+	}
+
+	refTxn2, err := refExecutor.BeginTxn(block1Root, header2, types.ZeroAddress)
+	require.NoError(t, err)
+	callReceipt, err := refTxn2.Write(callTx)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptFailed, *callReceipt.Status, "call must revert")
+	require.Equal(t, types.Hash{31: 5}, refTxn2.GetStorage(contractAddr, types.Hash{}),
+		"sequential: slot0 must remain at its pre-call value of 5 since the call reverted")
+	_, block2RootSequential, err := refTxn2.Commit()
+	require.NoError(t, err)
+
+	// --- block2 via parallel executor ---
+	parExecutor, parGenesisRoot := newDepExecExecutor(t, alloc)
+	require.Equal(t, genesisRoot, parGenesisRoot)
+
+	parTxn1, err := parExecutor.BeginTxn(parGenesisRoot, header1, types.ZeroAddress)
+	require.NoError(t, err)
+	_, err = parTxn1.Write(deployTx)
+	require.NoError(t, err)
+	_, parBlock1Root, err := parTxn1.Commit()
+	require.NoError(t, err)
+	require.Equal(t, block1Root, parBlock1Root)
+
+	pool := state.NewTxDependancyPool([]*types.Transaction{callTx}, [][]uint64{{}})
+	exec := state.NewTxDependancyExecutor(1, hclog.NewNullLogger())
+	parTran, parReceipts, err := exec.Execute(pool, parExecutor, parBlock1Root, header2, types.ZeroAddress)
+	require.NoError(t, err)
+	require.Len(t, parReceipts, 1)
+	require.Equal(t, types.ReceiptFailed, *parReceipts[0].Status, "call must revert")
+	require.Equal(t, types.Hash{31: 5}, parTran.GetStorage(contractAddr, types.Hash{}),
+		"parallel: slot0 must remain at its pre-call value of 5 since the call reverted")
+
+	_, block2RootParallel, err := parTran.Commit()
+	require.NoError(t, err)
+
+	require.Equal(t, block2RootSequential, block2RootParallel,
+		"parallel verifier must compute the same state root as sequential execution for a reverted call")
 }
