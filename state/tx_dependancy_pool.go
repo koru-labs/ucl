@@ -12,11 +12,13 @@ type TxWithIndex struct {
 }
 
 type TxDependancyPool struct {
-	mu           sync.Mutex
-	cond         *sync.Cond
-	txs          []*types.Transaction
-	deps         []map[uint64]struct{}
-	children     []map[uint64]struct{}
+	mu   sync.Mutex
+	cond *sync.Cond
+	txs  []*types.Transaction
+	// how many remaining dependencies tx has
+	remaining []int
+	// for each tx their dependant txs sorted asc by their indexes
+	children     [][]uint64
 	queues       []TxWithIndex // no need for better structure, it will grow to len(txs) size
 	processedCnt int
 	closed       bool
@@ -26,21 +28,15 @@ func NewTxDependancyPool(
 	txs []*types.Transaction,
 	depsMatrice [][]uint64,
 ) *TxDependancyPool {
-	deps := make([]map[uint64]struct{}, len(depsMatrice))
-	children := make([]map[uint64]struct{}, len(depsMatrice))
+	remaining := make([]int, len(depsMatrice))
+	children := make([][]uint64, len(depsMatrice))
 	queues := ([]TxWithIndex)(nil)
 
 	for i, mat := range depsMatrice {
-		deps[i] = make(map[uint64]struct{}, len(mat))
+		remaining[i] = len(mat)
 
 		for _, ind := range mat {
-			deps[i][ind] = struct{}{}
-
-			if children[ind] == nil {
-				children[ind] = map[uint64]struct{}{}
-			}
-
-			children[ind][uint64(i)] = struct{}{}
+			children[ind] = append(children[ind], uint64(i))
 		}
 
 		if len(mat) == 0 {
@@ -51,10 +47,10 @@ func NewTxDependancyPool(
 	}
 
 	t := &TxDependancyPool{
-		txs:      txs,
-		deps:     deps,
-		queues:   queues,
-		children: children,
+		txs:       txs,
+		remaining: remaining,
+		queues:    queues,
+		children:  children,
 	}
 
 	t.cond = sync.NewCond(&t.mu)
@@ -68,10 +64,10 @@ func (t *TxDependancyPool) FinishTx(tx TxWithIndex) {
 
 	newlyReady := 0
 
-	for cind := range t.children[tx.Indx] {
-		delete(t.deps[cind], tx.Indx)
+	for _, cind := range t.children[tx.Indx] {
+		t.remaining[cind]--
 
-		if len(t.deps[cind]) == 0 {
+		if t.remaining[cind] == 0 {
 			newlyReady++
 
 			t.queues = append(t.queues, TxWithIndex{

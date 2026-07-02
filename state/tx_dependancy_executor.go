@@ -92,6 +92,8 @@ func (t *TxDependancyExecutor) Execute(
 					return
 				}
 
+				refund := tran.GetRefund()
+
 				// write local changes to global baseRadix
 				if err := tran.PopulateBlockRadix(); err != nil {
 					addError(id, err)
@@ -100,7 +102,8 @@ func (t *TxDependancyExecutor) Execute(
 				}
 
 				t.logger.Debug("Parallel Block Execution tx processed",
-					"tx", tx.Tx.Hash, "ind", tx.Indx, "workerID", id)
+					"ind", tx.Indx, "workerID", id, "tx", tx.Tx.Hash, "from", tx.Tx.From,
+					"nonce", tx.Tx.Nonce, "gasUsed", receipt.GasUsed, "refund", refund)
 
 				receipts[tx.Indx] = receipt
 				pool.FinishTx(tx)

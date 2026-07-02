@@ -248,3 +248,59 @@ func TestTxDependancyPool_ConcurrentProducersConsumers(t *testing.T) {
 		assert.Equal(t, 1, processed[i], "tx %d processed an unexpected number of times", i)
 	}
 }
+
+// TestTxDependancyPool_FinishTx_FanOutQueueOrderIsDeterministic is a regression test for
+// FinishTx ranging over children as a map: when a tx has multiple children (a fan-out, not a
+// pure chain), map iteration order is randomized per run, so the order those children get
+// appended to the ready queue - and so, under worker contention, the order they get picked up
+// and executed in - would vary from run to run. That's a correctness risk wherever the exact
+// same dependency graph gets replayed more than once (e.g. a validator independently
+// re-executing a block the proposer already built): both runs must reach the same result.
+// Run with a single worker (deterministic ordering has nothing to do with concurrency here)
+// across many iterations, since a flaky map-order bug would only show up some of the time.
+func TestTxDependancyPool_FinishTx_FanOutQueueOrderIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	const (
+		cntDependant = 20
+		itersCount   = 50
+	)
+
+	for iter := range itersCount {
+		txDeps := make([][]uint64, cntDependant+1)
+		txs := make([]*types.Transaction, cntDependant+1)
+
+		for i := range txDeps {
+			if i == 0 {
+				txDeps[i] = []uint64{}
+			} else {
+				txDeps[i] = []uint64{0}
+			}
+
+			txs[i] = newDepTx(byte(i + 1))
+		}
+
+		// tx0 has no deps; tx1, tx2, tx3, ..., txn all depend solely on tx0 (a n-way fan-out)
+		pool := NewTxDependancyPool(txs, txDeps)
+
+		tx0, alive := pool.GetTx()
+		require.True(t, alive)
+		require.Equal(t, uint64(0), tx0.Indx)
+
+		pool.FinishTx(tx0)
+
+		order := make([]uint64, cntDependant)
+		expected := make([]uint64, cntDependant)
+
+		for i := range len(order) {
+			tx, alive := pool.GetTx()
+			require.True(t, alive)
+
+			order[i] = tx.Indx
+			expected[i] = uint64(i + 1)
+		}
+
+		require.Equal(t, expected, order,
+			"iteration %d: children must be queued in a fixed, deterministic order", iter)
+	}
+}
