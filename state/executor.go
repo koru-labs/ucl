@@ -42,10 +42,10 @@ type Executor struct {
 	state   State
 	GetHash GetHashByNumberHelper
 
-	PostHook         func(txn *Transition)
-	GenesisPostHook  func(*Transition) error
-	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
-	GetTxDependency  func(*types.Header) [][]uint64
+	PostHook            func(txn *Transition)
+	GenesisPostHook     func(*Transition) error
+	GetPendingTxHook    func(types.Hash) (*types.Transaction, bool)
+	GetTxDependencyHook func(*types.Header) [][]uint64
 }
 
 // NewExecutor creates a new executor
@@ -159,10 +159,10 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
-	if e.GetTxDependency != nil {
-		txDependency := e.GetTxDependency(block.Header)
+	if e.GetTxDependencyHook != nil {
+		txDependency := e.GetTxDependencyHook(block.Header)
 		if len(txDependency) > 0 {
-			exc := NewTxDependancyExecutor(10)
+			exc := NewTxDependancyExecutor(10, e.logger)
 			txp := NewTxDependancyPool(block.Transactions, txDependency)
 
 			return exc.Execute(txp, e, parentRoot, block.Header, blockCreator)
@@ -388,6 +388,11 @@ func (t *Transition) WithStateOverride(override types.StateOverride) error {
 
 func (t *Transition) TotalGas() uint64 {
 	return t.totalGas
+}
+
+// SetTotalGas is used only for parallel verifiers
+func (t *Transition) SetTotalGas(totalGas uint64) {
+	t.totalGas = totalGas
 }
 
 var emptyFrom = types.Address{}

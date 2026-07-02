@@ -7,17 +7,20 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/hashicorp/go-hclog"
 )
 
 type TxDependancyExecutor struct {
 	workersCnt int
+	logger     hclog.Logger
 }
 
 func NewTxDependancyExecutor(
-	workersCnt int,
+	workersCnt int, logger hclog.Logger,
 ) *TxDependancyExecutor {
 	return &TxDependancyExecutor{
 		workersCnt: workersCnt,
+		logger:     logger,
 	}
 }
 
@@ -47,13 +50,16 @@ func (t *TxDependancyExecutor) Execute(
 				return NewTxnVerifier(s, baseRadix, baseMutex)
 			})
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create transition: %w", err)
+			return nil, nil, fmt.Errorf("failed to create transition no %d: %w", i, err)
 		}
 
 		trans[i] = tran
 	}
 
 	wg.Add(t.workersCnt)
+
+	t.logger.Debug("Parallel Block Execution has been started",
+		"workers", t.workersCnt, "txs", pool.Len())
 
 	for i := range t.workersCnt {
 		go func(id int, tran *Transition) {
@@ -91,6 +97,9 @@ func (t *TxDependancyExecutor) Execute(
 					return
 				}
 
+				t.logger.Debug("Parallel Block Execution tx processed",
+					"tx", tx.Tx.Hash, "ind", tx.Indx, "workerID", id)
+
 				receipts[tx.Indx] = receipt
 				pool.FinishTx(tx)
 			}
@@ -100,8 +109,16 @@ func (t *TxDependancyExecutor) Execute(
 	wg.Wait()
 
 	if err := errors.Join(errs...); err != nil {
+		t.logger.Error("Parallel Block Execution failed", "err", err)
+
 		return nil, nil, err
 	}
+
+	totalGasUsed := receipts[len(receipts)-1].CumulativeGasUsed
+
+	t.logger.Debug("Parallel Block Execution finished", "receipts", len(receipts), "gasUsed", totalGasUsed)
+
+	trans[0].SetTotalGas(totalGasUsed)
 
 	return trans[0], receipts, nil
 }
