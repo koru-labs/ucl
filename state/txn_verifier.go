@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -27,9 +28,11 @@ type TxnVerifier struct {
 
 	codeCache *lru.Cache
 
-	blockMutex *sync.RWMutex
-	blockRadix *iradix.Txn
-	txLocalMap map[Key]txLocalValue
+	blockMutex    *sync.RWMutex
+	blockRadix    *iradix.Txn
+	txLocalMap    map[Key]txLocalValue
+	txLocalLogs   []*types.Log
+	txLocalRefund uint64
 }
 
 func createBlockRadix() *iradix.Txn {
@@ -223,9 +226,40 @@ func (txn *TxnVerifier) AddBalance(addr types.Address, amount *big.Int) {
 	})
 }
 
-// AddBalanceDoNotTrack for verifier is the same as AddBalance
+// AddBalanceDoNotTrack credits addr directly in the shared blockRadix instead of staging the
+// change in txLocalMap for the next PopulateBlockRadix. This path exists for implicit,
+// executor-injected credits (block reward, coinbase fee, burn) that every transaction in the
+// block applies to the same fixed address as a side effect the tx-dependency graph has no
+// visibility into - two dependency-graph-independent transactions can legitimately run
+// concurrently and both target it. Going through the normal upsertAccount/PopulateBlockRadix
+// path (read a local copy, publish it later with an unconditional overwrite) would lose
+// updates under that concurrency, so the read-modify-write here happens atomically in a single
+// blockMutex critical section instead.
 func (txn *TxnVerifier) AddBalanceDoNotTrack(addr types.Address, amount *big.Int) {
-	txn.AddBalance(addr, amount)
+	if amount == nil || amount.Sign() == 0 {
+		return
+	}
+
+	txn.blockMutex.Lock()
+	defer txn.blockMutex.Unlock()
+
+	var obj *StateObject
+
+	// blockRadix only holds accounts touched earlier in *this* block. A miss here does not
+	// mean the account is new - it may carry a balance/nonce/storage root persisted by prior
+	// blocks, so that must be read through the snapshot before defaulting to a fresh object,
+	// the same three-tier lookup getStateObject uses for every other read path.
+	if raw, exists := txn.blockRadix.Get(addr.Bytes()); exists {
+		obj = raw.(*StateObject).Copy() //nolint:forcetypeassert
+	} else if account, err := txn.snapshot.GetAccount(addr); err == nil && account != nil {
+		obj = &StateObject{Account: account.Copy()}
+	} else {
+		obj = newStateObject()
+	}
+
+	obj.Account.Balance.Add(obj.Account.Balance, amount)
+
+	txn.blockRadix.Insert(addr.Bytes(), obj)
 }
 
 // SubBalance reduces the balance at address addr by amount
@@ -266,33 +300,16 @@ func (txn *TxnVerifier) GetBalance(addr types.Address) *big.Int {
 
 // EmitLog appends log to logs tree storage
 func (txn *TxnVerifier) EmitLog(addr types.Address, topics []types.Hash, data []byte) {
-	logIndexKey := NewLogIndexKey()
-
-	log := &types.Log{
+	txn.txLocalLogs = append(txn.txLocalLogs, &types.Log{
 		Address: addr,
 		Topics:  topics,
-	}
-	log.Data = append(log.Data, data...)
+		Data:    append([]byte(nil), data...),
+	})
+}
 
-	var logs []*types.Log
-
-	valFromLocal, exists := txn.txLocalMap[logIndexKey]
-	if exists {
-		logs = valFromLocal.value.([]*types.Log) //nolint:forcetypeassert
-	} else {
-		txn.blockMutex.RLock()
-		val, exists := txn.blockRadix.Get(logIndex)
-		txn.blockMutex.RUnlock()
-
-		if exists {
-			logs = val.([]*types.Log) //nolint:forcetypeassert
-		}
-	}
-
-	txn.txLocalMap[logIndexKey] = txLocalValue{
-		isWritten: true,
-		value:     append(logs, log),
-	}
+// Logs will retrieve logs (deleting is done on PopulateBlockRadix)
+func (txn *TxnVerifier) Logs() []*types.Log {
+	return txn.txLocalLogs
 }
 
 // State
@@ -504,79 +521,15 @@ func (txn *TxnVerifier) HasSuicided(addr types.Address) bool {
 
 // Refund
 func (txn *TxnVerifier) AddRefund(gas uint64) {
-	refund := txn.GetRefund() + gas
-	txn.txLocalMap[NewRefundIndexKey()] = txLocalValue{
-		isWritten: true,
-		value:     refund,
-	}
+	txn.txLocalRefund += gas
 }
 
 func (txn *TxnVerifier) SubRefund(gas uint64) {
-	refund := txn.GetRefund() - gas
-	txn.txLocalMap[NewRefundIndexKey()] = txLocalValue{
-		isWritten: true,
-		value:     refund,
-	}
-}
-
-func (txn *TxnVerifier) Logs() []*types.Log {
-	logIndexKey := NewLogIndexKey()
-
-	dataFromLocal, exists := txn.txLocalMap[logIndexKey]
-	if exists {
-		delete(txn.txLocalMap, logIndexKey) // why?
-		//nolint:forcetypeassert
-		return dataFromLocal.value.([]*types.Log)
-	}
-
-	txn.blockMutex.RLock()
-
-	data, exists := txn.blockRadix.Get(logIndex)
-	if exists {
-		txn.blockRadix.Delete(logIndex)
-	}
-
-	txn.blockMutex.RUnlock()
-
-	result := ([]*types.Log)(nil)
-
-	if exists {
-		//nolint:forcetypeassert
-		result = data.([]*types.Log)
-	}
-
-	txn.txLocalMap[logIndexKey] = txLocalValue{
-		isWritten: false,
-		value:     result,
-	}
-
-	return result
+	txn.txLocalRefund -= gas
 }
 
 func (txn *TxnVerifier) GetRefund() (result uint64) {
-	refundKey := NewRefundIndexKey()
-
-	dataFromLocal, exists := txn.txLocalMap[refundKey]
-	if exists {
-		//nolint:forcetypeassert
-		return dataFromLocal.value.(uint64)
-	}
-
-	txn.blockMutex.RLock()
-	data, exists := txn.blockRadix.Get(refundIndex)
-	txn.blockMutex.RUnlock()
-
-	if exists {
-		//nolint:forcetypeassert
-		result = data.(uint64)
-	}
-
-	txn.txLocalMap[refundKey] = txLocalValue{
-		isWritten: false,
-		value:     result,
-	}
-
-	return result
+	return txn.txLocalRefund
 }
 
 // GetCommittedState returns the state of the address in the trie
@@ -654,53 +607,24 @@ func (txn *TxnVerifier) CreateAccount(addr types.Address) {
 	}
 }
 
-func (txn *TxnVerifier) CleanDeleteObjects(deleteEmptyObjects bool) error {
-	remove := []Key{}
-
-	for key, val := range txn.txLocalMap {
-		if !key.IsAddress() {
-			continue
-		}
-
-		a, ok := val.value.(*StateObject)
-		if !ok {
-			continue
-		}
-
-		if a.Suicide || a.Empty() && deleteEmptyObjects {
-			remove = append(remove, key)
-		}
-	}
-
-	for _, key := range remove {
-		val, exists := txn.txLocalMap[key]
-		if !exists {
-			continue
-		}
-
-		obj, ok := val.value.(*StateObject)
-		if !ok {
-			continue
-		}
-
-		obj2 := obj.Copy()
-		obj2.Deleted = true
-
-		txn.txLocalMap[key] = txLocalValue{
-			isWritten: true,
-			value:     obj2,
-		}
-	}
-
-	// delete refunds
-	delete(txn.txLocalMap, NewRefundIndexKey())
-
+func (txn *TxnVerifier) CleanDeleteObjects(_ bool) error {
+	// do nothing, everything will be cleared on PopulateBlockRadix
 	return nil
 }
 
 func (txn *TxnVerifier) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	txn.blockMutex.Lock()
 	defer txn.blockMutex.Unlock()
+
+	// Callers (e.g. consensus PreCommitState hooks such as staking contract deployment) can
+	// mutate this Transition directly after Execute() has already returned and its per-tx
+	// PopulateBlockRadix calls are done. Those writes only ever land in txLocalMap - nothing
+	// else flushes them into the shared blockRadix that Commit reads from, so without this they
+	// would be silently dropped instead of persisted. PopulateBlockRadix is a no-op when
+	// txLocalMap is already empty, so this is safe to call unconditionally here.
+	if err := txn.populateBlockRadixNoLock(); err != nil {
+		return nil, err
+	}
 
 	return commitTxn(txn.blockRadix, deleteEmptyObjects)
 }
@@ -709,33 +633,22 @@ func (txn *TxnVerifier) PopulateBlockRadix() error {
 	txn.blockMutex.Lock()
 	defer txn.blockMutex.Unlock()
 
-	// First pass: propagate account, log, and refund writes into blockRadix.
-	// Must happen before the storage pass so StateKey processing sees the latest StateObject.
+	return txn.populateBlockRadixNoLock()
+}
+
+func (txn *TxnVerifier) populateBlockRadixNoLock() error {
+	dirtyObjects := map[types.Address]*StateObject{}
+
+	// First pass: propagate accounts and fill dirty objects map
 	for key, val := range txn.txLocalMap {
-		if !val.isWritten {
+		if !val.isWritten || !key.IsAddress() {
 			continue
 		}
 
-		switch {
-		case key.IsAddress():
-			addr := key.GetAddress()
-			obj := val.value.(*StateObject) //nolint:forcetypeassert
-
-			if obj.Deleted {
-				txn.blockRadix.Delete(addr.Bytes())
-			} else {
-				txn.blockRadix.Insert(addr.Bytes(), obj)
-			}
-		case key.IsLogIndex():
-			txn.blockRadix.Insert(logIndex, val.value)
-		case key.IsRefundIndex():
-			txn.blockRadix.Insert(refundIndex, val.value)
-		}
+		dirtyObjects[key.GetAddress()] = val.value.(*StateObject) //nolint:forcetypeassert
 	}
 
 	// Second pass: collect all storage writes per address, then insert once per address.
-	dirtyObjects := map[types.Address]*StateObject{}
-
 	for key, val := range txn.txLocalMap {
 		if !val.isWritten || !key.IsState() {
 			continue
@@ -745,22 +658,18 @@ func (txn *TxnVerifier) PopulateBlockRadix() error {
 		storageKey := key.GetStateKey()
 		value := val.value.(types.Hash) //nolint:forcetypeassert
 
+		// SetState always stages a matching AddressKey entry via upsertAccount, so Pass 1 must
+		// already have populated dirtyObjects[addr] by the time any StateKey for addr is seen here.
 		obj, seen := dirtyObjects[addr]
 		if !seen {
-			if raw, exists := txn.blockRadix.Get(addr.Bytes()); exists {
-				obj = raw.(*StateObject).Copy() //nolint:forcetypeassert
-			} else {
-				obj = newStateObject()
-			}
-
-			if obj.Txn == nil {
-				obj.Txn = iradix.New().Txn()
-			}
-
-			dirtyObjects[addr] = obj
+			return fmt.Errorf("state write for %s has no corresponding account entry in txLocalMap", addr)
 		}
 
-		if value == (types.Hash{}) {
+		if obj.Txn == nil {
+			obj.Txn = iradix.New().Txn()
+		}
+
+		if value == types.ZeroHash {
 			obj.Txn.Insert(storageKey.Bytes(), nil)
 		} else {
 			obj.Txn.Insert(storageKey.Bytes(), value.Bytes())
@@ -768,8 +677,16 @@ func (txn *TxnVerifier) PopulateBlockRadix() error {
 	}
 
 	for addr, obj := range dirtyObjects {
-		txn.blockRadix.Insert(addr.Bytes(), obj)
+		if obj.Deleted {
+			txn.blockRadix.Delete(addr.Bytes())
+		} else {
+			txn.blockRadix.Insert(addr.Bytes(), obj)
+		}
 	}
+
+	txn.txLocalLogs = nil                   // clean logs
+	txn.txLocalRefund = 0                   // reset refunds
+	txn.txLocalMap = map[Key]txLocalValue{} // delete tx local map
 
 	return nil
 }

@@ -8,11 +8,9 @@ import (
 
 const (
 	addressType        byte = 1
-	stateType               = 2
-	subpathType             = 3
-	transientStateType      = 4
-	logIndexType            = 5
-	refundIndexType         = 6
+	stateType          byte = 2
+	subpathType        byte = 3
+	transientStateType byte = 4
 
 	KeyLength = types.AddressLength + types.HashLength + 2
 
@@ -41,14 +39,6 @@ func (k Key) IsTransientState() bool {
 	return k[KeyLength-1] == transientStateType
 }
 
-func (k Key) IsLogIndex() bool {
-	return k[KeyLength-1] == logIndexType
-}
-
-func (k Key) IsRefundIndex() bool {
-	return k[KeyLength-1] == refundIndexType
-}
-
 func (k Key) GetAddress() types.Address {
 	return types.BytesToAddress(k[:types.AddressLength])
 }
@@ -71,10 +61,6 @@ func (k Key) String() string {
 		return fmt.Sprintf("SubpathKey(%s, %d)", k.GetAddress(), k.GetSubpath())
 	case k.IsTransientState():
 		return fmt.Sprintf("TransientState(%s, %s)", k.GetAddress(), k.GetStateKey())
-	case k.IsLogIndex():
-		return "LogIndex"
-	case k.IsRefundIndex():
-		return "RefundIndex"
 	default:
 		return "UnknownKey"
 	}
@@ -105,14 +91,6 @@ func NewSubpathKey(addr types.Address, subpath byte) Key {
 
 func NewTransientStateKey(addr types.Address, slot types.Hash) Key {
 	return newKey(addr, slot, 0, transientStateType)
-}
-
-func NewLogIndexKey() Key {
-	return newKey(types.ZeroAddress, types.ZeroHash, 0, logIndexType)
-}
-
-func NewRefundIndexKey() Key {
-	return newKey(types.ZeroAddress, types.ZeroHash, 0, refundIndexType)
 }
 
 func NewGenericKey(addr types.Address, hash types.Hash, subpath byte) Key {

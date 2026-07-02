@@ -31,10 +31,12 @@ func (t *TxDependancyExecutor) Execute(
 	blockHeader *types.Header,
 	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
+	workersCnt := min(t.workersCnt, pool.Len())
+
 	wg := sync.WaitGroup{}
-	trans := make([]*Transition, t.workersCnt)
+	trans := make([]*Transition, workersCnt)
 	receipts := make([]*types.Receipt, pool.Len())
-	errs := make([]error, t.workersCnt)
+	errs := make([]error, workersCnt)
 	baseRadix := createBlockRadix()
 	baseMutex := &sync.RWMutex{} // all transitions using this mutex for accessing/updating baseRadix
 
@@ -56,12 +58,12 @@ func (t *TxDependancyExecutor) Execute(
 		trans[i] = tran
 	}
 
-	wg.Add(t.workersCnt)
+	wg.Add(workersCnt)
 
 	t.logger.Debug("Parallel Block Execution has been started",
-		"workers", t.workersCnt, "txs", pool.Len())
+		"workers", workersCnt, "txs", pool.Len())
 
-	for i := range t.workersCnt {
+	for i := range workersCnt {
 		go func(id int, tran *Transition) {
 			defer wg.Done()
 
@@ -114,7 +116,13 @@ func (t *TxDependancyExecutor) Execute(
 		return nil, nil, err
 	}
 
-	totalGasUsed := receipts[len(receipts)-1].CumulativeGasUsed
+	totalGasUsed := uint64(0)
+
+	for i, r := range receipts {
+		totalGasUsed += r.GasUsed
+
+		receipts[i].CumulativeGasUsed = totalGasUsed
+	}
 
 	t.logger.Debug("Parallel Block Execution finished", "receipts", len(receipts), "gasUsed", totalGasUsed)
 
