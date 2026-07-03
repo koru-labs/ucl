@@ -384,31 +384,7 @@ func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
 }
 
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
-	// Try to get state from radix tree which holds transient states during block processing first
-	val, exists := txn.txn.Get(addr.Bytes())
-	if exists {
-		obj := val.(*StateObject) //nolint:forcetypeassert
-		if obj.Deleted {
-			return nil, false
-		}
-
-		return obj.Copy(), true
-	}
-
-	account, err := txn.snapshot.GetAccount(addr)
-	if err != nil {
-		return nil, false
-	}
-
-	if account == nil {
-		return nil, false
-	}
-
-	obj := &StateObject{
-		Account: account.Copy(),
-	}
-
-	return obj, true
+	return getStateObject(txn.txn, txn.snapshot, addr)
 }
 
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
@@ -560,29 +536,7 @@ func (txn *Txn) SetState(
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 	txn.accessTracker.AddRead(addr, key, 0)
 
-	object, exists := txn.getStateObject(addr)
-	if !exists {
-		return types.Hash{}
-	}
-
-	// Try to get account state from radix tree first
-	// Because the latest account state should be in in-memory radix tree
-	// if account state update happened in previous transactions of same block
-	if object.Txn != nil {
-		if val, ok := object.Txn.Get(key.Bytes()); ok {
-			if val == nil {
-				return types.Hash{}
-			}
-			//nolint:forcetypeassert
-			return types.BytesToHash(val.([]byte))
-		}
-	}
-
-	if object.withFakeStorage {
-		return types.Hash{}
-	}
-
-	return txn.snapshot.GetStorage(addr, object.Account.Root, key)
+	return getState(txn.txn, txn.snapshot, addr, key)
 }
 
 // Nonce
@@ -1021,4 +975,60 @@ func setStorage(
 	}
 
 	return runtime.StorageModifiedAgain
+}
+
+func getStateObject(
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address,
+) (*StateObject, bool) {
+	// Try to get state from radix tree which holds transient states during block processing first
+	val, exists := txn.Get(addr.Bytes())
+	if exists {
+		obj := val.(*StateObject) //nolint:forcetypeassert
+		if obj.Deleted {
+			return nil, false
+		}
+
+		return obj.Copy(), true
+	}
+
+	account, err := snapshot.GetAccount(addr)
+	if err != nil {
+		return nil, false
+	}
+
+	if account == nil {
+		return nil, false
+	}
+
+	return &StateObject{
+		Account: account.Copy(),
+	}, true
+}
+
+func getState(
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, key types.Hash,
+) types.Hash {
+	object, exists := getStateObject(txn, snapshot, addr)
+	if !exists {
+		return types.Hash{}
+	}
+
+	// Try to get account state from radix tree first
+	// Because the latest account state should be in in-memory radix tree
+	// if account state update happened in previous transactions of same block
+	if object.Txn != nil {
+		if val, ok := object.Txn.Get(key.Bytes()); ok {
+			if val == nil {
+				return types.Hash{}
+			}
+			//nolint:forcetypeassert
+			return types.BytesToHash(val.([]byte))
+		}
+	}
+
+	if object.withFakeStorage {
+		return types.Hash{}
+	}
+
+	return snapshot.GetStorage(addr, object.Account.Root, key)
 }

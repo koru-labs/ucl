@@ -263,6 +263,10 @@ func TestTxDependancyExecutor_Execute_CoinbaseFeesFromConcurrentTxsAllLand(t *te
 
 		require.NoError(t, err)
 		require.Len(t, receipts, numTxs)
+
+		_, _, err = tran.Commit()
+
+		require.NoError(t, err)
 		require.Equal(t, big.NewInt(feePerTx*numTxs), tran.GetBalance(coinbase),
 			"%d: coinbase must receive every transaction's fee, none lost to concurrent updates", iter)
 	}

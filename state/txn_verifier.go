@@ -51,8 +51,8 @@ type TxnVerifier struct {
 	txLocalLogs   []*types.Log
 	txLocalRefund uint64
 
-	// AddBalanceDoNotTrack keeps balance amounts for special addresses (block creator, burn contract)
-	pendingAddBalances map[types.Address]*big.Int
+	// AddBalanceDoNotTrack keeps global balance amounts for special addresses (block creator, burn contract)
+	globalAddBalances map[types.Address]*big.Int
 
 	// Journal + snapshots undo a failed call's txLocalMap writes on RevertToSnapshot; logs and
 	// refund only need their prior length/value remembered, not full per-entry journaling.
@@ -68,15 +68,17 @@ func NewTxnVerifier(
 	snapshot readSnapshot,
 	blockMutex *sync.RWMutex,
 	blockRadix *iradix.Txn,
+	globalAddBalances map[types.Address]*big.Int,
 ) *TxnVerifier {
 	codeCache, _ := lru.New(20)
 
 	return &TxnVerifier{
-		snapshot:    snapshot,
-		globalRadix: blockRadix,
-		txLocalMap:  map[Key]txLocalValue{},
-		codeCache:   codeCache,
-		globalMutex: blockMutex,
+		snapshot:          snapshot,
+		globalMutex:       blockMutex,
+		globalRadix:       blockRadix,
+		globalAddBalances: globalAddBalances,
+		txLocalMap:        map[Key]txLocalValue{},
+		codeCache:         codeCache,
 	}
 }
 
@@ -190,72 +192,29 @@ func (txn *TxnVerifier) getStateObject(addr types.Address) (*StateObject, bool) 
 	valFromLocal, exists := txn.txLocalMap[addKey]
 	if exists {
 		obj := valFromLocal.value.(*StateObject) //nolint:forcetypeassert
-		if obj.Deleted {
+		if obj == nil || obj.Deleted {
 			return nil, false
 		}
 
 		return obj.Copy(), true
 	}
 
-	var obj *StateObject
-	// then from radix tree which holds transient states during block processing
+	// then from global processing block radix and snapshot
 	txn.globalMutex.RLock()
 
-	val, exists := txn.globalRadix.Get(addr.Bytes())
-	if exists {
-		obj = val.(*StateObject).Copy() //nolint:forcetypeassert
-		txn.setLocal(addKey, obj, false)
-
-		txn.globalMutex.RUnlock()
-
-		if obj.Deleted {
-			return nil, false
-		}
-
-		return obj, true
-	}
-
-	txn.globalMutex.RUnlock()
-
-	obj, exists = txn.getStateObjectFromSnapshot(addr)
-	if !exists {
-		return nil, false
-	}
+	obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr)
 
 	txn.setLocal(addKey, obj, false)
 
-	if obj.Deleted {
-		return nil, false
-	}
+	txn.globalMutex.RUnlock()
 
-	return obj, true
-}
-
-func (txn *TxnVerifier) getStateObjectFromSnapshot(addr types.Address) (*StateObject, bool) {
-	account, err := txn.snapshot.GetAccount(addr)
-	if err != nil {
-		return nil, false
-	}
-
-	if account == nil {
-		return nil, false
-	}
-
-	return &StateObject{
-		Account: account.Copy(),
-	}, true
+	return obj, exists
 }
 
 func (txn *TxnVerifier) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
 	object, exists := txn.getStateObject(addr)
 	if !exists && create {
-		object = &StateObject{
-			Account: &Account{
-				Balance:  big.NewInt(0),
-				CodeHash: types.EmptyCodeHash.Bytes(),
-				Root:     emptyStateHash,
-			},
-		}
+		object = newStateObject()
 	}
 
 	// run the callback to modify the account
@@ -290,14 +249,13 @@ func (txn *TxnVerifier) AddBalanceDoNotTrack(addr types.Address, amount *big.Int
 		return
 	}
 
-	if txn.pendingAddBalances == nil {
-		txn.pendingAddBalances = map[types.Address]*big.Int{}
-	}
+	txn.globalMutex.Lock()
+	defer txn.globalMutex.Unlock()
 
-	if existing, ok := txn.pendingAddBalances[addr]; ok {
+	if existing, ok := txn.globalAddBalances[addr]; ok {
 		existing.Add(existing, amount)
 	} else {
-		txn.pendingAddBalances[addr] = new(big.Int).Set(amount)
+		txn.globalAddBalances[addr] = new(big.Int).Set(amount)
 	}
 }
 
@@ -371,9 +329,7 @@ func (txn *TxnVerifier) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		txn.setLocal(NewStateKey(addr, key), value, true)
-	})
+	txn.setLocal(NewStateKey(addr, key), value, true)
 }
 
 // GetState returns the state of the address at a given key
@@ -385,49 +341,14 @@ func (txn *TxnVerifier) GetState(addr types.Address, key types.Hash) types.Hash 
 		return valFromLocal.value.(types.Hash) //nolint:forcetypeassert
 	}
 
-	var (
-		storageVal, accountRoot     types.Hash
-		storageValExists, objExists bool
-		tmp                         any
-	)
-
 	// then try to from global radix tree which holds transient states during block processing
 	txn.globalMutex.RLock()
-
-	tmp, objExists = txn.globalRadix.Get(addr.Bytes())
-	if objExists {
-		obj := tmp.(*StateObject).Copy() //nolint:forcetypeassert
-		accountRoot = obj.Account.Root
-
-		if obj.Suicide || obj.Deleted {
-			storageValExists = true // defaults to empty hash
-		} else if obj.Txn != nil {
-			tmp, storageValExists = obj.Txn.Get(key.Bytes())
-			if storageValExists && tmp != nil {
-				storageVal = types.BytesToHash(tmp.([]byte)) //nolint:forcetypeassert
-			}
-		}
-	}
-
+	val := getState(txn.globalRadix, txn.snapshot, addr, key)
 	txn.globalMutex.RUnlock()
 
-	// if even object not exists yet we need to read account root from snapshot
-	if !objExists {
-		obj, exists := txn.getStateObjectFromSnapshot(addr)
-		if !exists || obj.withFakeStorage {
-			storageValExists = true // defaults to empty hash
-		} else {
-			accountRoot = obj.Account.Root
-		}
-	}
+	txn.setLocal(stateKey, val, false)
 
-	if !storageValExists {
-		storageVal = txn.snapshot.GetStorage(addr, accountRoot, key)
-	}
-
-	txn.setLocal(stateKey, storageVal, false)
-
-	return storageVal
+	return val
 }
 
 // Nonce
@@ -654,6 +575,7 @@ func (txn *TxnVerifier) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	txn.globalMutex.Lock()
 	defer txn.globalMutex.Unlock()
 
+	txn.addPendingBalancesUnlock()
 	// Callers (e.g. consensus PreCommitState hooks such as staking contract deployment) can
 	// mutate this Transition directly after Execute() has already returned and its per-tx
 	// PopulateBlockRadix calls are done. Those writes only ever land in txLocalMap - nothing
@@ -696,11 +618,13 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 		storageKey := key.GetStateKey()
 		value := val.value.(types.Hash) //nolint:forcetypeassert
 
-		// SetState always stages a matching AddressKey entry via upsertAccount, so Pass 1 must
-		// already have populated dirtyObjects[addr] by the time any StateKey for addr is seen here.
+		// if state object not in dirty objects or empty pull it from global radix or snapshot
 		obj, seen := dirtyObjects[addr]
-		if !seen {
-			return fmt.Errorf("state write for %s has no corresponding account entry in txLocalMap", addr)
+		if !seen || obj.Empty() {
+			obj, seen = getStateObject(txn.globalRadix, txn.snapshot, addr)
+			if !seen {
+				obj = newStateObject()
+			}
 		}
 
 		if obj.Txn == nil {
@@ -715,14 +639,9 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 	}
 
 	for addr, obj := range dirtyObjects {
-		if obj.Deleted || obj.Suicide || obj.Empty() {
-			txn.globalRadix.Delete(addr.Bytes())
-		} else {
-			txn.globalRadix.Insert(addr.Bytes(), obj)
-		}
+		txn.globalRadix.Insert(addr.Bytes(), obj)
 	}
 
-	txn.addPendingBalancesUnlock()
 	txn.cleanAll()
 
 	return nil
@@ -730,14 +649,9 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 
 func (txn *TxnVerifier) addPendingBalancesUnlock() {
 	// Apply pending AddBalanceDoNotTrack credits to global radix
-	for addr, amount := range txn.pendingAddBalances {
-		var obj *StateObject
-
-		if raw, exists := txn.globalRadix.Get(addr.Bytes()); exists {
-			obj = raw.(*StateObject).Copy() //nolint:forcetypeassert
-		} else if account, err := txn.snapshot.GetAccount(addr); err == nil && account != nil {
-			obj = &StateObject{Account: account.Copy()}
-		} else {
+	for addr, amount := range txn.globalAddBalances {
+		obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr)
+		if !exists {
 			obj = newStateObject()
 		}
 
@@ -747,7 +661,6 @@ func (txn *TxnVerifier) addPendingBalancesUnlock() {
 }
 
 func (txn *TxnVerifier) cleanAll() {
-	txn.pendingAddBalances = nil
 	txn.txLocalLogs = nil                   // clean logs
 	txn.txLocalRefund = 0                   // reset refunds
 	txn.txLocalMap = map[Key]txLocalValue{} // delete tx local map

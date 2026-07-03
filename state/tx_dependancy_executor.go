@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -39,6 +40,7 @@ func (t *TxDependancyExecutor) Execute(
 	errs := make([]error, workersCnt)
 	baseRadix := createBlockRadix()
 	baseMutex := &sync.RWMutex{} // all transitions using this mutex for accessing/updating baseRadix
+	baseAddBalances := map[types.Address]*big.Int{}
 
 	addError := func(id int, err error) {
 		errs[id] = err
@@ -49,7 +51,7 @@ func (t *TxDependancyExecutor) Execute(
 	for i := range trans {
 		tran, err := executor.BeginTxnWithCustomTxn(
 			parentRoot, blockHeader, blockCreator, func(s Snapshot) ITransitionTxn {
-				return NewTxnVerifier(s, baseMutex, baseRadix)
+				return NewTxnVerifier(s, baseMutex, baseRadix, baseAddBalances)
 			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create transition no %d: %w", i, err)
