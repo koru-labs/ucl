@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -52,7 +53,9 @@ func newDepExecExecutor(t *testing.T, alloc map[types.Address]*chain.GenesisAcco
 	return executor, root
 }
 
-func depExecTransferTx(hashByte byte, from, to types.Address, nonce uint64, value, gasPrice int64, gas uint64) *types.Transaction {
+func depExecTransferTx(
+	hashByte byte, from, to types.Address, nonce uint64, value, gasPrice int64, gas uint64,
+) *types.Transaction {
 	return &types.Transaction{
 		Hash:     types.Hash{hashByte},
 		From:     from,
@@ -221,13 +224,10 @@ func TestTxDependancyExecutor_Execute_MoreWorkersThanTxs(t *testing.T) {
 	require.Equal(t, types.ReceiptSuccess, *receipts[0].Status)
 }
 
-// TestTxDependancyExecutor_Execute_CoinbaseFeesFromConcurrentTxsAllLand is a regression test
-// for a lost-update race: every transaction implicitly credits the block's Coinbase address
-// with its gas fee (executor.go's apply()), a side effect the tx-dependency graph has no
-// visibility into. Many dependency-graph-independent transactions therefore legitimately run
-// concurrently while all crediting the same address. Run repeatedly under -race, this used to
-// intermittently lose fee credits because the publish to the shared blockRadix was an
-// unconditional overwrite of a snapshot read earlier, rather than an atomic read-modify-write.
+// Regression test: every tx implicitly credits Coinbase with its gas fee, invisible to the
+// dependency graph, so many independent txs legitimately run concurrently while all crediting
+// it. Under -race this used to intermittently lose fee credits: the publish to the shared
+// blockRadix was an unconditional overwrite of an earlier snapshot read, not an atomic RMW.
 func TestTxDependancyExecutor_Execute_CoinbaseFeesFromConcurrentTxsAllLand(t *testing.T) {
 	t.Parallel()
 
@@ -268,16 +268,10 @@ func TestTxDependancyExecutor_Execute_CoinbaseFeesFromConcurrentTxsAllLand(t *te
 	}
 }
 
-// TestTxDependancyExecutor_Execute_SecondBlockMatchesSequential is a regression test for a bug
-// where AddBalanceDoNotTrack (coinbase fee / burn credit) treated a miss in the per-block
-// blockRadix as "this account has zero balance", instead of falling back to the account's real
-// balance persisted by prior blocks. blockRadix is recreated empty for every block, so any
-// address whose *only* touch in a given block goes through AddBalanceDoNotTrack (e.g. Coinbase,
-// once nothing else in that block happens to touch it) had its carried-over balance silently
-// discarded, corrupting the resulting state root starting from the second block onward - which
-// is exactly what a validator verifying a real chain (not just a single isolated block) would
-// hit. A single transaction touching an already-deployed contract's storage is enough to
-// reproduce it; no concurrency is required.
+// Regression test: AddBalanceDoNotTrack used to treat a miss in the per-block blockRadix as
+// zero balance instead of falling back to the account's real prior-block balance. blockRadix is
+// recreated empty every block, so an address only ever touched via AddBalanceDoNotTrack (e.g.
+// Coinbase) had its carried-over balance silently dropped from the second block onward.
 func TestTxDependancyExecutor_Execute_SecondBlockMatchesSequential(t *testing.T) {
 	t.Parallel()
 
@@ -378,16 +372,10 @@ func TestTxDependancyExecutor_Execute_SecondBlockMatchesSequential(t *testing.T)
 		"parallel verifier must compute the same state root as sequential execution on the second block of a chain")
 }
 
-// TestTxDependancyExecutor_Execute_DirectMutationAfterExecuteIsCommitted is a regression test
-// for consensus hooks - most notably IBFT PoS's PreCommitStateFunc, which deploys the staking
-// contract via Transition.SetAccountDirectly - that mutate the *Transition returned by Execute
-// directly, after Execute has already returned and its per-tx PopulateBlockRadix calls are done
-// (see blockchain.go's executeBlockTransactions: ProcessBlock, then consensus.PreCommitState,
-// then txn.Commit). Those direct writes only ever land in TxnVerifier's local txLocalMap; Commit
-// used to read only from the shared blockRadix, so anything written this way was silently
-// dropped from the committed state instead of persisted - producing a state root that omits it
-// entirely, which is exactly the shape of bug that shows up as "invalid block state root" only
-// once a hook like this actually deploys something.
+// Regression test: consensus hooks (e.g. IBFT PoS's PreCommitStateFunc, staking contract
+// deploy) mutate the *Transition directly via SetAccountDirectly after Execute has returned.
+// Those writes only ever land in txLocalMap; Commit used to read only the shared blockRadix, so
+// they were silently dropped from the committed state instead of persisted.
 func TestTxDependancyExecutor_Execute_DirectMutationAfterExecuteIsCommitted(t *testing.T) {
 	t.Parallel()
 
@@ -558,14 +546,10 @@ func TestTxDependancyExecutor_StakingChain_RootMatchesSequential(t *testing.T) {
 		"parallel verifier must compute the same state root as sequential execution for a chain of stake() calls")
 }
 
-// TestTxDependancyExecutor_Execute_RevertedCallDoesNotPersistWrites is a regression test for
-// TxnVerifier.Snapshot()/RevertToSnapshot() having been no-ops. applyCall/applyCreate rely on
-// them to undo a failed call's writes (executor.go: "if result.Failed() { RevertToSnapshot }"),
-// which is a completely normal, common outcome - any require()/revert inside a contract call
-// hits this, not just malformed transactions. With no-op revert, TxnVerifier kept a failed
-// call's partial writes (e.g. a value transfer made before the revert point) while the
-// sequential path correctly discarded them, producing different roots for a transaction that
-// is entirely valid and gets included either way (ReceiptStatus: Failed, not rejected).
+// Regression test: TxnVerifier.Snapshot()/RevertToSnapshot() used to be no-ops, so a reverted
+// call (any require()/revert, a normal outcome, not just a malformed tx) kept its partial
+// writes instead of discarding them - producing a different root than the sequential path for
+// a perfectly valid, included transaction (ReceiptStatus: Failed, not rejected).
 func TestTxDependancyExecutor_Execute_RevertedCallDoesNotPersistWrites(t *testing.T) {
 	t.Parallel()
 
@@ -653,4 +637,172 @@ func TestTxDependancyExecutor_Execute_RevertedCallDoesNotPersistWrites(t *testin
 
 	require.Equal(t, block2RootSequential, block2RootParallel,
 		"parallel verifier must compute the same state root as sequential execution for a reverted call")
+}
+
+// Builds a 50-tx block with a deliberate (non-random) dependency graph: independent transfers,
+// a same-sender nonce chain, a relay chain, fan-out/fan-in "diamond" gadgets, and a two-level
+// join tree. Every edge reflects a real address conflict, since PopulateBlockRadix's
+// last-writer-wins merge can silently drop an update if two same-address txs aren't ordered.
+func TestTxDependancyExecutor_Execute_LargeCleverDependencyGraph(t *testing.T) {
+	t.Parallel()
+
+	const (
+		gasPrice = int64(1)
+		gasLimit = uint64(21000)
+	)
+
+	// types.StringToAddress hex-decodes its argument, so labels with non-hex characters (like
+	// the descriptive ones below) would all silently collapse to the zero address; BytesToAddress
+	// copies the raw label bytes instead, keeping each one distinct.
+	addr := func(label string) types.Address { return types.BytesToAddress([]byte(label)) }
+	alloc := map[types.Address]*chain.GenesisAccount{}
+
+	fund := func(a types.Address, balance int64) types.Address {
+		alloc[a] = &chain.GenesisAccount{Balance: big.NewInt(balance)}
+
+		return a
+	}
+
+	var (
+		txs  []*types.Transaction
+		deps [][]uint64
+		hash byte
+	)
+
+	nonces := map[types.Address]uint64{}
+
+	// add appends a transfer from `from` to `to`, auto-assigning from's next nonce, and returns
+	// the new tx's index so callers can wire it up as a dependency of later txs.
+	add := func(from, to types.Address, value int64, dependsOn ...uint64) uint64 {
+		hash++
+		nonce := nonces[from]
+		nonces[from] = nonce + 1
+
+		txs = append(txs, depExecTransferTx(hash, from, to, nonce, value, gasPrice, gasLimit))
+		deps = append(deps, dependsOn)
+
+		return uint64(len(txs) - 1)
+	}
+
+	// --- group A: 13 fully independent transfers (disjoint addresses, no deps at all) plus one
+	// same-sender two-hop chain, so "no dependency" and "ordered purely by nonce" sit side by
+	// side.
+	for i := range 13 {
+		from := fund(addr(fmt.Sprintf("ind%d_from", i)), 1_000_000)
+		to := addr(fmt.Sprintf("ind%d_to", i))
+		add(from, to, 1_000)
+	}
+
+	ncA := fund(addr("nc_a"), 1_000_000)
+	ncFirst := add(ncA, addr("nc_to0"), 500)
+	add(ncA, addr("nc_to1"), 500, ncFirst)
+
+	// --- group B: an 8-hop relay chain of distinct senders, each hop strictly depending on the
+	// one before it.
+	relay := make([]types.Address, 9)
+	for i := range relay {
+		relay[i] = addr(fmt.Sprintf("relay%d", i))
+	}
+
+	fund(relay[0], 10_000_000)
+
+	relayValues := []int64{5_000_000, 2_000_000, 1_000_000, 500_000, 200_000, 100_000, 50_000, 20_000}
+
+	var prevHop uint64
+
+	for i, v := range relayValues {
+		if i == 0 {
+			prevHop = add(relay[i], relay[i+1], v)
+		} else {
+			prevHop = add(relay[i], relay[i+1], v, prevHop)
+		}
+	}
+
+	// --- group C: 4 "diamond" gadgets. A root funds two disjoint descendants - one via its own
+	// next nonce, one via the balance it just credited - which run fully in parallel since they
+	// share no address; a join transaction then depends directly on both branch tips.
+	var diamondU3 [4]types.Address
+
+	for g := range 4 {
+		u0 := fund(addr(fmt.Sprintf("dia%d_u0", g)), 5_000_000)
+		u1 := addr(fmt.Sprintf("dia%d_u1", g))
+		u2 := addr(fmt.Sprintf("dia%d_u2", g))
+		u3 := addr(fmt.Sprintf("dia%d_u3", g))
+
+		root := add(u0, u1, 2_000_000)
+		childA := add(u1, u2, 500_000, root)   // spends the balance the root just credited
+		childB := add(u0, u3, 1_000_000, root) // root's own next nonce
+		add(u2, u3, 100_000, childA, childB)
+
+		diamondU3[g] = u3
+	}
+
+	// --- group D: 4 independent 2-hop leaf chains, reduced pairwise into a 2-level join tree (a
+	// "diamond of diamonds"): each level-1 join depends directly on two leaf-chain tips, and the
+	// final join depends directly on both level-1 joins.
+	leaf := make([][3]types.Address, 4)
+	leafTip := make([]uint64, 4)
+
+	for k := range 4 {
+		leaf[k][0] = fund(addr(fmt.Sprintf("leaf%d_0", k)), 2_000_000)
+		leaf[k][1] = addr(fmt.Sprintf("leaf%d_1", k))
+		leaf[k][2] = addr(fmt.Sprintf("leaf%d_2", k))
+
+		hop0 := add(leaf[k][0], leaf[k][1], 1_000_000)
+		leafTip[k] = add(leaf[k][1], leaf[k][2], 500_000, hop0)
+	}
+
+	join10 := add(leaf[0][2], leaf[1][2], 100_000, leafTip[0], leafTip[1])
+	join11 := add(leaf[2][2], leaf[3][2], 100_000, leafTip[2], leafTip[3])
+	add(leaf[1][2], leaf[3][2], 50_000, join10, join11)
+
+	require.Len(t, txs, 50)
+
+	header := &types.Header{Number: 1, GasLimit: 5_000_000, Timestamp: 1}
+
+	// --- reference: the identical 50 txs executed sequentially, in the same topological order
+	// they were built in (every dependency only ever points at an earlier index).
+	seqExecutor, genesisRoot := newDepExecExecutor(t, alloc)
+
+	seqTxn, err := seqExecutor.BeginTxn(genesisRoot, header, types.ZeroAddress)
+	require.NoError(t, err)
+
+	for i, tx := range txs {
+		receipt, err := seqTxn.Write(tx)
+		require.NoError(t, err)
+		require.Equal(t, types.ReceiptSuccess, *receipt.Status, "sequential: tx %d must succeed", i)
+	}
+
+	_, seqRoot, err := seqTxn.Commit()
+	require.NoError(t, err)
+
+	// --- the same 50 txs through the parallel dependency executor.
+	parExecutor, parGenesisRoot := newDepExecExecutor(t, alloc)
+	require.Equal(t, genesisRoot, parGenesisRoot)
+
+	pool := state.NewTxDependancyPool(txs, deps)
+	exec := state.NewTxDependancyExecutor(8, hclog.NewNullLogger())
+
+	parTran, receipts, err := exec.Execute(pool, parExecutor, parGenesisRoot, header, types.ZeroAddress)
+	require.NoError(t, err)
+	require.Len(t, receipts, 50)
+
+	for i, r := range receipts {
+		require.Equal(t, types.ReceiptSuccess, *r.Status, "parallel: tx %d must succeed", i)
+	}
+
+	// spot-check a few representative nodes before committing, for a more localized failure
+	// signal than a root mismatch alone would give.
+	require.Equal(t, big.NewInt(20_000), parTran.GetBalance(relay[8]),
+		"relay chain tail must receive only the last hop's value")
+	require.Equal(t, big.NewInt(1_100_000), parTran.GetBalance(diamondU3[0]),
+		"diamond join recipient must reflect both the fan-out credit and the join transfer")
+	require.Equal(t, big.NewInt(650_000), parTran.GetBalance(leaf[3][2]),
+		"final join recipient must reflect both levels of the reduction tree")
+
+	_, parRoot, err := parTran.Commit()
+	require.NoError(t, err)
+
+	require.Equal(t, seqRoot, parRoot,
+		"parallel dependency executor must match sequential execution for a large mixed dependency graph")
 }

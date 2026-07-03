@@ -415,7 +415,8 @@ func NewServer(config *Config) (*Server, error) {
 
 		if m.config.Chain.Params.GetEngine() == string(IBFTConsensus) {
 			m.executor.GetTxDependencyHook = func(h *types.Header) [][]uint64 {
-				if h == nil || len(h.ExtraData) <= signer.IstanbulExtraVanity {
+				if h == nil || len(h.ExtraData) <= signer.IstanbulExtraVanity ||
+					!m.config.Chain.Params.Forks.IsActive(chain.EIPBorTxDeps, h.Number) {
 					return nil
 				}
 

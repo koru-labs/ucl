@@ -271,6 +271,10 @@ func PackTxDependencyIntoExtra(
 	extraBytes []byte,
 	txDependency [][]uint64,
 ) []byte {
+	if txDependency == nil {
+		return extraBytes
+	}
+
 	return packFieldsIntoExtra(
 		extraBytes,
 		func(

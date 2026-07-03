@@ -9,6 +9,7 @@ import (
 
 	"github.com/0xPolygon/go-ibft/messages"
 	"github.com/0xPolygon/go-ibft/messages/proto"
+	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
@@ -232,7 +233,9 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	transition, err := i.executor.BeginTxnWithCustomTxn(
 		parent.StateRoot, header, signer.Address(), func(s state.Snapshot) state.ITransitionTxn {
-			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(false))
+			isNoOp := !i.config.Params.Forks.IsActive(chain.EIPBorTxDeps, header.Number)
+
+			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(isNoOp))
 		})
 	if err != nil {
 		return nil, nil, err

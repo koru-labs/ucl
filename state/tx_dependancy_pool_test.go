@@ -249,15 +249,10 @@ func TestTxDependancyPool_ConcurrentProducersConsumers(t *testing.T) {
 	}
 }
 
-// TestTxDependancyPool_FinishTx_FanOutQueueOrderIsDeterministic is a regression test for
-// FinishTx ranging over children as a map: when a tx has multiple children (a fan-out, not a
-// pure chain), map iteration order is randomized per run, so the order those children get
-// appended to the ready queue - and so, under worker contention, the order they get picked up
-// and executed in - would vary from run to run. That's a correctness risk wherever the exact
-// same dependency graph gets replayed more than once (e.g. a validator independently
-// re-executing a block the proposer already built): both runs must reach the same result.
-// Run with a single worker (deterministic ordering has nothing to do with concurrency here)
-// across many iterations, since a flaky map-order bug would only show up some of the time.
+// Regression test: FinishTx used to range over children as a map, so a fan-out's queue order
+// (and thus execution order) was randomized per run - a correctness risk when the same graph is
+// replayed (e.g. a validator re-executing a proposer's block). Single worker, many iterations,
+// since a flaky map-order bug only shows up some of the time.
 func TestTxDependancyPool_FinishTx_FanOutQueueOrderIsDeterministic(t *testing.T) {
 	t.Parallel()
 

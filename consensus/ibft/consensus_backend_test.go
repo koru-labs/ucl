@@ -8,6 +8,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/hook"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/crypto"
@@ -174,6 +175,9 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 			logger:      hclog.NewNullLogger(),
 			txpool:      txPool,
 			blockTime:   1 * time.Second,
+			config: &consensus.Config{
+				Params: chainParams,
+			},
 		}
 
 		return i.buildBlock(parentHeader)
