@@ -49,7 +49,7 @@ func (t *TxDependancyExecutor) Execute(
 	for i := range trans {
 		tran, err := executor.BeginTxnWithCustomTxn(
 			parentRoot, blockHeader, blockCreator, func(s Snapshot) ITransitionTxn {
-				return NewTxnVerifier(s, baseRadix, baseMutex)
+				return NewTxnVerifier(s, baseMutex, baseRadix)
 			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create transition no %d: %w", i, err)
