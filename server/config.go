@@ -69,6 +69,7 @@ type Config struct {
 
 	EnableTxPoolEndpoints   bool
 	EnableAllDebugEndpoints bool
+	EnableBlockAccessList   bool
 
 	// JumpdestCacheSize controls the size of the per-process JUMPDEST bitmap
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
