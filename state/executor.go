@@ -812,7 +812,9 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
-	t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
+	if coinbaseFee.Sign() > 0 {
+		t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
+	}
 
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.

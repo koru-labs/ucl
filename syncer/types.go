@@ -37,7 +37,7 @@ type Blockchain interface {
 	// GetReceiptsByHash returns the receipts for the given block, if retained
 	GetReceiptsByHash(uint64, types.Hash) ([]*types.Receipt, error)
 	// GetBlockAccessList returns the EIP-7928 BLockAccessList for the given block
-	GetBlockAccessList(uint64, types.Hash) (bal.BlockAccessList, error)
+	GetBlockAccessList(uint64) (bal.BlockAccessList, error)
 	// ApplyFInalizedBlockFromBAL applies a finalized block's state directrly
 	ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessList) (*types.FullBlock, error)
 }

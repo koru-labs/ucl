@@ -40,8 +40,8 @@ func (w *Writer) PutReceipts(bn uint64, bh types.Hash, receipts []*types.Receipt
 }
 
 // PutBlockAccessList persists the EIP-7928 block access list for a block
-func (w *Writer) PutBlockAccessList(bn uint64, bh types.Hash, accessList bal.BlockAccessList) {
-	w.putRlp(BLOCK_ACCESS_LIST, getKey(bn, bh), accessList)
+func (w *Writer) PutBlockAccessList(bn uint64, accessList bal.BlockAccessList) {
+	w.putRlp(BLOCK_ACCESS_LIST, common.EncodeUint64ToBytes(bn), accessList)
 }
 
 func (w *Writer) PutCanonicalHeader(h *types.Header, diff *big.Int) {

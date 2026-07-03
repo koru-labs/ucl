@@ -113,9 +113,9 @@ func (s *Storage) ReadReceipts(bn uint64, bh types.Hash) ([]*types.Receipt, erro
 // BLOCK ACCESS LIST //
 
 // ReadBlockAccessList reads the EIP-7928 block access list for the given block.
-func (s *Storage) ReadBlockAccessList(bn uint64, bh types.Hash) (bal.BlockAccessList, error) {
+func (s *Storage) ReadBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
 	accessList := &bal.BlockAccessList{}
-	err := s.readRLP(BLOCK_ACCESS_LIST, getKey(bn, bh), accessList)
+	err := s.readRLP(BLOCK_ACCESS_LIST, common.EncodeUint64ToBytes(bn), accessList)
 
 	return *accessList, err
 }

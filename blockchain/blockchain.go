@@ -459,10 +459,6 @@ func (b *Blockchain) GetTD(hash types.Hash) (*big.Int, bool) {
 
 // GetReceiptsByHash returns the receipts by their hash
 func (b *Blockchain) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
-	if b.config.Params.Forks.At(bn).EIP7928 {
-		return nil, nil
-	}
-
 	return b.db.ReadReceipts(bn, hash)
 }
 
@@ -733,23 +729,21 @@ func (b *Blockchain) verifyBlockParent(childBlock *types.Block) error {
 func (b *Blockchain) verifyBlockBody(block *types.Block) ([]*types.Receipt, error) {
 	// If eip 7928 is not active, the block access list hash should be zero,
 	// because block access list is not part of block header serialized data
-	if !b.config.Params.Forks.At(block.Number()).EIP7928 && block.Header.BlockAccessListHash != types.ZeroHash {
-		b.logger.Error(fmt.Sprintf(
-			"unexpected block access list hash, expected zero, but got %s for block %d",
-			block.Header.BlockAccessListHash,
+	forks := b.config.Params.Forks.At(block.Number())
+	hasBAL := block.Header.BlockAccessListHash != types.ZeroHash
+
+	if forks.EIP7928 != hasBAL {
+		if hasBAL {
+			return nil, fmt.Errorf(
+				"block %d has block access list hash %s but EIP-7928 is not active",
+				block.Number(), block.Header.BlockAccessListHash,
+			)
+		}
+
+		return nil, fmt.Errorf(
+			"block %d is missing block access list hash (EIP-7928 active)",
 			block.Number(),
-		))
-
-		return nil, fmt.Errorf("block access list hash is not zero for block %d", block.Number())
-	}
-
-	if block.Header.BlockAccessListHash == types.ZeroHash {
-		b.logger.Error(fmt.Sprintf(
-			"got zero block access list hash for block %d",
-			block.Number(),
-		))
-
-		return nil, fmt.Errorf("block access list cannot be zero (block: %d)", block.Number())
+		)
 	}
 
 	// Make sure the Uncles root matches up
@@ -839,12 +833,12 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		if err := b.verifyBlockAccessList(block, txn.BlockAccessList()); err != nil {
 			return nil, err
 		}
-	}
 
-	batchWriter := b.db.NewWriter()
-	batchWriter.PutBlockAccessList(block.Number(), block.Header.Hash, txn.BlockAccessList())
-	if err := batchWriter.WriteBatch(); err != nil {
-		return nil, err
+		batchWriter := b.db.NewWriter()
+		batchWriter.PutBlockAccessList(block.Number(), txn.BlockAccessList())
+		if err := batchWriter.WriteBatch(); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
@@ -1546,12 +1540,12 @@ func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.B
 	return nil
 }
 
-func (b *Blockchain) GetBlockAccessList(blockNumber uint64, hash types.Hash) (bal.BlockAccessList, error) {
+func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList, error) {
 	if !b.config.Params.Forks.At(blockNumber).EIP7928 {
 		return bal.BlockAccessList{}, nil
 	}
 
-	return b.db.ReadBlockAccessList(blockNumber, hash)
+	return b.db.ReadBlockAccessList(blockNumber)
 }
 
 func (b *Blockchain) ApplyFinalizedBlockFromBAL(
@@ -1645,7 +1639,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	}
 
 	batchWriter := b.db.NewWriter()
-	batchWriter.PutBlockAccessList(block.Number(), block.Header.Hash, accessList)
+	batchWriter.PutBlockAccessList(block.Number(), accessList)
 
 	if err := batchWriter.WriteBatch(); err != nil {
 		return nil, fmt.Errorf("failed to persist block access list: %w", err)

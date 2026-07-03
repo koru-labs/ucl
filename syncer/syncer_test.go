@@ -77,7 +77,7 @@ func (m *mockBlockchain) GetReceiptsByHash(bn uint64, bh types.Hash) ([]*types.R
 	return nil, nil
 }
 
-func (m *mockBlockchain) GetBlockAccessList(bn uint64, bh types.Hash) (bal.BlockAccessList, error) {
+func (m *mockBlockchain) GetBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
 	return nil, nil
 }
 

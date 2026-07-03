@@ -74,7 +74,8 @@ func (s *syncPeerService) GetBlocks(
 			receipts = nil
 		}
 
-		blockAccessList, err := s.blockchain.GetBlockAccessList(block.Number(), block.Hash())
+		blockAccessList, err := s.blockchain.GetBlockAccessList(block.Number())
+
 		if err != nil {
 			blockAccessList = nil
 		}

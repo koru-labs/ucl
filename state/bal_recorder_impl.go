@@ -46,9 +46,11 @@ func (r *BlockAccessListRecorder) CodeChange(addr types.Address, code []byte) {
 }
 
 func (r *BlockAccessListRecorder) Merge(balRecorder runtime.BlockAccessListRecorder) {
-	balRcd := balRecorder.(*BlockAccessListRecorder)
-
-	r.bal.Merge(balRcd.bal)
+	switch b := balRecorder.(type) {
+	case *BlockAccessListRecorder:
+		r.bal.Merge(b.bal)
+	default:
+	}
 }
 
 func (r *BlockAccessListRecorder) GetIndex() uint32 {
