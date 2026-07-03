@@ -42,6 +42,8 @@ type syncer struct {
 	newStatusCh chan struct{}
 
 	forkManager forkManagerInterface
+
+	enableBlockAccessList bool
 }
 
 type forkManagerInterface interface {
@@ -56,17 +58,19 @@ func NewSyncer(
 	txPool TxPool,
 	blockTimeout time.Duration,
 	forkManager forkManagerInterface,
+	enableBlockAccessList bool,
 ) Syncer {
 	return &syncer{
-		logger:          logger.Named(syncerName),
-		blockchain:      blockchain,
-		syncProgression: progress.NewProgressionWrapper(progress.ChainSyncBulk),
-		syncPeerService: NewSyncPeerService(network, blockchain, txPool),
-		syncPeerClient:  NewSyncPeerClient(logger, network, blockchain, txPool),
-		blockTimeout:    blockTimeout,
-		newStatusCh:     make(chan struct{}),
-		peerMap:         new(PeerMap),
-		forkManager:     forkManager,
+		logger:                logger.Named(syncerName),
+		blockchain:            blockchain,
+		syncProgression:       progress.NewProgressionWrapper(progress.ChainSyncBulk),
+		syncPeerService:       NewSyncPeerService(network, blockchain, txPool),
+		syncPeerClient:        NewSyncPeerClient(logger, network, blockchain, txPool),
+		blockTimeout:          blockTimeout,
+		newStatusCh:           make(chan struct{}),
+		peerMap:               new(PeerMap),
+		forkManager:           forkManager,
+		enableBlockAccessList: enableBlockAccessList,
 	}
 }
 
@@ -328,7 +332,7 @@ func (s *syncer) applyBlock(syncBlock *SyncBlock) (*types.FullBlock, error) {
 		return nil, err
 	}
 
-	if validators.Includes(signer.Address()) {
+	if validators.Includes(signer.Address()) || !s.enableBlockAccessList {
 		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
 	}
 

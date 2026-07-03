@@ -459,6 +459,10 @@ func (b *Blockchain) GetTD(hash types.Hash) (*big.Int, bool) {
 
 // GetReceiptsByHash returns the receipts by their hash
 func (b *Blockchain) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
+	if b.config.Params.Forks.At(bn).EIP7928 {
+		return nil, nil
+	}
+
 	return b.db.ReadReceipts(bn, hash)
 }
 
@@ -737,6 +741,15 @@ func (b *Blockchain) verifyBlockBody(block *types.Block) ([]*types.Receipt, erro
 		))
 
 		return nil, fmt.Errorf("block access list hash is not zero for block %d", block.Number())
+	}
+
+	if block.Header.BlockAccessListHash == types.ZeroHash {
+		b.logger.Error(fmt.Sprintf(
+			"got zero block access list hash for block %d",
+			block.Number(),
+		))
+
+		return nil, fmt.Errorf("block access list cannot be zero (block: %d)", block.Number())
 	}
 
 	// Make sure the Uncles root matches up
@@ -1534,6 +1547,10 @@ func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.B
 }
 
 func (b *Blockchain) GetBlockAccessList(blockNumber uint64, hash types.Hash) (bal.BlockAccessList, error) {
+	if !b.config.Params.Forks.At(blockNumber).EIP7928 {
+		return bal.BlockAccessList{}, nil
+	}
+
 	return b.db.ReadBlockAccessList(blockNumber, hash)
 }
 
@@ -1542,12 +1559,25 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	receipts []*types.Receipt,
 	accessList bal.BlockAccessList,
 ) (*types.FullBlock, error) {
+	if !b.config.Params.Forks.At(block.Number()).EIP7928 {
+		return b.VerifyFinalizedBlock(block)
+	}
+
 	if err := b.consensus.VerifyHeader(block.Header); err != nil {
 		return nil, fmt.Errorf("failed to verify the header: %w", err)
 	}
 
 	if err := b.verifyBlockParent(block); err != nil {
 		return nil, err
+	}
+
+	if block.Header.BlockAccessListHash == types.ZeroHash {
+		b.logger.Error(fmt.Sprintf(
+			"got zero block access list hash for block %d",
+			block.Number(),
+		))
+
+		return nil, fmt.Errorf("block access list cannot be zero (block: %d)", block.Number())
 	}
 
 	if hash := buildroot.CalculateUncleRoot(block.Uncles); hash != block.Header.Sha3Uncles {

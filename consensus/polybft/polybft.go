@@ -443,6 +443,7 @@ func (p *Polybft) Initialize() error {
 		p.config.TxPool,
 		time.Duration(p.config.BlockTime)*3*time.Second,
 		nil,
+		false,
 	)
 
 	// set blockchain backend

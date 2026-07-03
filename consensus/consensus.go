@@ -93,6 +93,8 @@ type Params struct {
 	MetricsInterval       time.Duration
 
 	KeyManagerFactory signer.KeyManagerFactory
+
+	EnableBlockAccessList bool
 }
 
 // Factory is the factory function to create a discovery consensus
