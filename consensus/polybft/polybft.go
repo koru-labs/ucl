@@ -442,6 +442,7 @@ func (p *Polybft) Initialize() error {
 		p.config.Blockchain,
 		p.config.TxPool,
 		time.Duration(p.config.BlockTime)*3*time.Second,
+		nil,
 	)
 
 	// set blockchain backend

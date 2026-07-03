@@ -249,7 +249,7 @@ func (h *Header) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 		}
 	}
 
-	if len(elems) > 16 {
+	if len(elems) == 17 {
 		var balHash Hash
 		if err = elems[16].GetHash(balHash[:]); err != nil {
 			return err

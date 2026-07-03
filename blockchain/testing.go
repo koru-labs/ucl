@@ -307,7 +307,7 @@ func (m *mockExecutor) ProcessBlock(
 	return nil, nil
 }
 
-func (m *mockExecutor) ApplyBlockAccessList(parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error) {
+func (m *mockExecutor) ApplyBlockAccessList(blockNumber uint64, parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error) {
 	return types.Hash{}, nil
 }
 

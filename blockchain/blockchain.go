@@ -109,7 +109,7 @@ type Executor interface {
 	// ApplyBlockAccessList applies the final (post-execution) state recorded
 	// in accessList directly to the trie rooted at parentRoot, WITHOUT
 	// executing any transaction. Returns the resulting state root.
-	ApplyBlockAccessList(parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error)
+	ApplyBlockAccessList(blockNumber uint64, parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error)
 }
 
 type TxSigner interface {
@@ -727,6 +727,18 @@ func (b *Blockchain) verifyBlockParent(childBlock *types.Block) error {
 // - The receipts match up
 // - The execution result matches up
 func (b *Blockchain) verifyBlockBody(block *types.Block) ([]*types.Receipt, error) {
+	// If eip 7928 is not active, the block access list hash should be zero,
+	// because block access list is not part of block header serialized data
+	if !b.config.Params.Forks.At(block.Number()).EIP7928 && block.Header.BlockAccessListHash != types.ZeroHash {
+		b.logger.Error(fmt.Sprintf(
+			"unexpected block access list hash, expected zero, but got %s for block %d",
+			block.Header.BlockAccessListHash,
+			block.Number(),
+		))
+
+		return nil, fmt.Errorf("block access list hash is not zero for block %d", block.Number())
+	}
+
 	// Make sure the Uncles root matches up
 	if hash := buildroot.CalculateUncleRoot(block.Uncles); hash != block.Header.Sha3Uncles {
 		b.logger.Error(fmt.Sprintf(
@@ -810,8 +822,10 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
-	if err := b.verifyBlockAccessList(block, txn.BlockAccessList()); err != nil {
-		return nil, err
+	if b.config.Params.Forks.At(block.Number()).EIP7928 {
+		if err := b.verifyBlockAccessList(block, txn.BlockAccessList()); err != nil {
+			return nil, err
+		}
 	}
 
 	batchWriter := b.db.NewWriter()
@@ -1545,16 +1559,10 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	}
 
 	if block.Header.BlockAccessListHash == EmptyBALHash {
-		if len(block.Transactions) != 0 {
+		if len(block.Transactions) != 0 || len(receipts) != 0 {
 			return nil, fmt.Errorf(
-				"block claims empty block access list but has %d transactions",
+				"block claims empty block access list but has %d transactions and %d receipts",
 				len(block.Transactions),
-			)
-		}
-
-		if len(receipts) != 0 {
-			return nil, fmt.Errorf(
-				"block claims empty block access list but %d receipts were supplied",
 				len(receipts),
 			)
 		}
@@ -1570,8 +1578,8 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		return nil, fmt.Errorf("invalid block access list structure: %w", err)
 	}
 
-	computedBALHash := accessList.Hash()
-	if computedBALHash != block.Header.BlockAccessListHash {
+	blockAccessListHash := accessList.Hash()
+	if blockAccessListHash != block.Header.BlockAccessListHash {
 		return nil, errors.New("supplied block access list does not match header hash")
 	}
 
@@ -1594,7 +1602,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		return nil, ErrParentNotFound
 	}
 
-	computedStateRoot, err := b.executor.ApplyBlockAccessList(parent.StateRoot, accessList)
+	computedStateRoot, err := b.executor.ApplyBlockAccessList(block.Number(), parent.StateRoot, accessList)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply block access list to state: %w", err)
 	}
@@ -1608,7 +1616,6 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 
 	batchWriter := b.db.NewWriter()
 	batchWriter.PutBlockAccessList(block.Number(), block.Header.Hash, accessList)
-	batchWriter.PutReceipts(block.Number(), block.Header.Hash, receipts)
 
 	if err := batchWriter.WriteBatch(); err != nil {
 		return nil, fmt.Errorf("failed to persist block access list: %w", err)

@@ -55,4 +55,8 @@ func (r *BlockAccessListRecorder) GetIndex() uint32 {
 	return r.index
 }
 
+func (r *BlockAccessListRecorder) GetBlockAccessListRecord() *bal.BlockAccessListRecord {
+	return r.bal
+}
+
 var _ runtime.BlockAccessListRecorder = &BlockAccessListRecorder{}

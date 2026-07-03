@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -38,6 +40,13 @@ type syncer struct {
 
 	// Channel to notify Sync that a new status arrived
 	newStatusCh chan struct{}
+
+	forkManager forkManagerInterface
+}
+
+type forkManagerInterface interface {
+	GetSigner(uint64) (signer.Signer, error)
+	GetValidators(uint64) (validators.Validators, error)
 }
 
 func NewSyncer(
@@ -46,6 +55,7 @@ func NewSyncer(
 	blockchain Blockchain,
 	txPool TxPool,
 	blockTimeout time.Duration,
+	forkManager forkManagerInterface,
 ) Syncer {
 	return &syncer{
 		logger:          logger.Named(syncerName),
@@ -56,6 +66,7 @@ func NewSyncer(
 		blockTimeout:    blockTimeout,
 		newStatusCh:     make(chan struct{}),
 		peerMap:         new(PeerMap),
+		forkManager:     forkManager,
 	}
 }
 
@@ -307,32 +318,25 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 }
 
 func (s *syncer) applyBlock(syncBlock *SyncBlock) (*types.FullBlock, error) {
-	canTrustBAL := true // TODO: change this
+	signer, err := s.forkManager.GetSigner(syncBlock.Block.Number())
+	if err != nil {
+		return nil, err
+	}
 
-	if !canTrustBAL {
+	validators, err := s.forkManager.GetValidators(syncBlock.Block.Number())
+	if err != nil {
+		return nil, err
+	}
+
+	if validators.Includes(signer.Address()) {
 		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
 	}
 
-	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAL(
+	return s.blockchain.ApplyFinalizedBlockFromBAL(
 		syncBlock.Block,
 		syncBlock.Receipts,
 		syncBlock.BlockAccessList,
 	)
-	if err != nil {
-		// Fall back to full re-execution rather than failing the sync
-		// outright; a malicious or buggy peer's bad BAL/receipts shouldn't
-		// be able to stall sync, only cost us the speed advantage for that
-		// one block
-		s.logger.Warn(
-			"failed to apply block from BAL, falling back to full re-execution",
-			"block", syncBlock.Block.Number(),
-			"err", err,
-		)
-
-		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
-	}
-
-	return fullBlock, nil
 }
 
 func updateMetrics(fullBlock *types.FullBlock) {

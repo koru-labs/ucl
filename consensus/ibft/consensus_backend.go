@@ -324,13 +324,15 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
-	finalBAL := transition.BlockAccessList()
-	if finalBAL != nil {
-		balHash := finalBAL.Hash()
-		header.BlockAccessListHash = balHash
-	}
+	if i.config.Params.Forks.At(header.Number).EIP7928 {
+		finalBAL := transition.BlockAccessList()
+		if finalBAL != nil {
+			balHash := finalBAL.Hash()
+			header.BlockAccessListHash = balHash
+		}
 
-	i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
+		i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
+	}
 
 	// build the block
 	block := consensus.BuildBlock(consensus.BuildBlockParams{
@@ -382,12 +384,12 @@ const (
 type txExeResult struct {
 	tx     *types.Transaction
 	status status
-	bal    *bal.BlockAccessListRecord
 }
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) error
 	SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder)
+	BlockAccessListRecorder() runtime.BlockAccessListRecorder
 	SetBlockAccessList(b bal.BlockAccessList)
 	BlockAccessList() bal.BlockAccessList
 }
@@ -443,6 +445,7 @@ write:
 				transition,
 				gasLimit,
 				uint32(successful+1), // We start from index 1, since 0 is reserved for pre-execution system calls.
+				blockNumber,
 			)
 
 			if !ok {
@@ -455,7 +458,7 @@ write:
 			case success:
 				executed = append(executed, tx)
 				successful++
-				balRecorder.Merge(result.bal)
+				balRecorder.Merge(transition.BlockAccessListRecorder().GetBlockAccessListRecord())
 			case fail:
 				failed++
 			case skip:
@@ -475,6 +478,7 @@ func (i *backendIBFT) writeTransaction(
 	transition transitionInterface,
 	gasLimit uint64,
 	nextBalIndex uint32,
+	blockNumber uint64,
 ) (*txExeResult, bool) {
 	if tx == nil {
 		return nil, false
@@ -484,12 +488,14 @@ func (i *backendIBFT) writeTransaction(
 		i.txpool.Drop(tx)
 
 		// continue processing
-		return &txExeResult{tx, fail, nil}, true
+		return &txExeResult{tx, fail}, true
 	}
 
-	txBalRecord := bal.NewBlockAccessListRecord()
+	transition.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
 
-	transition.SetBlockAccessListRecorder(state.NewBlockAccessListRecorder(txBalRecord, nextBalIndex))
+	if i.config.Params.Forks.At(blockNumber).EIP7928 {
+		transition.SetBlockAccessListRecorder(state.NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), nextBalIndex))
+	}
 
 	if err := transition.Write(tx); err != nil {
 		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
@@ -498,17 +504,17 @@ func (i *backendIBFT) writeTransaction(
 		} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
 			i.txpool.Demote(tx)
 
-			return &txExeResult{tx, skip, nil}, true
+			return &txExeResult{tx, skip}, true
 		} else {
 			i.txpool.Drop(tx)
 
-			return &txExeResult{tx, fail, nil}, true
+			return &txExeResult{tx, fail}, true
 		}
 	}
 
 	i.txpool.Pop(tx)
 
-	return &txExeResult{tx, success, txBalRecord}, true
+	return &txExeResult{tx, success}, true
 }
 
 // extractCommittedSeals extracts CommittedSeals from header

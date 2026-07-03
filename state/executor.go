@@ -281,6 +281,7 @@ func (e *Executor) BeginTxn(
 }
 
 func (e *Executor) ApplyBlockAccessList(
+	blockNumber uint64,
 	parentRoot types.Hash,
 	accessList bal.BlockAccessList,
 ) (types.Hash, error) {
@@ -314,7 +315,7 @@ func (e *Executor) ApplyBlockAccessList(
 		}
 	}
 
-	objs, err := txn.Commit(false)
+	objs, err := txn.Commit(e.config.Forks.At(blockNumber).EIP155)
 	if err != nil {
 		return types.Hash{}, err
 	}
@@ -361,8 +362,12 @@ type Transition struct {
 	// transient storage
 	transientStorageTouched bool
 
+	// balRecorder is used to record the block access list for the current transaction
+	// one per transaction
 	balRecorder runtime.BlockAccessListRecorder
 
+	// marshalable block access list for the block, which is used to generate the final block access list after the block execution
+	// one per block
 	blockBAL bal.BlockAccessList
 }
 
@@ -939,11 +944,18 @@ func (t *Transition) applyCall(
 
 	t.balRecorder.AccountRead(c.Address)
 	balIndex := t.balRecorder.GetIndex()
-	oldBalRecorder := t.balRecorder
-	callBalRecorder := NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
-	callBalRecorder.AccountRead(c.Address)
 
-	t.balRecorder = callBalRecorder
+	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
+
+	oldBalRecorder := t.balRecorder
+
+	if t.config.EIP7928 {
+		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
+
+		callBalRecorder.AccountRead(c.Address)
+
+		t.balRecorder = callBalRecorder
+	}
 
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
@@ -1040,9 +1052,14 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
 	}
 
-	callBalRecorder := NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
+	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
 	oldBalRecorder := t.balRecorder
-	t.balRecorder = callBalRecorder
+
+	if t.config.EIP7928 {
+		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
+
+		t.balRecorder = callBalRecorder
+	}
 
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
@@ -1052,7 +1069,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
-	if c.Value != nil && c.Value.Sign() != 0 {
+	if t.config.EIP7928 && c.Value != nil && c.Value.Sign() != 0 {
 		t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
 		t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 	}

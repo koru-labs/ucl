@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 // BlockAccessListRecorder captures EIP-7928 block access list entries as the EVM
@@ -17,19 +18,21 @@ type BlockAccessListRecorder interface {
 	CodeChange(addr types.Address, code []byte)
 	Merge(balRecorder BlockAccessListRecorder)
 	GetIndex() uint32
+	GetBlockAccessListRecord() *bal.BlockAccessListRecord
 }
 
 // NoopBALRecorder is used for blocks prior to the BAL fork activation, so
 // opcode handlers never need fork-awareness.
 type NoopBALRecorder struct{}
 
-func (NoopBALRecorder) AccountRead(types.Address)                          {}
-func (NoopBALRecorder) StorageRead(types.Address, types.Hash)              {}
-func (NoopBALRecorder) StorageWrite(types.Address, types.Hash, types.Hash) {}
-func (NoopBALRecorder) BalanceChange(types.Address, *big.Int)              {}
-func (NoopBALRecorder) NonceChange(types.Address, uint64)                  {}
-func (NoopBALRecorder) CodeChange(types.Address, []byte)                   {}
-func (NoopBALRecorder) Merge(BlockAccessListRecorder)                      {}
-func (NoopBALRecorder) GetIndex() uint32                                   { return 0 }
+func (NoopBALRecorder) AccountRead(types.Address)                            {}
+func (NoopBALRecorder) StorageRead(types.Address, types.Hash)                {}
+func (NoopBALRecorder) StorageWrite(types.Address, types.Hash, types.Hash)   {}
+func (NoopBALRecorder) BalanceChange(types.Address, *big.Int)                {}
+func (NoopBALRecorder) NonceChange(types.Address, uint64)                    {}
+func (NoopBALRecorder) CodeChange(types.Address, []byte)                     {}
+func (NoopBALRecorder) Merge(BlockAccessListRecorder)                        {}
+func (NoopBALRecorder) GetIndex() uint32                                     { return 0 }
+func (NoopBALRecorder) GetBlockAccessListRecord() *bal.BlockAccessListRecord { return nil }
 
 var _ BlockAccessListRecorder = NoopBALRecorder{}
