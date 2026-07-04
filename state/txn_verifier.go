@@ -199,14 +199,15 @@ func (txn *TxnVerifier) getStateObject(addr types.Address) (*StateObject, bool) 
 		return obj.Copy(), true
 	}
 
-	// then from global processing block radix and snapshot
-	txn.globalMutex.RLock()
+	// then from global processing block radix and snapshot; exclusive lock is required because
+	// StateObject.Copy commits the shared iradix.Txn, which mutates it even on a pure read
+	txn.globalMutex.Lock()
 
 	obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr)
 
 	txn.setLocal(addKey, obj, false)
 
-	txn.globalMutex.RUnlock()
+	txn.globalMutex.Unlock()
 
 	return obj, exists
 }
@@ -229,8 +230,10 @@ func (txn *TxnVerifier) AddSealingReward(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Suicide {
 			*object = *newStateObject()
+			object.dirtyFields = true
 			object.Account.Balance.SetBytes(balance.Bytes())
 		} else {
+			object.dirtyFields = true
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 	})
@@ -239,6 +242,7 @@ func (txn *TxnVerifier) AddSealingReward(addr types.Address, balance *big.Int) {
 // AddBalance adds balance
 func (txn *TxnVerifier) AddBalance(addr types.Address, amount *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
+		object.dirtyFields = object.dirtyFields || amount.Sign() != 0 // never reset an already dirty flag
 		object.Account.Balance.Add(object.Account.Balance, amount)
 	})
 }
@@ -274,6 +278,7 @@ func (txn *TxnVerifier) SubBalance(addr types.Address, amount *big.Int) error {
 	}
 
 	object.Account.Balance.Sub(object.Account.Balance, amount)
+	object.dirtyFields = true
 
 	txn.setLocal(NewAddressKey(addr), object, true)
 
@@ -284,6 +289,7 @@ func (txn *TxnVerifier) SubBalance(addr types.Address, amount *big.Int) error {
 func (txn *TxnVerifier) SetBalance(addr types.Address, balance *big.Int) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Balance.SetBytes(balance.Bytes())
+		object.dirtyFields = true
 	})
 }
 
@@ -329,7 +335,9 @@ func (txn *TxnVerifier) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.setLocal(NewStateKey(addr, key), value, true)
+	txn.upsertAccount(addr, true, func(object *StateObject) {
+		txn.setLocal(NewStateKey(addr, key), value, true)
+	})
 }
 
 // GetState returns the state of the address at a given key
@@ -341,10 +349,11 @@ func (txn *TxnVerifier) GetState(addr types.Address, key types.Hash) types.Hash 
 		return valFromLocal.value.(types.Hash) //nolint:forcetypeassert
 	}
 
-	// then try to from global radix tree which holds transient states during block processing
-	txn.globalMutex.RLock()
+	// then try to from global radix tree which holds transient states during block processing;
+	// exclusive lock: getState copies the StateObject, which commits (mutates) its shared iradix.Txn
+	txn.globalMutex.Lock()
 	val := getState(txn.globalRadix, txn.snapshot, addr, key)
-	txn.globalMutex.RUnlock()
+	txn.globalMutex.Unlock()
 
 	txn.setLocal(stateKey, val, false)
 
@@ -364,6 +373,7 @@ func (txn *TxnVerifier) IncrNonce(addr types.Address) error {
 			return
 		}
 
+		object.dirtyFields = true
 		object.Account.Nonce++
 	})
 
@@ -374,6 +384,7 @@ func (txn *TxnVerifier) IncrNonce(addr types.Address) error {
 func (txn *TxnVerifier) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
+		object.dirtyFields = true
 	})
 }
 
@@ -395,6 +406,7 @@ func (txn *TxnVerifier) SetCode(addr types.Address, code []byte) {
 		object.Account.CodeHash = crypto.Keccak256(code)
 		object.DirtyCode = true
 		object.Code = code
+		object.dirtyFields = true
 	})
 }
 
@@ -468,6 +480,7 @@ func (txn *TxnVerifier) Suicide(addr types.Address) bool {
 
 		if suicided {
 			object.Account.Balance = new(big.Int)
+			object.dirtyFields = true
 		}
 	})
 
@@ -556,6 +569,7 @@ func (txn *TxnVerifier) CreateAccount(addr types.Address) {
 			CodeHash: types.EmptyCodeHash.Bytes(),
 			Root:     emptyStateHash,
 		},
+		dirtyFields: true, // fresh account must not be replaced by the global object on flush
 	}
 
 	prev, ok := txn.getStateObject(addr)
@@ -605,7 +619,23 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 			continue
 		}
 
-		dirtyObjects[key.GetAddress()] = val.value.(*StateObject) //nolint:forcetypeassert
+		obj := val.value.(*StateObject) //nolint:forcetypeassert
+
+		// Reconcile with the current global object so concurrent flushes are not clobbered: two
+		// independent txs may write disjoint storage keys of the same account, and this tx's local
+		// copy is stale (often Txn == nil) - inserting it as-is would wipe already flushed slots.
+		// Storage must be based on the global Txn; local account fields win only if this tx really
+		// changed them (the dependency graph serializes all field conflicts between txs).
+		objGlobal, exists := getStateObject(txn.globalRadix, txn.snapshot, key.GetAddress())
+		if exists {
+			if obj.dirtyFields {
+				obj.Txn = objGlobal.Txn // fields are mine, storage base must be current global
+			} else {
+				obj = objGlobal // I only wrote storage; take current global entirely
+			}
+		}
+
+		dirtyObjects[key.GetAddress()] = obj
 	}
 
 	// Second pass: collect all storage writes per address, then insert once per address.

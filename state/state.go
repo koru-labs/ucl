@@ -178,6 +178,8 @@ type StateObject struct {
 	// withFakeStorage signals whether the state object
 	// is using the override full state
 	withFakeStorage bool
+	// mark if there are changes inside account / suicide / code /
+	dirtyFields bool
 }
 
 func (s *StateObject) Empty() bool {
@@ -198,6 +200,7 @@ func (s *StateObject) Copy() *StateObject {
 	ss.DirtyCode = s.DirtyCode
 	ss.Code = s.Code
 	ss.withFakeStorage = s.withFakeStorage
+	ss.dirtyFields = s.dirtyFields
 
 	if s.Txn != nil {
 		ss.Txn = s.Txn.CommitOnly().Txn()
