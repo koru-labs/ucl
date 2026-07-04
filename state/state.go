@@ -189,7 +189,7 @@ func (s *StateObject) Empty() bool {
 }
 
 // Copy makes a copy of the state object
-func (s *StateObject) Copy() *StateObject {
+func (s *StateObject) Copy(copyWithTx bool) *StateObject {
 	ss := new(StateObject)
 
 	// copy account
@@ -202,8 +202,10 @@ func (s *StateObject) Copy() *StateObject {
 	ss.withFakeStorage = s.withFakeStorage
 	ss.dirtyFields = s.dirtyFields
 
-	if s.Txn != nil {
+	if s.Txn != nil && copyWithTx {
 		ss.Txn = s.Txn.CommitOnly().Txn()
+	} else {
+		ss.Txn = s.Txn
 	}
 
 	return ss

@@ -384,7 +384,7 @@ func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
 }
 
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
-	return getStateObject(txn.txn, txn.snapshot, addr)
+	return getStateObject(txn.txn, txn.snapshot, addr, true)
 }
 
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
@@ -536,7 +536,7 @@ func (txn *Txn) SetState(
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 	txn.accessTracker.AddRead(addr, key, 0)
 
-	return getState(txn.txn, txn.snapshot, addr, key)
+	return getState(txn.txn, txn.snapshot, addr, key, true)
 }
 
 // Nonce
@@ -833,7 +833,7 @@ func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 			return errors.New("found object is not of StateObject type")
 		}
 
-		obj2 := obj.Copy()
+		obj2 := obj.Copy(true)
 		obj2.Deleted = true
 		txn.Insert(k, obj2)
 	}
@@ -978,7 +978,7 @@ func setStorage(
 }
 
 func getStateObject(
-	txn *iradix.Txn, snapshot readSnapshot, addr types.Address,
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, copyWithTxn bool,
 ) (*StateObject, bool) {
 	// Try to get state from radix tree which holds transient states during block processing first
 	val, exists := txn.Get(addr.Bytes())
@@ -988,7 +988,7 @@ func getStateObject(
 			return nil, false
 		}
 
-		return obj.Copy(), true
+		return obj.Copy(copyWithTxn), true
 	}
 
 	account, err := snapshot.GetAccount(addr)
@@ -1006,9 +1006,9 @@ func getStateObject(
 }
 
 func getState(
-	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, key types.Hash,
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, key types.Hash, copyWithTxn bool,
 ) types.Hash {
-	object, exists := getStateObject(txn, snapshot, addr)
+	object, exists := getStateObject(txn, snapshot, addr, copyWithTxn)
 	if !exists {
 		return types.Hash{}
 	}

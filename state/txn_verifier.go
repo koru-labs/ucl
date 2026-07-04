@@ -196,18 +196,19 @@ func (txn *TxnVerifier) getStateObject(addr types.Address) (*StateObject, bool) 
 			return nil, false
 		}
 
-		return obj.Copy(), true
+		return obj.Copy(false), true
 	}
 
-	// then from global processing block radix and snapshot; exclusive lock is required because
-	// StateObject.Copy commits the shared iradix.Txn, which mutates it even on a pure read
-	txn.globalMutex.Lock()
+	// then from global processing block radix and snapshot; read lock suffices because
+	// Copy(false) shares the object's iradix.Txn without committing (mutating) it, and
+	// all writers derive a fresh Txn via Copy(true) under the exclusive lock
+	txn.globalMutex.RLock()
 
-	obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr)
+	obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr, false)
 
 	txn.setLocal(addKey, obj, false)
 
-	txn.globalMutex.Unlock()
+	txn.globalMutex.RUnlock()
 
 	return obj, exists
 }
@@ -349,11 +350,12 @@ func (txn *TxnVerifier) GetState(addr types.Address, key types.Hash) types.Hash 
 		return valFromLocal.value.(types.Hash) //nolint:forcetypeassert
 	}
 
-	// then try to from global radix tree which holds transient states during block processing;
-	// exclusive lock: getState copies the StateObject, which commits (mutates) its shared iradix.Txn
-	txn.globalMutex.Lock()
-	val := getState(txn.globalRadix, txn.snapshot, addr, key)
-	txn.globalMutex.Unlock()
+	// then from global radix tree which holds transient states during block processing;
+	// read lock suffices because getState(..., false) shares the object's iradix.Txn
+	// without committing (mutating) it and only performs pure Get reads on it
+	txn.globalMutex.RLock()
+	val := getState(txn.globalRadix, txn.snapshot, addr, key, false)
+	txn.globalMutex.RUnlock()
 
 	txn.setLocal(stateKey, val, false)
 
@@ -626,13 +628,18 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 		// copy is stale (often Txn == nil) - inserting it as-is would wipe already flushed slots.
 		// Storage must be based on the global Txn; local account fields win only if this tx really
 		// changed them (the dependency graph serializes all field conflicts between txs).
-		objGlobal, exists := getStateObject(txn.globalRadix, txn.snapshot, key.GetAddress())
+		objGlobal, exists := getStateObject(txn.globalRadix, txn.snapshot, key.GetAddress(), true)
 		if exists {
 			if obj.dirtyFields {
 				obj.Txn = objGlobal.Txn // fields are mine, storage base must be current global
 			} else {
 				obj = objGlobal // I only wrote storage; take current global entirely
 			}
+		} else if obj.Txn != nil {
+			// the local copy was made with Copy(false), so its Txn is shared with the global
+			// object it was copied from - detach it before the second pass Inserts into it,
+			// otherwise those Inserts would mutate the shared Txn in place
+			obj.Txn = obj.Txn.CommitOnly().Txn()
 		}
 
 		dirtyObjects[key.GetAddress()] = obj
@@ -649,14 +656,7 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 		value := val.value.(types.Hash) //nolint:forcetypeassert
 
 		// if state object not in dirty objects or empty pull it from global radix or snapshot
-		obj, seen := dirtyObjects[addr]
-		if !seen || obj.Empty() {
-			obj, seen = getStateObject(txn.globalRadix, txn.snapshot, addr)
-			if !seen {
-				obj = newStateObject()
-			}
-		}
-
+		obj := dirtyObjects[addr]
 		if obj.Txn == nil {
 			obj.Txn = iradix.New().Txn()
 		}
@@ -680,7 +680,7 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 func (txn *TxnVerifier) addPendingBalancesUnlock() {
 	// Apply pending AddBalanceDoNotTrack credits to global radix
 	for addr, amount := range txn.globalAddBalances {
-		obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr)
+		obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr, true)
 		if !exists {
 			obj = newStateObject()
 		}
