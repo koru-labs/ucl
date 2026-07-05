@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/Ethernal-Tech/ethgo/wallet"
 	"github.com/stretchr/testify/require"
 )
@@ -132,11 +133,11 @@ func SetupParallelVerificationData(t *testing.T) (
 	}
 
 	alloc = map[types.Address]*chain.GenesisAccount{
-		deployer: {Balance: big.NewInt(1_000_000_000_000)},
+		deployer: {Balance: ethgo.Ether(100)},
 	}
 
 	for _, c := range callers {
-		alloc[c] = &chain.GenesisAccount{Balance: big.NewInt(1_000_000_000_000)}
+		alloc[c] = &chain.GenesisAccount{Balance: ethgo.Ether(100)}
 	}
 
 	deployInput, err := hex.DecodeString(pbSCBytecodeHex)
@@ -144,7 +145,7 @@ func SetupParallelVerificationData(t *testing.T) (
 
 	deployTx = &types.Transaction{
 		Hash: types.Hash{1}, From: deployer, To: nil, Value: big.NewInt(0),
-		Gas: 1_000_000, GasPrice: big.NewInt(1), Nonce: 0, Type: types.LegacyTx,
+		Gas: 500_000, GasPrice: ethgo.Gwei(2), Nonce: 0, Type: types.LegacyTx,
 		Input: deployInput,
 	}
 
@@ -154,7 +155,7 @@ func SetupParallelVerificationData(t *testing.T) (
 	for i, input := range inputs {
 		callTxs[i] = &types.Transaction{
 			Hash: types.Hash{byte(i + 2)}, From: callers[i], To: &scAddress, Value: big.NewInt(0),
-			Gas: 1_000_000, GasPrice: big.NewInt(1), Nonce: 0, Type: types.LegacyTx,
+			Gas: 500_000, GasPrice: ethgo.Gwei(2), Nonce: 0, Type: types.LegacyTx,
 			Input: input,
 		}
 	}
