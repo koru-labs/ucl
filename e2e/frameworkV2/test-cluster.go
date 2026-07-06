@@ -243,7 +243,7 @@ type ClusterOption func(*TestClusterConfig)
 func WithPremine(amounts map[types.Address]*big.Int) ClusterOption {
 	return func(h *TestClusterConfig) {
 		for addr, amount := range amounts {
-			h.Premine = append(h.Premine, fmt.Sprintf("%s:0x%s", addr.String(), amount.String()))
+			h.Premine = append(h.Premine, fmt.Sprintf("%s:0x%s", addr.String(), amount.Text(16)))
 		}
 	}
 }
