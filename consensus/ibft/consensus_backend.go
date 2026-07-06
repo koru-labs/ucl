@@ -75,7 +75,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
-	block, receipts, err := i.buildBlock(latestHeader)
+	block, receipts, blockAccessList, err := i.buildBlock(latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
 
@@ -83,6 +83,10 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	}
 
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
+
+	if i.config.Params.Forks.At(view.Height).EIP7928 {
+		i.blockchain.AddBlockAccessListToCache(block.Hash(), blockAccessList)
+	}
 
 	i.sealTimes.store(view.Height, block.Hash(), start)
 
@@ -243,7 +247,7 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, error) {
+func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, bal.BlockAccessList, error) {
 	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
 
 	header := &types.Header{
@@ -259,10 +263,13 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
+	// finalBal is used to store the final block access list for the block, which will be returned to the caller.
+	var finalBAL bal.BlockAccessList
+
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	header.GasLimit = gasLimit
@@ -272,11 +279,11 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	if err != nil {
 		i.logger.Error("cannot get modules from fork manager for", "block number", header.Number, "err", err)
 
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if err := hooks.ModifyHeader(header, signer.Address()); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Set the header timestamp
@@ -285,7 +292,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
@@ -294,7 +301,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Get the block transactions
@@ -311,12 +318,12 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	// provide dummy block instance to the PreCommitState
 	// (for the IBFT consensus, it is correct to have just a header, as only it is used)
 	if err := i.PreCommitState(&types.Block{Header: header}, transition); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	_, root, err := transition.Commit()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
@@ -325,7 +332,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	header.GasUsed = transition.TotalGas()
 
 	if i.config.Params.Forks.At(header.Number).EIP7928 {
-		finalBAL := transition.BlockAccessList()
+		finalBAL = transition.BlockAccessList()
 		if finalBAL != nil {
 			balHash := finalBAL.Hash()
 			header.BlockAccessListHash = balHash
@@ -344,7 +351,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	// write the seal of the block after all the fields are completed
 	header, err = signer.WriteProposerSeal(header)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	block.Header = header
@@ -355,7 +362,7 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, transition.Receipts(), nil
+	return block, transition.Receipts(), finalBAL, nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based

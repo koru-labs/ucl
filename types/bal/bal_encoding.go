@@ -18,7 +18,7 @@ import (
 // COLD_SLOAD_COST (2100) to leave headroom for system-contract and
 // withdrawal entries that consume no block gas.
 const BALItemCost = 2000
-const MaxCodeSize = 10000000000
+const MaxCodeSize = 10000000000 // TODO: Check for this value
 
 // StorageWrite is one transaction's write to a storage slot.
 type StorageWrite struct {

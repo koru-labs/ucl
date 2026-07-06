@@ -73,6 +73,9 @@ type Blockchain struct {
 	// any new fields from being added
 	receiptsCache *lru.Cache // LRU cache for the block receipts
 
+	// We need to keep track of block access lists between the verification phase
+	blockAccessListCache *lru.Cache // LRU cache for the block access lists
+
 	currentHeader     atomic.Pointer[types.Header] // The current header
 	currentDifficulty atomic.Pointer[big.Int]      // The current difficulty of the chain (total difficulty)
 
@@ -251,6 +254,11 @@ func (b *Blockchain) initCaches(size int) error {
 	b.receiptsCache, err = lru.New(size)
 	if err != nil {
 		return fmt.Errorf("unable to create receipts cache, %w", err)
+	}
+
+	b.blockAccessListCache, err = lru.New(size)
+	if err != nil {
+		return fmt.Errorf("unable to create block access list cache, %w", err)
 	}
 
 	return nil
@@ -459,6 +467,10 @@ func (b *Blockchain) GetTD(hash types.Hash) (*big.Int, bool) {
 
 // GetReceiptsByHash returns the receipts by their hash
 func (b *Blockchain) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
+	if receipts, ok := b.receiptsCache.Get(hash); ok {
+		return receipts.([]*types.Receipt), nil
+	}
+
 	return b.db.ReadReceipts(bn, hash)
 }
 
@@ -834,11 +846,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 			return nil, err
 		}
 
-		batchWriter := b.db.NewWriter()
-		batchWriter.PutBlockAccessList(block.Number(), txn.BlockAccessList())
-		if err := batchWriter.WriteBatch(); err != nil {
-			return nil, err
-		}
+		b.AddBlockAccessListToCache(header.Hash, txn.BlockAccessList())
 	}
 
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
@@ -864,6 +872,10 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 // that way it doesn't have to execute transactions twice, once for the proposal and once for the cache update
 func (b *Blockchain) AddReceiptsToCache(hash types.Hash, receipts []*types.Receipt) {
 	b.receiptsCache.Add(hash, receipts)
+}
+
+func (b *Blockchain) AddBlockAccessListToCache(hash types.Hash, accessList bal.BlockAccessList) {
+	b.blockAccessListCache.Add(hash, accessList)
 }
 
 // WriteFullBlock writes a single block to the local blockchain.
@@ -902,6 +914,15 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	// Otherwise, a client might ask for a header once the receipt is valid,
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
+
+	if b.config.Params.Forks.At(block.Number()).EIP7928 && len(block.Transactions) > 0 {
+		blockAccesList, err := b.GetCachedBlockAccessList(block.Hash())
+		if err != nil {
+			return err
+		}
+
+		batchWriter.PutBlockAccessList(block.Number(), blockAccesList)
+	}
 
 	// update snapshot
 	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
@@ -974,6 +995,15 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
+	if b.config.Params.Forks.At(block.Number()).EIP7928 && len(block.Transactions) > 0 {
+		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Hash())
+		if accessListErr != nil {
+			return accessListErr
+		}
+
+		batchWriter.PutBlockAccessList(block.Number(), blockAccessList)
+	}
+
 	// update snapshot
 	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
 		return err
@@ -1019,6 +1049,20 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 	}
 
 	return extractedReceipts, nil
+}
+
+func (b *Blockchain) GetCachedBlockAccessList(headerHash types.Hash) (bal.BlockAccessList, error) {
+	accessList, found := b.blockAccessListCache.Get(headerHash)
+	if !found {
+		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %s", headerHash)
+	}
+
+	extractedAccessList, ok := accessList.(bal.BlockAccessList)
+	if !ok {
+		return nil, errors.New("invalid type assertion for block access list")
+	}
+
+	return extractedAccessList, nil
 }
 
 // extractBlockReceipts extracts the receipts from the passed in block
@@ -1545,6 +1589,10 @@ func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList
 		return bal.BlockAccessList{}, nil
 	}
 
+	if blockAccessList, ok := b.blockAccessListCache.Get(blockNumber); ok {
+		return blockAccessList.(bal.BlockAccessList), nil
+	}
+
 	return b.db.ReadBlockAccessList(blockNumber)
 }
 
@@ -1638,14 +1686,9 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		)
 	}
 
-	batchWriter := b.db.NewWriter()
-	batchWriter.PutBlockAccessList(block.Number(), accessList)
+	b.AddBlockAccessListToCache(block.Header.Hash, accessList)
 
-	if err := batchWriter.WriteBatch(); err != nil {
-		return nil, fmt.Errorf("failed to persist block access list: %w", err)
-	}
-
-	b.receiptsCache.Add(block.Header.Hash, receipts)
+	b.AddReceiptsToCache(block.Header.Hash, receipts)
 
 	return &types.FullBlock{Block: block, Receipts: receipts}, nil
 }
