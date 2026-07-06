@@ -416,7 +416,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
+		txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 	})
 }
 
@@ -426,7 +426,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
+			txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 		}
 	})
 }
@@ -445,16 +445,17 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 		return nil
 	}
 
-	// Check if we have enough balance to deduce amount from
-	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
+	object, exists := txn.getStateObject(addr)
+	if !exists || object.Account.Balance.Cmp(amount) < 0 {
+		txn.accessTracker.AddWrite(addr, BalancePath, big.NewInt(0))
+
 		return runtime.ErrNotEnoughFunds
 	}
 
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Sub(object.Account.Balance, amount)
+	object.Account.Balance.Sub(object.Account.Balance, amount)
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
-	})
+	txn.txn.Insert(addr.Bytes(), object)
+	txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 
 	return nil
 }
@@ -465,13 +466,15 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, balance)
+			txn.accessTracker.AddWrite(addr, BalancePath, balance)
 		}
 	})
 }
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	txn.accessTracker.AddRead(addr, BalancePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -529,12 +532,13 @@ func (txn *Txn) SetState(
 		}
 	})
 
-	txn.accessTracker.AddWrite(addr, key, 0, value)
+	// explicit storage key: slot zero must not collide with account-level (address/subpath) keys
+	txn.accessTracker.AddStorageWrite(addr, key, value)
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
-	txn.accessTracker.AddRead(addr, key, 0)
+	txn.accessTracker.AddStorageRead(addr, key)
 
 	return getState(txn.txn, txn.snapshot, addr, key, true)
 }
@@ -554,7 +558,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 
 		object.Account.Nonce++
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, object.Account.Nonce+1)
+		txn.accessTracker.AddWrite(addr, NoncePath, object.Account.Nonce+1)
 	})
 
 	return err
@@ -565,12 +569,14 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, nonce)
+		txn.accessTracker.AddWrite(addr, NoncePath, nonce)
 	})
 }
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	txn.accessTracker.AddRead(addr, NoncePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -588,7 +594,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, CodePath, code)
+		txn.accessTracker.AddWrite(addr, CodePath, code)
 	})
 }
 
@@ -605,6 +611,8 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -636,10 +644,14 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 }
 
 func (txn *Txn) GetCodeSize(addr types.Address) int {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	return len(txn.GetCode(addr))
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -663,7 +675,9 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		if suicided {
 			object.Account.Balance = new(big.Int)
 
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, SuicidePath, true)
+			// account destruction is a lifecycle write: it wipes balance/nonce/code, so it must
+			// conflict with any later access to those fields, not just an explicit suicide check
+			txn.accessTracker.AddWrite(addr, SuicidePath, true)
 		}
 	})
 
@@ -789,7 +803,7 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// should this add all subpaths too? for now we will just mark address as write access
-	txn.accessTracker.AddWrite(addr, types.ZeroHash, FullPath, true)
+	txn.accessTracker.AddWrite(addr, FullPath, true)
 
 	txn.txn.Insert(addr.Bytes(), obj)
 }

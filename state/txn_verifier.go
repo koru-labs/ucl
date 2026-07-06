@@ -192,7 +192,7 @@ func (txn *TxnVerifier) getStateObject(addr types.Address) (*StateObject, bool) 
 	valFromLocal, exists := txn.txLocalMap[addKey]
 	if exists {
 		obj := valFromLocal.value.(*StateObject) //nolint:forcetypeassert
-		if obj == nil || obj.Deleted {
+		if obj == nil || obj.Suicide {
 			return nil, false
 		}
 
@@ -657,6 +657,11 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 
 		// if state object not in dirty objects or empty pull it from global radix or snapshot
 		obj := dirtyObjects[addr]
+		// skip suicided smart contracts
+		if obj.Suicide {
+			continue
+		}
+
 		if obj.Txn == nil {
 			obj.Txn = iradix.New().Txn()
 		}
@@ -669,6 +674,11 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 	}
 
 	for addr, obj := range dirtyObjects {
+		if obj.Suicide != obj.Deleted {
+			obj = obj.Copy(false)
+			obj.Deleted = true
+		}
+
 		txn.globalRadix.Insert(addr.Bytes(), obj)
 	}
 
