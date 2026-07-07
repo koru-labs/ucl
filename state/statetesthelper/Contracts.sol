@@ -101,3 +101,15 @@ contract Killable {
     function boom(address payable to) public { selfdestruct(to); }
     receive() external payable {}
 }
+
+// Create2Factory deploys Killable via CREATE2, so the same salt always yields the same address.
+// After the child selfdestructs, make2 with the same salt redeploys at that address
+// (the metamorphic-contract pattern).
+contract Create2Factory {
+    address public last; // slot 0
+    function make2(bytes32 salt) public returns (address) {
+        Killable k = new Killable{salt: salt}();
+        last = address(k);
+        return address(k);
+    }
+}
