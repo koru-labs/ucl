@@ -795,6 +795,352 @@ func TestParallel_MetamorphicCreate2Redeploy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------
+//  15. Read-write anti-dependency (WAR hazard): updateTotalBalance READS balances[a] and writes
+//     totalBalance (slot 0), while its neighbours WRITE balances[a]. tx2's write must be ordered
+//     after tx1's read - otherwise tx1 observes tx2's value and totalBalance diverges. Unlike the
+//     other divergence tests, the critical edge here exists only through a *read*, so it exercises
+//     the tracker's last-reader bookkeeping rather than write-write conflict detection.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_ReadWriteAntiDependency(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	callers := []types.Address{parAddr(10), parAddr(11), parAddr(12), parAddr(13)}
+	addrs := h.setupParent(t, fundAll(callers...), []*types.Transaction{
+		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.BalancesInitHex)),
+	})
+	balAddr := addrs[0]
+
+	a := parAddr(101)
+	txs := []*types.Transaction{
+		sth.CallTx(0xE0, callers[0], balAddr, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(a), sth.ContractPaddUint256(100))),
+		sth.CallTx(0xE1, callers[1], balAddr, 0,
+			sth.CallData("updateTotalBalance(address)", sth.ContractPaddAddress(a))), // total += 100
+		sth.CallTx(0xE2, callers[2], balAddr, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(a), sth.ContractPaddUint256(50))),
+		sth.CallTx(0xE3, callers[3], balAddr, 0,
+			sth.CallData("updateTotalBalance(address)", sth.ContractPaddAddress(a))), // total += 150
+	}
+
+	block := h.build(t, txs)
+
+	// the proposer must have derived the anti-dependency edge itself: tx2 (write) after tx1 (read)
+	require.Contains(t, createDeps(t, block)[2], uint64(1),
+		"tx2's write to balances[a] must depend on tx1, which only *reads* that slot")
+
+	h.requireVerifies(t, block, 40)
+
+	assertStorageUint(t, h, balAddr, types.ZeroHash, 250) // totalBalance: 100 + 150
+	assertStorageUint(t, h, balAddr, sth.ScBalanceSlot(a, 1), 150)
+
+	// unleash tx2 entirely (drop its WAW edge on tx0 and its WAR edge on tx1's read): it then runs
+	// from the start, so its write usually lands before tx1 reads, tx1 accumulates 150 instead of
+	// 100 and the root diverges.
+	h.requireCanDiverge(t, block, [][]uint64{{}, {0}, {}, {0, 1, 2}}, 100)
+}
+
+// ---------------------------------------------------------------------------------------------
+//  16. Storage slot lifecycle clear -> recreate -> clear: the slot exists at parent state, tx0 zeroes
+//     it (delete-marker Insert(key, nil) in PopulateBlockRadix + SSTORE clear refund), tx1 recreates
+//     it, tx2 zeroes it again. Verifies the delete markers merge correctly through the shared block
+//     radix and that per-tx refunds (which change GasUsed and therefore the proposer's fee) are
+//     reproduced exactly by the parallel path.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_StorageSlotClearAndRecreate(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	callers := []types.Address{parAddr(10), parAddr(11), parAddr(12)}
+	target := parAddr(101)
+	// the deploy address is deterministic, so the slot can be seeded in the same parent setup
+	balAddr := crypto.CreateAddress(parDeployer, 0)
+
+	addrs := h.setupParent(t, fundAll(callers...), []*types.Transaction{
+		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.BalancesInitHex)),
+		// seed balances[target] = 100 at parent state so the block starts by clearing a slot
+		// that really exists in the parent trie
+		sth.CallTx(0xE9, parDeployer, balAddr, 1,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(100))),
+	})
+	require.Equal(t, balAddr, addrs[0])
+
+	txs := []*types.Transaction{
+		sth.CallTx(0xEA, callers[0], balAddr, 0,
+			sth.CallData("decBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(100))),
+		sth.CallTx(0xEB, callers[1], balAddr, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(40))),
+		sth.CallTx(0xEC, callers[2], balAddr, 0,
+			sth.CallData("decBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(40))),
+	}
+
+	block := h.build(t, txs)
+
+	h.requireVerifies(t, block, 40)
+
+	// the slot ends the block deleted again
+	assertStorageUint(t, h, balAddr, sth.ScBalanceSlot(target, 1), 0)
+
+	// refunds change GasUsed, so gas equivalence proves the refund accounting matches the builder's
+	graph := createDeps(t, block)
+	for iter := range 10 {
+		root, receipts := h.processBlockInParallelReceipts(t, block, graph)
+		require.Equal(t, block.Header.StateRoot, root, "iteration %d", iter)
+
+		for i, r := range receipts {
+			require.Equal(t, *h.lastBuildReceipts[i].Status, *r.Status, "iter %d: tx %d receipt status", iter, i)
+			require.Equal(t, h.lastBuildReceipts[i].GasUsed, r.GasUsed, "iter %d: tx %d gas used", iter, i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------
+//  17. Balance-funding chain: bob starts with exactly the gas cost of one transfer and nothing more,
+//     so his tx1 (bob -> carol, 0.5 ether) can only pass the upfront-cost check after tx0
+//     (alice -> bob, 1 ether) has flushed. The tx0<-tx1 dependency exists purely through an EOA
+//     *balance* - there is no storage and no shared receiver - and a graph missing it would make
+//     tx1 fail its upfront check instead of merely reordering writes.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_BalanceFundingChain(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	const (
+		oneEther  = int64(1_000_000_000_000_000_000)
+		halfEther = oneEther / 2
+	)
+
+	alice, bob, carol := parAddr(10), parAddr(11), parAddr(12)
+	filler1, filler2 := parAddr(13), parAddr(14)
+	// bob can pay for exactly one tx's gas (21000 * 2 gwei) but none of the transferred value
+	bobGasOnly := new(big.Int).Mul(big.NewInt(21000), ethgo.Gwei(2))
+
+	h.setupParent(t, map[types.Address]*big.Int{
+		alice:   ethgo.Ether(100),
+		bob:     bobGasOnly,
+		filler1: ethgo.Ether(100),
+		filler2: ethgo.Ether(100),
+	}, nil)
+
+	txs := []*types.Transaction{
+		eoaTransfer(0xF1, alice, bob, 0, oneEther),
+		eoaTransfer(0xF2, bob, carol, 0, halfEther),     // affordable only after tx0's credit
+		eoaTransfer(0xF3, filler1, parAddr(100), 0, 10), // independent, gives the scheduler freedom
+		eoaTransfer(0xF4, filler2, parAddr(101), 0, 20), // independent
+	}
+
+	block := h.build(t, txs)
+
+	h.requireVerifies(t, block, 40)
+
+	// bob: +1 ether, -0.5 ether value, -exactly his starting gas budget
+	assertBalance(t, h, bob, halfEther)
+	assertBalance(t, h, carol, halfEther)
+}
+
+// ---------------------------------------------------------------------------------------------
+//  18. Tracked writes to fee-credited accounts: every tx credits the proposer (tip) and the burn
+//     contract (ZeroAddress, base fee) through the untracked globalAddBalances path, applied once at
+//     Commit on top of the block radix. Here regular value transfers *also* write those same two
+//     accounts through the tracked txLocalMap -> radix path, so both write channels must compose on
+//     one account without losing either side.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_TransferToProposerAndBurnAddress(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	senders := []types.Address{parAddr(10), parAddr(11), parAddr(12), parAddr(13)}
+	h.setupParent(t, fundAll(senders...), nil)
+
+	txs := []*types.Transaction{
+		eoaTransfer(0xF5, senders[0], h.proposer, 0, 12345),      // tracked write to the fee account
+		eoaTransfer(0xF6, senders[1], types.ZeroAddress, 0, 777), // tracked write to the burn account
+		eoaTransfer(0xF7, senders[2], parAddr(100), 0, 42),       // independent control tx
+		eoaTransfer(0xF8, senders[3], h.proposer, 0, 55555),      // second tracked proposer write
+	}
+
+	block := h.build(t, txs)
+
+	h.requireVerifies(t, block, 40)
+
+	assertBalance(t, h, parAddr(100), 42)
+}
+
+// ---------------------------------------------------------------------------------------------
+//  19. Degenerate single-tx block: the smallest possible parallel workload - one tx, a one-node
+//     graph, and more workers than transactions. Guards the worker-count clamp and the trivial
+//     merge path.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_SingleTxBlock(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	sender := parAddr(10)
+	h.setupParent(t, fundAll(sender), nil)
+
+	block := h.build(t, []*types.Transaction{
+		eoaTransfer(0xF9, sender, parAddr(100), 0, 7),
+	})
+
+	h.requireVerifies(t, block, 10)
+
+	assertBalance(t, h, parAddr(100), 7)
+}
+
+// ---------------------------------------------------------------------------------------------
+//  20. Two CREATEs from the same factory in one block: tx0 and tx1 both call Factory.make(), so they
+//     conflict on the factory's nonce (CREATE address derivation) and its `last` slot and must run
+//     in order - swapping them would swap which child gets which address. tx2/tx3 then call the two
+//     children, each depending on the respective creating tx. Extends scenario 4 from one in-block
+//     creation to two ordered ones with disjoint downstream users.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_TwoFactoryCreates(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	callers := []types.Address{parAddr(10), parAddr(11), parAddr(12), parAddr(13)}
+	fAddrs := h.setupParent(t, fundAll(callers...), []*types.Transaction{
+		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.FactoryInitHex)),
+	})
+	factoryAddr := fAddrs[0]
+
+	// the factory starts at nonce 1 (EIP-161); its two CREATEs use nonces 1 and 2
+	child1 := crypto.CreateAddress(factoryAddr, 1)
+	child2 := crypto.CreateAddress(factoryAddr, 2)
+	target := parAddr(101)
+
+	txs := []*types.Transaction{
+		sth.CallTx(0xFA, callers[0], factoryAddr, 0, sth.CallData("make()")),
+		sth.CallTx(0xFB, callers[1], factoryAddr, 0, sth.CallData("make()")),
+		sth.CallTx(0xFC, callers[2], child1, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(100))),
+		sth.CallTx(0xFD, callers[3], child2, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(50))),
+	}
+
+	block := h.build(t, txs)
+
+	h.requireVerifies(t, block, 40)
+
+	// each child really got code and kept its own storage
+	assertStorageUint(t, h, child1, sth.ScBalanceSlot(target, 1), 100)
+	assertStorageUint(t, h, child2, sth.ScBalanceSlot(target, 1), 50)
+}
+
+// ---------------------------------------------------------------------------------------------
+//  21. Event/log equivalence: Balances emits BalanceChanged on every inc/dec, transfer emits two
+//     logs in order, and a reverted tx must emit none (its logs are unwound by RevertToSnapshot).
+//     The parallel verifier must reproduce the exact log sequence and bloom of every receipt, not
+//     just the state root - logs live in the per-tx txLocalLogs buffer, a separate channel from
+//     the radix merge the other tests exercise.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_EventLogEquivalence(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	callers := []types.Address{parAddr(10), parAddr(11), parAddr(12), parAddr(13)}
+	addrs := h.setupParent(t, fundAll(callers...), []*types.Transaction{
+		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.BalancesInitHex)),
+	})
+	balAddr := addrs[0]
+
+	t1, t2 := parAddr(101), parAddr(102)
+	txs := []*types.Transaction{
+		sth.CallTx(0x21, callers[0], balAddr, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(t1), sth.ContractPaddUint256(500))),
+		// dec 600 > 500: reverts, so its BalanceChanged log must be dropped
+		sth.CallTx(0x22, callers[1], balAddr, 0,
+			sth.CallData("decBalance(address,uint256)", sth.ContractPaddAddress(t1), sth.ContractPaddUint256(600))),
+		// transfer = dec + inc: two logs whose order must be preserved
+		sth.CallTx(0x23, callers[2], balAddr, 0,
+			sth.CallData("transfer(address,address,uint256)",
+				sth.ContractPaddAddress(t1), sth.ContractPaddAddress(t2), sth.ContractPaddUint256(100))),
+		sth.CallTx(0x24, callers[3], balAddr, 0,
+			sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(t2), sth.ContractPaddUint256(50))),
+	}
+
+	block := h.build(t, txs)
+
+	// builder sanity: the scenario really produced the log shapes it claims
+	for i, want := range []int{1, 0, 2, 1} {
+		require.Len(t, h.lastBuildReceipts[i].Logs, want, "builder tx %d log count", i)
+	}
+
+	h.requireVerifies(t, block, 40)
+
+	graph := createDeps(t, block)
+	for iter := range 10 {
+		root, receipts := h.processBlockInParallelReceipts(t, block, graph)
+		require.Equal(t, block.Header.StateRoot, root, "iteration %d", iter)
+
+		for i, r := range receipts {
+			require.Equal(t, h.lastBuildReceipts[i].Logs, r.Logs, "iter %d: tx %d logs", iter, i)
+			require.Equal(t, h.lastBuildReceipts[i].LogsBloom, r.LogsBloom, "iter %d: tx %d bloom", iter, i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------
+//  22. Transient storage (EIP-1153): TransientCounter folds what tload(0) observed into persistent
+//     slot 0, so the state root exposes any transient value that wrongly survives a tx boundary -
+//     each worker reuses one TxnVerifier for many txs, so a missed cleanup would leak straight into
+//     the next tx it executes. tbumpTwice checks transient state *survives* within a tx, and
+//     bumpAfterRevertedTStore checks a reverted inner call's TSTORE is unwound by the journal.
+//
+// ---------------------------------------------------------------------------------------------
+func TestParallel_TransientStorage(t *testing.T) {
+	t.Parallel()
+
+	h := newParHarness(t)
+
+	callers := []types.Address{parAddr(10), parAddr(11), parAddr(12), parAddr(13), parAddr(14)}
+	addrs := h.setupParent(t, fundAll(callers...), []*types.Transaction{
+		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.TransientCounterInitHex)),
+	})
+	tcAddr := addrs[0]
+
+	txs := []*types.Transaction{
+		// persisted += 5 (tload must start at 0, not at a previous tx's value)
+		sth.CallTx(0x31, callers[0], tcAddr, 0, sth.CallData("tbump(uint256)", sth.ContractPaddUint256(5))),
+		// persisted += 7 (a leak from tx0 would make this += 12)
+		sth.CallTx(0x32, callers[1], tcAddr, 0, sth.CallData("tbump(uint256)", sth.ContractPaddUint256(7))),
+		// persisted += 3 + 6: transient state survives across calls within one tx
+		sth.CallTx(0x33, callers[2], tcAddr, 0, sth.CallData("tbumpTwice(uint256)", sth.ContractPaddUint256(3))),
+		// persisted += 0 + 1: the inner call's tstore(0, 100) reverts and must be rolled back
+		sth.CallTx(0x34, callers[3], tcAddr, 0,
+			sth.CallData("bumpAfterRevertedTStore(uint256)", sth.ContractPaddUint256(100))),
+		// persisted += 2
+		sth.CallTx(0x35, callers[4], tcAddr, 0, sth.CallData("tbump(uint256)", sth.ContractPaddUint256(2))),
+	}
+
+	block := h.build(t, txs)
+
+	// every tx must succeed (bumpAfterRevertedTStore swallows the inner revert)
+	for i, r := range h.lastBuildReceipts {
+		require.Equal(t, uint64(types.ReceiptSuccess), uint64(*r.Status), "tx %d must succeed", i)
+	}
+
+	h.requireVerifies(t, block, 50)
+
+	// 5 + 7 + (3+6) + 1 + 2
+	assertStorageUint(t, h, tcAddr, types.ZeroHash, 24)
+}
+
+// ---------------------------------------------------------------------------------------------
 //  Test harness and helpers
 // ---------------------------------------------------------------------------------------------
 
@@ -1075,8 +1421,9 @@ func assertStorageUint(t *testing.T, h *parHarness, addr types.Address, slot typ
 	tran, err := h.executor.BeginTxn(h.lastBlock.Header.StateRoot, h.lastBlock.Header, types.ZeroAddress)
 	require.NoError(t, err)
 
+	// compare via String: two zero big.Ints can differ in internal representation
 	got := new(big.Int).SetBytes(tran.GetStorage(addr, slot).Bytes())
-	require.Equal(t, big.NewInt(want), got, "storage slot %s on %s", slot, addr)
+	require.Equal(t, big.NewInt(want).String(), got.String(), "storage slot %s on %s", slot, addr)
 }
 
 // assertBalance reads an account balance from the built block's post-state and asserts its value.
@@ -1086,7 +1433,8 @@ func assertBalance(t *testing.T, h *parHarness, addr types.Address, want int64) 
 	tran, err := h.executor.BeginTxn(h.lastBlock.Header.StateRoot, h.lastBlock.Header, types.ZeroAddress)
 	require.NoError(t, err)
 
-	require.Equal(t, big.NewInt(want), tran.GetBalance(addr), "balance of %s", addr)
+	// compare via String: two zero big.Ints can differ in internal representation
+	require.Equal(t, big.NewInt(want).String(), tran.GetBalance(addr).String(), "balance of %s", addr)
 }
 
 // parDeployer is the account all test contracts are deployed from.
