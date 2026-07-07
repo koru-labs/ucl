@@ -2,6 +2,7 @@ package jsonrpc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -11,9 +12,11 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	jsonIter "github.com/json-iterator/go"
+	"go.opentelemetry.io/otel/codes"
 )
 
 var (
@@ -336,14 +339,15 @@ func (d *Dispatcher) handleSingleWs(req Request, conn wsConn) Response {
 			response = []byte(strconv.FormatBool(ok))
 		}
 	default:
-		// its a normal query that we handle with the dispatcher
-		response, err = d.handleReq(req)
+		// its a normal query that we handle with the dispatcher. WS connections
+		// are long-lived with no per-message traceparent, so start a fresh trace.
+		response, err = d.handleReq(context.Background(), req)
 	}
 
 	return NewRPCResponse(id, "2.0", response, err)
 }
 
-func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
+func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error) {
 	x := bytes.TrimLeft(reqBody, " \t\r\n")
 	if len(x) == 0 {
 		return NewRPCResponse(nil, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
@@ -359,7 +363,7 @@ func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
 			return NewRPCResponse(req.ID, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 		}
 
-		resp, err := d.handleReq(req)
+		resp, err := d.handleReq(ctx, req)
 
 		return NewRPCResponse(req.ID, "2.0", resp, err).Bytes()
 	}
@@ -388,7 +392,7 @@ func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
 	responses := make([]Response, 0)
 
 	for _, req := range requests {
-		var response, err = d.handleReq(req)
+		var response, err = d.handleReq(ctx, req)
 		if err != nil {
 			errorResponse := NewRPCResponse(req.ID, "2.0", response, err)
 			responses = append(responses, errorResponse)
@@ -408,11 +412,16 @@ func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
 	return respBytes, nil
 }
 
-func (d *Dispatcher) handleReq(req Request) ([]byte, Error) {
-	d.logger.Debug("request", "method", req.Method, "id", req.ID)
+func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error) {
+	spanCtx, span := observability.Tracer().Start(ctx, req.Method)
+	defer span.End()
+
+	d.logger.With(observability.LogFields(spanCtx)...).Debug("request", "method", req.Method, "id", req.ID)
 
 	service, fd, ferr := d.getFnHandler(req)
 	if ferr != nil {
+		span.SetStatus(codes.Error, ferr.Error())
+
 		return nil, ferr
 	}
 
@@ -447,6 +456,7 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, Error) {
 	if err := getError(output[1]); err != nil {
 		// measure error on the rpc endpoint function
 		metrics.IncrCounter([]string{jsonRPCMetric, req.Method + "_errors"}, 1)
+		span.SetStatus(codes.Error, err.Error())
 		d.logInternalError(req.Method, err)
 
 		if res := output[0].Interface(); res != nil {

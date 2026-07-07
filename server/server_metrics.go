@@ -7,7 +7,6 @@ import (
 
 	"github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-metrics/prometheus"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
 )
 
@@ -69,8 +68,6 @@ func (s *Server) enableDataDogProfiler() error {
 		return fmt.Errorf("could not start datadog profiler: %w", err)
 	}
 
-	// start the tracer
-	tracer.Start()
 	s.logger.Info("DataDog profiler started")
 
 	return nil
@@ -79,7 +76,4 @@ func (s *Server) enableDataDogProfiler() error {
 func (s *Server) closeDataDogProfiler() {
 	s.logger.Debug("closing DataDog profiler")
 	profiler.Stop()
-
-	s.logger.Debug("closing DataDog tracer")
-	tracer.Stop()
 }
