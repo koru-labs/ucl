@@ -915,7 +915,7 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 && len(block.Transactions) > 0 {
+	if b.config.Params.Forks.At(block.Number()).EIP7928 {
 		blockAccesList, err := b.GetCachedBlockAccessList(block.Hash())
 		if err != nil {
 			return err
@@ -1638,6 +1638,8 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 				len(receipts),
 			)
 		}
+
+		b.AddBlockAccessListToCache(block.Header.Hash, accessList)
 
 		return &types.FullBlock{Block: block, Receipts: receipts}, nil
 	}
