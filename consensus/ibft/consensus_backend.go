@@ -405,7 +405,7 @@ func (i *backendIBFT) writeTransactions(
 	writeCtx context.Context,
 	gasLimit,
 	blockNumber uint64,
-	transition transitionInterface,
+	transition *state.Transition,
 ) (executed []*types.Transaction) {
 	executed = make([]*types.Transaction, 0)
 
@@ -418,9 +418,10 @@ func (i *backendIBFT) writeTransactions(
 		successful = 0
 		failed     = 0
 		skipped    = 0
+		balCounter = 1
 	)
 
-	balRecorder := bal.NewBlockAccessListRecord()
+	blockBAL := bal.NewBlockAccessListRecord()
 
 	defer func() {
 		i.logger.Info(
@@ -431,9 +432,9 @@ func (i *backendIBFT) writeTransactions(
 			"remaining", i.txpool.Length(),
 		)
 
-		transition.SetBlockAccessList(balRecorder.ToEncodingObj())
+		transition.SetBlockAccessList(blockBAL.ToEncodingObj())
 
-		encoded := balRecorder.ToEncodingObj()
+		encoded := blockBAL.ToEncodingObj()
 		transition.SetBlockAccessList(encoded)
 
 	}()
@@ -446,13 +447,13 @@ write:
 		case <-writeCtx.Done():
 			return
 		default:
+			transition.BalIndex = uint(balCounter)
+
 			// execute transactions one by one
 			result, ok := i.writeTransaction(
 				i.txpool.Peek(),
 				transition,
 				gasLimit,
-				uint32(successful+1), // We start from index 1, since 0 is reserved for pre-execution system calls.
-				blockNumber,
 			)
 
 			if !ok {
@@ -464,13 +465,14 @@ write:
 			switch result.status {
 			case success:
 				executed = append(executed, tx)
-				successful++
-				balRecorder.Merge(transition.BlockAccessListRecorder().GetBlockAccessListRecord())
+				blockBAL.Merge(transition.BlockAccessListRecorder().GetBlockAccessListRecord())
 			case fail:
 				failed++
 			case skip:
 				skipped++
 			}
+
+			balCounter++
 		}
 	}
 
@@ -482,10 +484,8 @@ write:
 
 func (i *backendIBFT) writeTransaction(
 	tx *types.Transaction,
-	transition transitionInterface,
+	transition *state.Transition,
 	gasLimit uint64,
-	nextBalIndex uint32,
-	blockNumber uint64,
 ) (*txExeResult, bool) {
 	if tx == nil {
 		return nil, false
@@ -496,12 +496,6 @@ func (i *backendIBFT) writeTransaction(
 
 		// continue processing
 		return &txExeResult{tx, fail}, true
-	}
-
-	transition.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
-
-	if i.config.Params.Forks.At(blockNumber).EIP7928 {
-		transition.SetBlockAccessListRecorder(state.NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), nextBalIndex))
 	}
 
 	if err := transition.Write(tx); err != nil {

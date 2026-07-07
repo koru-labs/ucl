@@ -177,14 +177,13 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		txBAL := bal.NewBlockAccessListRecord()
-		txn.balRecorder = NewBlockAccessListRecorder(txBAL, uint32(i+1))
+		txn.BalIndex = uint(i + 1)
 
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
 
-		blockBAL.Merge(txBAL)
+		blockBAL.Merge(txn.balRecorder.GetBlockAccessListRecord())
 	}
 
 	txn.blockBAL = blockBAL.ToEncodingObj()
@@ -369,6 +368,8 @@ type Transition struct {
 	// marshalable block access list for the block, which is used to generate the final block access list after the block execution
 	// one per block
 	blockBAL bal.BlockAccessList
+
+	BalIndex uint
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -713,6 +714,12 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 
 func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
 	start := time.Now().UTC()
+
+	t.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
+
+	if t.config.EIP7928 {
+		t.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), uint32(t.BalIndex)))
+	}
 
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
