@@ -45,6 +45,7 @@ var (
 
 // Txn is a reference of the state
 type Txn struct {
+	// underlying storage ("database"), it is accessed when the state object can't be found in the txn
 	snapshot  readSnapshot
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
