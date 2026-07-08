@@ -679,6 +679,10 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 			obj.Deleted = true
 		}
 
+		// dirtyFields must mean "the tx currently being executed changed this account's fields", so it
+		// can only ever be set by that tx's own writes - never inherited from the persisted global.
+		obj.dirtyFields = false
+
 		txn.globalRadix.Insert(addr.Bytes(), obj)
 	}
 

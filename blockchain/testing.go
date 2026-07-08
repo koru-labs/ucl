@@ -89,8 +89,8 @@ func HeadersToBlocks(headers []*types.Header) []*types.Block {
 }
 
 // NewTestBlockchain creates a new dummy blockchain for testing
-func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
-	t.Helper()
+func NewTestBlockchain(tb testing.TB, headers []*types.Header) *Blockchain {
+	tb.Helper()
 
 	genesis := &chain.Genesis{
 		Number:   0,
@@ -112,7 +112,7 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 
 	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	if len(headers) > 0 {
@@ -122,11 +122,11 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 		batchWriter.PutCanonicalHeader(headers[0], td)
 
 		if err := b.writeBatchAndUpdate(batchWriter, headers[0], td, true); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 
 		if err := b.WriteHeadersWithBodies(headers[1:]); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 	}
 

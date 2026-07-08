@@ -1,8 +1,10 @@
 package statetesthelper
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"math/big"
+	"math/rand"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -161,4 +163,96 @@ func SetupParallelVerificationData(t *testing.T) (
 	}
 
 	return alloc, deployTx, callTxs, accounts, expectedBalances
+}
+
+// RandomizedWorkloadContracts holds the deployed contract addresses a randomized workload calls
+// into: a Balances contract, two Router CALL forwarders and a Proxy DELEGATECALL forwarder, all
+// pointing at the same Balances instance.
+type RandomizedWorkloadContracts struct {
+	Balances types.Address
+	Router1  types.Address
+	Router2  types.Address
+	Proxy    types.Address
+}
+
+// RandomizedWorkload generates a deterministic (seeded), conflict-rich block workload of numTxs
+// txs from the given funded senders: direct Balances calls, Router CALLs, Proxy DELEGATECALLs,
+// in-contract transfers, EOA transfers and zero-value touches (EIP-158 empty-account path), with
+// senders reusing nonces across the block. tx0 seeds targets[0] with a large balance so the
+// in-contract transfers (max 10 per tx) can never underflow while numTxs*10 stays below it.
+// Every tx gets a unique index-derived hash. targets index contract-storage slots; receivers are
+// EOA transfer destinations.
+func RandomizedWorkload(
+	rndSeed int64,
+	numTxs int,
+	senders, targets, receivers []types.Address,
+	contracts RandomizedWorkloadContracts,
+) []*types.Transaction {
+	rnd := rand.New(rand.NewSource(rndSeed)) //nolint:gosec
+	nonces := map[types.Address]uint64{}
+
+	nextSender := func() (types.Address, uint64) {
+		s := senders[rnd.Intn(len(senders))]
+		n := nonces[s]
+		nonces[s]++
+
+		return s, n
+	}
+
+	transferTx := func(from, to types.Address, nonce uint64, value uint64) *types.Transaction {
+		dst := to
+
+		return &types.Transaction{
+			From: from, To: &dst, Value: new(big.Int).SetUint64(value),
+			Gas: 21000, GasPrice: ethgo.Gwei(2), Nonce: nonce, Type: types.LegacyTx, Input: []byte{},
+		}
+	}
+
+	txs := make([]*types.Transaction, 0, numTxs)
+
+	// seed targets[0] first so in-contract transfers below can never underflow
+	s, n := nextSender()
+	txs = append(txs, CallTx(0x00, s, contracts.Balances, n,
+		CallData("incBalance(address,uint256)", ContractPaddAddress(targets[0]), ContractPaddUint256(1_000_000))))
+
+	for i := 1; i < numTxs; i++ {
+		s, n := nextSender()
+		target := targets[rnd.Intn(len(targets))]
+		amount := uint64(rnd.Intn(100) + 1)
+
+		switch rnd.Intn(7) {
+		case 0: // direct incBalance
+			txs = append(txs, CallTx(0, s, contracts.Balances, n,
+				CallData("incBalance(address,uint256)", ContractPaddAddress(target), ContractPaddUint256(amount))))
+		case 1: // incBalance through router1 (CALL)
+			txs = append(txs, CallTx(0, s, contracts.Router1, n,
+				CallData("routerInc(address,uint256)", ContractPaddAddress(target), ContractPaddUint256(amount))))
+		case 2: // incBalance through router2 (CALL)
+			txs = append(txs, CallTx(0, s, contracts.Router2, n,
+				CallData("routerInc(address,uint256)", ContractPaddAddress(target), ContractPaddUint256(amount))))
+		case 3: // incBalance through proxy (DELEGATECALL - writes proxy's own storage)
+			txs = append(txs, CallTx(0, s, contracts.Proxy, n,
+				CallData("pinc(address,uint256)", ContractPaddAddress(target), ContractPaddUint256(amount))))
+		case 4: // in-contract transfer from the seeded target (never underflows)
+			txs = append(txs, CallTx(0, s, contracts.Balances, n,
+				CallData("transfer(address,address,uint256)",
+					ContractPaddAddress(targets[0]), ContractPaddAddress(target),
+					ContractPaddUint256(uint64(rnd.Intn(10)+1)))))
+		case 5: // EOA transfer
+			txs = append(txs, transferTx(s, receivers[rnd.Intn(len(receivers))], n, amount))
+		case 6: // zero-value touch of a receiver (EIP-158 empty-account path)
+			txs = append(txs, transferTx(s, receivers[rnd.Intn(len(receivers))], n, 0))
+		}
+	}
+
+	// unique index-derived hashes: the single-seed-byte hashes the tx helpers produce collide
+	// past 256 txs, and nothing downstream may key on a duplicate
+	for i, tx := range txs {
+		buf := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf, uint64(i+1))
+
+		tx.Hash = types.BytesToHash(buf)
+	}
+
+	return txs
 }

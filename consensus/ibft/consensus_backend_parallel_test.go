@@ -2,7 +2,6 @@ package ibft
 
 import (
 	"math/big"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -649,87 +648,7 @@ func TestParallel_TouchedEmptyAccountResurrection(t *testing.T) {
 func TestParallel_RandomizedBlock(t *testing.T) {
 	t.Parallel()
 
-	h := newParHarness(t)
-
-	const (
-		numSenders = 12
-		numTxs     = 40
-	)
-
-	senders := make([]types.Address, numSenders)
-	for i := range senders {
-		senders[i] = parAddr(byte(10 + i))
-	}
-
-	addrs := h.setupParent(t, fundAll(senders...), []*types.Transaction{
-		sth.DeployTx(parDeployer, 0, sth.MustDecodeHex(t, sth.BalancesInitHex)),
-	})
-	balAddr := addrs[0]
-
-	more := h.deployMore(t, [][]byte{
-		sth.AppendCtorAddr(sth.MustDecodeHex(t, sth.RouterInitHex), balAddr),
-		sth.AppendCtorAddr(sth.MustDecodeHex(t, sth.RouterInitHex), balAddr),
-		sth.AppendCtorAddr(sth.MustDecodeHex(t, sth.ProxyInitHex), balAddr),
-	})
-	router1, router2, proxy := more[0], more[1], more[2]
-
-	targets := make([]types.Address, 6)
-	for i := range targets {
-		targets[i] = parAddr(byte(200 + i))
-	}
-
-	receivers := make([]types.Address, 6)
-	for i := range receivers {
-		receivers[i] = parAddr(byte(100 + i))
-	}
-
-	rnd := rand.New(rand.NewSource(1337)) // deterministic test data
-	nonces := map[types.Address]uint64{}
-
-	nextSender := func() (types.Address, uint64) {
-		s := senders[rnd.Intn(numSenders)]
-		n := nonces[s]
-		nonces[s]++
-
-		return s, n
-	}
-
-	txs := make([]*types.Transaction, 0, numTxs)
-
-	// seed targets[0] first so in-contract transfers below can never underflow
-	s, n := nextSender()
-	txs = append(txs, sth.CallTx(0xC0, s, balAddr, n,
-		sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(targets[0]), sth.ContractPaddUint256(50_000))))
-
-	for i := 1; i < numTxs; i++ {
-		s, n := nextSender()
-		seed := byte(0xC0 + i)
-		target := targets[rnd.Intn(len(targets))]
-		amount := uint64(rnd.Intn(100) + 1)
-
-		switch rnd.Intn(7) {
-		case 0: // direct incBalance
-			txs = append(txs, sth.CallTx(seed, s, balAddr, n,
-				sth.CallData("incBalance(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(amount))))
-		case 1: // incBalance through router1 (CALL)
-			txs = append(txs, sth.CallTx(seed, s, router1, n,
-				sth.CallData("routerInc(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(amount))))
-		case 2: // incBalance through router2 (CALL)
-			txs = append(txs, sth.CallTx(seed, s, router2, n,
-				sth.CallData("routerInc(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(amount))))
-		case 3: // incBalance through proxy (DELEGATECALL - writes proxy's own storage)
-			txs = append(txs, sth.CallTx(seed, s, proxy, n,
-				sth.CallData("pinc(address,uint256)", sth.ContractPaddAddress(target), sth.ContractPaddUint256(amount))))
-		case 4: // in-contract transfer from the seeded target (max 39*10 < 50_000, never underflows)
-			txs = append(txs, sth.CallTx(seed, s, balAddr, n,
-				sth.CallData("transfer(address,address,uint256)",
-					sth.ContractPaddAddress(targets[0]), sth.ContractPaddAddress(target), sth.ContractPaddUint256(uint64(rnd.Intn(10)+1)))))
-		case 5: // EOA transfer
-			txs = append(txs, eoaTransfer(seed, s, receivers[rnd.Intn(len(receivers))], n, int64(amount)))
-		case 6: // zero-value touch of a receiver (EIP-158 empty-account path)
-			txs = append(txs, eoaTransfer(seed, s, receivers[rnd.Intn(len(receivers))], n, 0))
-		}
-	}
+	h, txs := benchScenario(t, 12, 40)
 
 	block := h.build(t, txs)
 
@@ -1162,11 +1081,11 @@ type parHarness struct {
 // newParHarness builds the harness: a single-proposer validator set, a two-header test chain, a
 // fresh in-memory state executor, and a buildBlockFn that drives the real backendIBFT.buildBlock
 // proposer path over a caller-supplied tx list (fed through a mocked txpool).
-func newParHarness(t *testing.T) *parHarness {
-	t.Helper()
+func newParHarness(tb testing.TB) *parHarness {
+	tb.Helper()
 
 	proposerKey, err := crypto.GenerateECDSAKey()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	mySigner := signer.NewSigner(
 		signer.NewECDSAKeyManagerFromKey(proposerKey.PrivateKey()),
@@ -1204,7 +1123,7 @@ func newParHarness(t *testing.T) *parHarness {
 		ExtraData:  append(make([]byte, signer.IstanbulExtraVanity), parentExtraData.MarshalRLPTo(nil)...),
 	}
 
-	bc := blockchain.NewTestBlockchain(t, []*types.Header{
+	bc := blockchain.NewTestBlockchain(tb, []*types.Header{
 		{Number: 1, Hash: types.Hash{1, 3}}, parentHeader,
 	})
 
@@ -1253,29 +1172,29 @@ func newParHarness(t *testing.T) *parHarness {
 // state, then commits and pins the resulting root onto the parent header. Call once, first. Returns
 // the created contract addresses in deploy order.
 func (h *parHarness) setupParent(
-	t *testing.T, balances map[types.Address]*big.Int, deploys []*types.Transaction,
+	tb testing.TB, balances map[types.Address]*big.Int, deploys []*types.Transaction,
 ) []types.Address {
-	t.Helper()
+	tb.Helper()
 
 	tran, err := h.executor.BeginTxn(types.ZeroHash, h.parentHeader, types.ZeroAddress)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	for addr, bal := range balances {
-		require.NoError(t, tran.SetAccountDirectly(addr, &chain.GenesisAccount{Balance: bal, Nonce: 0}))
+		require.NoError(tb, tran.SetAccountDirectly(addr, &chain.GenesisAccount{Balance: bal, Nonce: 0}))
 	}
 
 	addrs := make([]types.Address, 0, len(deploys))
 
 	for _, d := range deploys {
 		res, err := tran.Apply(d)
-		require.NoError(t, err)
-		require.NoError(t, res.Err, "deploy tx must succeed")
+		require.NoError(tb, err)
+		require.NoError(tb, res.Err, "deploy tx must succeed")
 
 		addrs = append(addrs, res.Address)
 	}
 
 	_, root, err := tran.Commit()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	h.parentHeader.StateRoot = root
 	h.deployerNonce = uint64(len(deploys))
@@ -1285,25 +1204,25 @@ func (h *parHarness) setupParent(
 
 // deployMore applies additional deploys from parDeployer on top of the current parent state,
 // continuing the deployer nonce, and returns the created addresses.
-func (h *parHarness) deployMore(t *testing.T, initCodes [][]byte) []types.Address {
-	t.Helper()
+func (h *parHarness) deployMore(tb testing.TB, initCodes [][]byte) []types.Address {
+	tb.Helper()
 
 	tran, err := h.executor.BeginTxn(h.parentHeader.StateRoot, h.parentHeader, types.ZeroAddress)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	addrs := make([]types.Address, 0, len(initCodes))
 
 	for _, code := range initCodes {
 		res, err := tran.Apply(sth.DeployTx(parDeployer, h.deployerNonce, code))
-		require.NoError(t, err)
-		require.NoError(t, res.Err, "deploy tx must succeed")
+		require.NoError(tb, err)
+		require.NoError(tb, res.Err, "deploy tx must succeed")
 
 		addrs = append(addrs, res.Address)
 		h.deployerNonce++
 	}
 
 	_, root, err := tran.Commit()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	h.parentHeader.StateRoot = root
 
@@ -1312,14 +1231,14 @@ func (h *parHarness) deployMore(t *testing.T, initCodes [][]byte) []types.Addres
 
 // build runs the proposer path over txs and returns the built block. It sanity-checks that every tx
 // executed successfully so the scenario really exercises what it claims.
-func (h *parHarness) build(t *testing.T, txs []*types.Transaction) *types.Block {
-	t.Helper()
+func (h *parHarness) build(tb testing.TB, txs []*types.Transaction) *types.Block {
+	tb.Helper()
 
 	block, receipts, err := h.buildBlockFn(h.parentHeader, txs)
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	require.Len(t, receipts, len(txs), "every tx must have executed successfully in the proposer")
-	require.Len(t, block.Transactions, len(txs))
+	require.NoError(tb, err)
+	require.NotNil(tb, block)
+	require.Len(tb, receipts, len(txs), "every tx must have executed successfully in the proposer")
+	require.Len(tb, block.Transactions, len(txs))
 
 	h.lastBlock = block
 	h.lastBuildReceipts = receipts
@@ -1404,12 +1323,12 @@ func (h *parHarness) requireCanDiverge(t *testing.T, block *types.Block, graph [
 }
 
 // createDeps parses the tx dependency DAG the proposer packed into the block header.
-func createDeps(t *testing.T, block *types.Block) [][]uint64 {
-	t.Helper()
+func createDeps(tb testing.TB, block *types.Block) [][]uint64 {
+	tb.Helper()
 
 	var ed signer.IstanbulExtra
 
-	require.NoError(t, ed.UnmarshalRLPForTxDependecies(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
+	require.NoError(tb, ed.UnmarshalRLPForTxDependecies(block.Header.ExtraData[signer.IstanbulExtraVanity:]))
 
 	return ed.TxDependency
 }

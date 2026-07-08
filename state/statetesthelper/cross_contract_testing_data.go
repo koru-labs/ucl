@@ -29,11 +29,11 @@ func CallData(sig string, args ...[]byte) []byte {
 }
 
 // MustDecodeHex decodes a hex string, failing the test on error.
-func MustDecodeHex(t *testing.T, s string) []byte {
-	t.Helper()
+func MustDecodeHex(tb testing.TB, s string) []byte {
+	tb.Helper()
 
 	b, err := hex.DecodeString(s)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	return b
 }
