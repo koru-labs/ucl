@@ -32,6 +32,8 @@ type Params struct {
 	BurnContract map[uint64]types.Address `json:"burnContract"`
 	// Destination address to initialize default burn contract with
 	BurnContractDestinationAddress types.Address `json:"burnContractDestinationAddress,omitempty"`
+	// WorkersPerVerifier is the parallel verifier's worker count (0 = GOMAXPROCS, 1 = sequential)
+	WorkersPerVerifier int `json:"workersPerVerifier,omitempty"`
 }
 
 type AddressListConfig struct {

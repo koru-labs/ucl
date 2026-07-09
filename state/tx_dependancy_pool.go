@@ -7,8 +7,9 @@ import (
 )
 
 type TxWithIndex struct {
-	Tx   *types.Transaction
-	Indx uint64
+	Tx           *types.Transaction
+	HasDepending bool
+	Indx         uint64
 }
 
 type TxDependancyPool struct {
@@ -46,6 +47,12 @@ func NewTxDependancyPool(
 		}
 	}
 
+	// children is indexed by tx index, not queue position - the initial queue only holds the
+	// dep-free txs, so queue position and tx index diverge as soon as one tx has dependencies
+	for i := range queues {
+		queues[i].HasDepending = len(children[queues[i].Indx]) > 0
+	}
+
 	t := &TxDependancyPool{
 		txs:       txs,
 		remaining: remaining,
@@ -71,8 +78,9 @@ func (t *TxDependancyPool) FinishTx(tx TxWithIndex) {
 			newlyReady++
 
 			t.queues = append(t.queues, TxWithIndex{
-				Tx:   t.txs[cind],
-				Indx: cind,
+				Tx:           t.txs[cind],
+				Indx:         cind,
+				HasDepending: len(t.children[cind]) > 0,
 			})
 		}
 	}

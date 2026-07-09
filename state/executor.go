@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	goruntime "runtime"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -159,10 +160,15 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
-	if e.GetTxDependencyHook != nil {
+	workersCnt := e.config.WorkersPerVerifier
+	if workersCnt == 0 {
+		workersCnt = goruntime.GOMAXPROCS(0)
+	}
+
+	if e.GetTxDependencyHook != nil && workersCnt > 1 {
 		txDependency := e.GetTxDependencyHook(block.Header)
 		if len(txDependency) > 0 {
-			exc := NewTxDependancyExecutor(10, e.logger)
+			exc := NewTxDependancyExecutor(workersCnt, e.logger)
 			txp := NewTxDependancyPool(block.Transactions, txDependency)
 
 			return exc.Execute(txp, e, parentRoot, block.Header, blockCreator)
@@ -201,6 +207,11 @@ func (e *Executor) ProcessBlock(
 // GetForksInTime returns the active forks at the given block height
 func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
+}
+
+// SetWorkersPerVerifier is used only for testing
+func (e *Executor) SetWorkersPerVerifier(workersCnt int) {
+	e.config.WorkersPerVerifier = workersCnt
 }
 
 func (e *Executor) BeginTxn(
@@ -535,6 +546,10 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
 	return t.state.GetReadWriteSet(txIndx)
+}
+
+func (t *Transition) SetCurrentTxContext(txContext TxWithIndex) {
+	t.state.SetCurrentTxContext(txContext)
 }
 
 // ContextPtr returns reference of context
@@ -1421,4 +1436,8 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 
 func (txn *Transition) PopulateBlockRadix() error {
 	return txn.state.PopulateBlockRadix()
+}
+
+func (txn *Transition) AddPendingBalances() {
+	txn.state.AddPendingBalances()
 }

@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -40,7 +39,6 @@ func (t *TxDependancyExecutor) Execute(
 	errs := make([]error, workersCnt)
 	baseRadix := createBlockRadix()
 	baseMutex := &sync.RWMutex{} // all transitions using this mutex for accessing/updating baseRadix
-	baseAddBalances := map[types.Address]*big.Int{}
 
 	addError := func(id int, err error) {
 		errs[id] = err
@@ -51,7 +49,7 @@ func (t *TxDependancyExecutor) Execute(
 	for i := range trans {
 		tran, err := executor.BeginTxnWithCustomTxn(
 			parentRoot, blockHeader, blockCreator, func(s Snapshot) ITransitionTxn {
-				return NewTxnVerifier(s, baseMutex, baseRadix, baseAddBalances)
+				return NewTxnVerifier(s, baseMutex, baseRadix)
 			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create transition no %d: %w", i, err)
@@ -72,6 +70,13 @@ func (t *TxDependancyExecutor) Execute(
 			for {
 				tx, alive := pool.GetTx()
 				if !alive {
+					// flush the writes deferred by childless txs before Commit reads the radix
+					tran.SetCurrentTxContext(TxWithIndex{HasDepending: true})
+
+					if err := tran.PopulateBlockRadix(); err != nil {
+						addError(id, err)
+					}
+
 					return
 				}
 
@@ -87,9 +92,11 @@ func (t *TxDependancyExecutor) Execute(
 					}
 				}
 
+				tran.SetCurrentTxContext(tx) // set current context
+
 				receipt, err := tran.Write(tx.Tx)
 				if err != nil {
-					addError(id, err)
+					addError(id, fmt.Errorf("tx %d (worker %d): %w", tx.Indx, id, err))
 
 					return
 				}
@@ -119,6 +126,11 @@ func (t *TxDependancyExecutor) Execute(
 		t.logger.Error("Parallel Block Execution failed", "err", err)
 
 		return nil, nil, err
+	}
+
+	// apply pending balances to global matrix
+	for _, tran := range trans {
+		tran.AddPendingBalances()
 	}
 
 	totalGasUsed := uint64(0)

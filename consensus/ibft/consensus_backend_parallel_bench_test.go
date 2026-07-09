@@ -2,19 +2,25 @@ package ibft
 
 import (
 	"fmt"
+	"math/big"
+	"runtime"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/state"
 	sth "github.com/0xPolygon/polygon-edge/state/statetesthelper"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/hashicorp/go-hclog"
+	"github.com/Ethernal-Tech/ethgo"
 	"github.com/stretchr/testify/require"
 )
 
 func getBenchData() (txsCount []int, workers []int) {
-	workers = []int{1, 8, 16, 32}
-	txsCount = []int{100, 1000, 10000, 50000}
+	workers = []int{}
+	txsCount = []int{100, 1000, 5000, 10000}
+
+	for i := 1; i <= runtime.GOMAXPROCS(0); i <<= 1 {
+		workers = append(workers, i)
+	}
 
 	return
 }
@@ -58,14 +64,73 @@ func BenchmarkParallelVerify(b *testing.B) {
 				b.ResetTimer()
 
 				for range b.N {
-					root := h.verifyParallel(b, block, graph, workers)
-					if root != block.Header.StateRoot {
-						b.Fatalf("verifier root %s != builder root %s", root, block.Header.StateRoot)
-					}
+					require.Equal(b, block.Header.StateRoot, h.verifyParallel(b, block, graph, workers),
+						"parallel verification must reproduce the builder's state root")
 				}
 			})
 		}
 	}
+}
+
+// BenchmarkParallelVerifyIndependent is BenchmarkParallelVerify on a block of fully independent
+// txs (unique sender and receiver per tx, empty DAG): the workload that exposes the executor's
+// own scaling ceiling rather than the dependency graph's.
+func BenchmarkParallelVerifyIndependent(b *testing.B) {
+	benchSizes, benchWorkers := getBenchData()
+
+	for _, size := range benchSizes {
+		h, block, graph := benchIndependentScenario(b, size)
+
+		for _, workers := range benchWorkers {
+			b.Run(fmt.Sprintf("txs=%d/workers=%d", size, workers), func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for range b.N {
+					require.Equal(b, block.Header.StateRoot, h.verifyParallel(b, block, graph, workers),
+						"every worker count must reproduce the workers=1 state root")
+				}
+			})
+		}
+	}
+}
+
+// benchIndependentScenario funds numTxs distinct senders and builds a block of numTxs transfers
+// with a unique sender and receiver per tx, so the dependency graph is empty and every tx can
+// run on any worker. Returns the harness, the block (root pinned from the sequential fallback
+// run) and the all-empty graph.
+func benchIndependentScenario(tb testing.TB, numTxs int) (*parHarness, *types.Block, [][]uint64) {
+	tb.Helper()
+
+	h := newParHarness(tb)
+
+	balances := make(map[types.Address]*big.Int, numTxs)
+	txs := make([]*types.Transaction, numTxs)
+
+	for i := range numTxs {
+		var from, to types.Address
+
+		from[0], from[1], from[19] = byte(i>>8), byte(i), 0xAA
+		to[0], to[1], to[19] = byte(i>>8), byte(i), 0xBB
+
+		balances[from] = ethgo.Ether(1)
+		txs[i] = eoaTransfer(0, from, to, 0, 1000)
+
+		var hs types.Hash
+
+		hs[0], hs[1], hs[2], hs[3] = byte(i>>24), byte(i>>16), byte(i>>8), byte(i)
+		txs[i].Hash = hs
+	}
+
+	h.setupParent(tb, balances, nil)
+
+	header := h.benchHeader()
+	block := &types.Block{Header: header, Transactions: txs}
+	graph := make([][]uint64, numTxs)
+
+	header.StateRoot = h.verifyParallel(tb, block, graph, 1)
+
+	return h, block, graph
 }
 
 // benchHeader synthesizes a minimal block-N+1 header carrying the consensus fields
@@ -134,18 +199,20 @@ func (h *parHarness) buildProposer(
 	return root, graph
 }
 
-// verifyParallel re-executes the block through the parallel dependency executor with the given
-// DAG and worker count, mirroring the verifier path in Executor.ProcessBlock, and returns the
-// committed root.
+// verifyParallel re-executes the block and returns the committed root. workers=1 is the real
+// baseline: the sequential path ProcessBlock falls back to when the header carries no tx
+// dependency graph; workers>1 go through the parallel dependency executor.
 func (h *parHarness) verifyParallel(
 	tb testing.TB, block *types.Block, graph [][]uint64, workers int,
 ) types.Hash {
 	tb.Helper()
 
-	pool := state.NewTxDependancyPool(block.Transactions, graph)
-	exc := state.NewTxDependancyExecutor(workers, hclog.NewNullLogger())
+	h.executor.GetTxDependencyHook = func(*types.Header) [][]uint64 {
+		return graph
+	}
+	h.executor.SetWorkersPerVerifier(workers)
 
-	tran, _, err := exc.Execute(pool, h.executor, h.parentHeader.StateRoot, block.Header, h.proposer)
+	tran, _, err := h.executor.ProcessBlock(h.parentHeader.StateRoot, block, h.proposer)
 	require.NoError(tb, err)
 
 	_, root, err := tran.Commit()

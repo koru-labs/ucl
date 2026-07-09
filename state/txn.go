@@ -87,6 +87,8 @@ type ITransitionTxn interface {
 	StorageRangeAt(storageRangeResult *StorageRangeResult, addr *types.Address, keyStart []byte, maxResult int) error
 
 	PopulateBlockRadix() error
+	SetCurrentTxContext(txContext TxWithIndex)
+	AddPendingBalances()
 }
 
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
@@ -818,6 +820,12 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 
 func (txn *Txn) PopulateBlockRadix() error {
 	return nil
+}
+
+func (txn *Txn) SetCurrentTxContext(txContext TxWithIndex) {
+}
+
+func (txn *Txn) AddPendingBalances() {
 }
 
 func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {

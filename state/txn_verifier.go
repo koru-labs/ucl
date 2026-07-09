@@ -51,13 +51,16 @@ type TxnVerifier struct {
 	txLocalLogs   []*types.Log
 	txLocalRefund uint64
 
-	// AddBalanceDoNotTrack keeps global balance amounts for special addresses (block creator, burn contract)
-	globalAddBalances map[types.Address]*big.Int
+	// AddBalanceDoNotTrack keeps (block creator, burn) balance amounts per worker.
+	// Merged into global radix at the end
+	pendingAddBalances map[types.Address]*big.Int
 
 	// Journal + snapshots undo a failed call's txLocalMap writes on RevertToSnapshot; logs and
 	// refund only need their prior length/value remembered, not full per-entry journaling.
 	journal   []journalEntry
 	snapshots []txnSnapshot
+	// current tx context
+	txContext TxWithIndex
 }
 
 func createBlockRadix() *iradix.Txn {
@@ -68,17 +71,16 @@ func NewTxnVerifier(
 	snapshot readSnapshot,
 	blockMutex *sync.RWMutex,
 	blockRadix *iradix.Txn,
-	globalAddBalances map[types.Address]*big.Int,
 ) *TxnVerifier {
 	codeCache, _ := lru.New(20)
 
 	return &TxnVerifier{
-		snapshot:          snapshot,
-		globalMutex:       blockMutex,
-		globalRadix:       blockRadix,
-		globalAddBalances: globalAddBalances,
-		txLocalMap:        map[Key]txLocalValue{},
-		codeCache:         codeCache,
+		snapshot:           snapshot,
+		globalMutex:        blockMutex,
+		globalRadix:        blockRadix,
+		pendingAddBalances: map[types.Address]*big.Int{},
+		txLocalMap:         map[Key]txLocalValue{},
+		codeCache:          codeCache,
 	}
 }
 
@@ -254,13 +256,10 @@ func (txn *TxnVerifier) AddBalanceDoNotTrack(addr types.Address, amount *big.Int
 		return
 	}
 
-	txn.globalMutex.Lock()
-	defer txn.globalMutex.Unlock()
-
-	if existing, ok := txn.globalAddBalances[addr]; ok {
+	if existing, ok := txn.pendingAddBalances[addr]; ok {
 		existing.Add(existing, amount)
 	} else {
-		txn.globalAddBalances[addr] = new(big.Int).Set(amount)
+		txn.pendingAddBalances[addr] = new(big.Int).Set(amount)
 	}
 }
 
@@ -587,17 +586,16 @@ func (txn *TxnVerifier) CleanDeleteObjects(_ bool) error {
 	return nil
 }
 
+func (txn *TxnVerifier) SetCurrentTxContext(txContext TxWithIndex) {
+	txn.txContext = txContext
+}
+
 func (txn *TxnVerifier) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	txn.globalMutex.Lock()
 	defer txn.globalMutex.Unlock()
 
-	txn.addPendingBalancesUnlock()
-	// Callers (e.g. consensus PreCommitState hooks such as staking contract deployment) can
-	// mutate this Transition directly after Execute() has already returned and its per-tx
-	// PopulateBlockRadix calls are done. Those writes only ever land in txLocalMap - nothing
-	// else flushes them into the shared blockRadix that Commit reads from, so without this they
-	// would be silently dropped instead of persisted. PopulateBlockRadix is a no-op when
-	// txLocalMap is already empty, so this is safe to call unconditionally here.
+	// flush writes made after Execute() returned (e.g. PreCommitState hooks): they only live in
+	// txLocalMap, and nothing else pushes them into the radix Commit reads from
 	if err := txn.populateBlockRadixNoLock(); err != nil {
 		return nil, err
 	}
@@ -606,6 +604,23 @@ func (txn *TxnVerifier) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 }
 
 func (txn *TxnVerifier) PopulateBlockRadix() error {
+	// A childless tx has no downstream readers/writers of its keys (DAG guarantee), so its
+	// writes stay worker-local until the final flush; only the per-tx state must reset.
+	if !txn.txContext.HasDepending {
+		for _, je := range txn.journal {
+			if v, ok := txn.txLocalMap[je.key]; ok && (!v.isWritten || je.key.IsTransientState()) {
+				delete(txn.txLocalMap, je.key)
+			}
+		}
+
+		txn.txLocalLogs = nil
+		txn.txLocalRefund = 0
+		txn.journal = nil
+		txn.snapshots = nil
+
+		return nil
+	}
+
 	txn.globalMutex.Lock()
 	defer txn.globalMutex.Unlock()
 
@@ -623,11 +638,8 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 
 		obj := val.value.(*StateObject) //nolint:forcetypeassert
 
-		// Reconcile with the current global object so concurrent flushes are not clobbered: two
-		// independent txs may write disjoint storage keys of the same account, and this tx's local
-		// copy is stale (often Txn == nil) - inserting it as-is would wipe already flushed slots.
-		// Storage must be based on the global Txn; local account fields win only if this tx really
-		// changed them (the dependency graph serializes all field conflicts between txs).
+		// reconcile with the current global object: storage must be based on the global Txn so
+		// already-flushed slots survive; local account fields win only if this tx changed them
 		objGlobal, exists := getStateObject(txn.globalRadix, txn.snapshot, key.GetAddress(), true)
 		if exists {
 			if obj.dirtyFields {
@@ -636,9 +648,8 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 				obj = objGlobal // I only wrote storage; take current global entirely
 			}
 		} else if obj.Txn != nil {
-			// the local copy was made with Copy(false), so its Txn is shared with the global
-			// object it was copied from - detach it before the second pass Inserts into it,
-			// otherwise those Inserts would mutate the shared Txn in place
+			// Copy(false) shares Txn with the global object - detach it before the second
+			// pass Inserts into it, or they would mutate the shared Txn in place
 			obj.Txn = obj.Txn.CommitOnly().Txn()
 		}
 
@@ -691,9 +702,12 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 	return nil
 }
 
-func (txn *TxnVerifier) addPendingBalancesUnlock() {
-	// Apply pending AddBalanceDoNotTrack credits to global radix
-	for addr, amount := range txn.globalAddBalances {
+// AddPendingBalances apply pending AddBalanceDoNotTrack credits to global radix
+func (txn *TxnVerifier) AddPendingBalances() {
+	txn.globalMutex.Lock()
+	defer txn.globalMutex.Unlock()
+
+	for addr, amount := range txn.pendingAddBalances {
 		obj, exists := getStateObject(txn.globalRadix, txn.snapshot, addr, true)
 		if !exists {
 			obj = newStateObject()
@@ -702,6 +716,8 @@ func (txn *TxnVerifier) addPendingBalancesUnlock() {
 		obj.Account.Balance.Add(obj.Account.Balance, amount)
 		txn.globalRadix.Insert(addr.Bytes(), obj)
 	}
+
+	txn.pendingAddBalances = map[types.Address]*big.Int{}
 }
 
 func (txn *TxnVerifier) cleanAll() {
