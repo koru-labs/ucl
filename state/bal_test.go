@@ -21,6 +21,26 @@ var (
 	to           = types.StringToAddress("bb")
 	coinbaseAddr = types.StringToAddress("cc")
 	contractAddr = types.StringToAddress("dd")
+
+	// Init code deploys a contract with runtime code that pushes 42 (0x2A)
+	// onto the stack and then stops.
+	initCode = []byte{
+		0x60, 0x60, // PUSH1 0x60
+		0x60, 0x00, // PUSH1 0x00
+		0x53, // MSTORE8 -> memory[0] = 0x60
+
+		0x60, 0x2A, // PUSH1 0x2A
+		0x60, 0x01, // PUSH1 0x01
+		0x53, // MSTORE8 -> memory[1] = 0x2A
+
+		0x60, 0x00, // PUSH1 0x00
+		0x60, 0x02, // PUSH1 0x02
+		0x53, // MSTORE8 -> memory[2] = 0x00
+
+		0x60, 0x03, // PUSH1 3
+		0x60, 0x00, // PUSH1 0
+		0xF3, // RETURN
+	}
 )
 
 func balTestConfig(eip7928 bool) chain.ForksInTime {
@@ -241,30 +261,10 @@ func Test_BAL_InsufficientBalanceToCoverTransfer(t *testing.T) {
 	require.NotNil(t, recipient)
 }
 
-func TestApply_BAL_ContractCreation(t *testing.T) {
+func Test_BAL_ContractCreation(t *testing.T) {
 	t.Parallel()
 
 	const idx uint32 = 1
-
-	// Init code deploys a contract with runtime code that pushes 42 (0x2A)
-	// onto the stack and then stops.
-	initCode := []byte{
-		0x60, 0x60, // PUSH1 0x60
-		0x60, 0x00, // PUSH1 0x00
-		0x53, // MSTORE8 -> memory[0] = 0x60
-
-		0x60, 0x2A, // PUSH1 0x2A
-		0x60, 0x01, // PUSH1 0x01
-		0x53, // MSTORE8 -> memory[1] = 0x2A
-
-		0x60, 0x00, // PUSH1 0x00
-		0x60, 0x02, // PUSH1 0x02
-		0x53, // MSTORE8 -> memory[2] = 0x00
-
-		0x60, 0x03, // PUSH1 3
-		0x60, 0x00, // PUSH1 0
-		0xF3, // RETURN
-	}
 
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 1_000_000},

@@ -13,6 +13,7 @@ import (
 
 type mockSnapshot struct {
 	state map[types.Address]*PreState
+	codes map[types.Hash][]byte
 }
 
 func (m *mockSnapshot) GetStorage(addr types.Address, root types.Hash, key types.Hash) types.Hash {
@@ -44,7 +45,12 @@ func (m *mockSnapshot) GetAccount(addr types.Address) (*Account, error) {
 }
 
 func (m *mockSnapshot) GetCode(hash types.Hash) ([]byte, bool) {
-	return nil, false
+	code, ok := m.codes[hash]
+	if !ok {
+		return []byte{}, false
+	}
+
+	return code, true
 }
 
 func (m *mockSnapshot) GetRootHash() types.Hash {
