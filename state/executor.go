@@ -969,6 +969,8 @@ func (t *Transition) applyCall(
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
+			t.balRecorder = oldBalRecorder
+
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
@@ -994,9 +996,9 @@ func (t *Transition) applyCall(
 				Err:     err,
 			}
 		}
+	} else {
+		t.balRecorder.Merge(callBalRecorder)
 	}
-
-	t.balRecorder.Merge(callBalRecorder)
 
 	t.captureCallEnd(c, result)
 
@@ -1072,6 +1074,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
+		t.balRecorder = oldBalRecorder
+
 		return &runtime.ExecutionResult{
 			GasLeft: gasLimit,
 			Err:     err,
@@ -1103,6 +1107,9 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
+			t.balRecorder = oldBalRecorder
+			t.balRecorder.Merge(callBalRecorder)
+
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1117,6 +1124,9 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Caller", c.Caller,
 				"contract.Address", c.Address,
 			)
+
+			t.balRecorder = oldBalRecorder
+			t.balRecorder.Merge(callBalRecorder)
 
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
@@ -1182,6 +1192,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			}
 
 			result.GasLeft = 0
+
+			return result
 		}
 
 		t.balRecorder.Merge(callBalRecorder)

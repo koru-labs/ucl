@@ -60,7 +60,7 @@ func newBALTestTransition(
 	}
 }
 
-func record(
+func getRecord(
 	t *testing.T,
 	tr *Transition) *bal.BlockAccessListRecord {
 	t.Helper()
@@ -71,14 +71,13 @@ func record(
 	return rec
 }
 
-func account(
+func getAccount(
 	t *testing.T,
 	rec *bal.BlockAccessListRecord,
 	addr types.Address) *bal.AccountAccessRecord {
 	t.Helper()
 
-	acc, ok := rec.Accounts[addr]
-	require.Truef(t, ok, "address %s expected in BAL but was not recorded", addr)
+	acc, _ := rec.Accounts[addr]
 
 	return acc
 }
@@ -110,20 +109,20 @@ func Test_BAL_Disabled(t *testing.T) {
 	require.Nil(t, tr.BlockAccessListRecorder().GetBlockAccessListRecord())
 }
 
-func TestApply_BAL_ZeroValueTransfer(t *testing.T) {
+func Test_BAL_ZeroValueTransfer(t *testing.T) {
 	t.Parallel()
 
 	const idx uint32 = 1
 
 	pre := map[types.Address]*PreState{
-		addr1: {Nonce: 0, Balance: 1_000_000},
+		from: {Nonce: 0, Balance: 1_000_000},
 	}
 	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
-		From:     addr1,
-		To:       &addr2,
+		From:     from,
+		To:       &to,
 		Value:    big.NewInt(0),
 		Gas:      21_000,
 		GasPrice: big.NewInt(1),
@@ -133,15 +132,113 @@ func TestApply_BAL_ZeroValueTransfer(t *testing.T) {
 	_, err := tr.apply(msg)
 	require.NoError(t, err)
 
-	rec := record(t, tr)
+	rec := getRecord(t, tr)
 
-	sender := account(t, rec, addr1)
+	sender := getAccount(t, rec, from)
 	require.Equal(t, uint64(1), sender.NonceChanges[idx])
-	require.Contains(t, sender.BalanceChanges, idx)
+	require.Equal(t, big.NewInt(979_000), sender.BalanceChanges[idx])
 
-	recipient := account(t, rec, addr2)
+	recipient := getAccount(t, rec, to)
 	require.Empty(t, recipient.BalanceChanges,
 		"zero-value transfer must not record a recipient balance change")
+}
+
+func Test_BAL_Transfer(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	pre := map[types.Address]*PreState{
+		from: {Nonce: 0, Balance: 1_000_000},
+	}
+	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+
+	msg := &types.Transaction{
+		Type:     types.LegacyTx,
+		From:     from,
+		To:       &to,
+		Value:    big.NewInt(1_000),
+		Gas:      21_000,
+		GasPrice: big.NewInt(1),
+		Nonce:    0,
+	}
+
+	_, err := tr.apply(msg)
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+
+	sender := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), sender.NonceChanges[idx])
+	require.Equal(t, big.NewInt(978_000), sender.BalanceChanges[idx])
+
+	recipient := getAccount(t, rec, to)
+	require.Equal(t, big.NewInt(1_000), recipient.BalanceChanges[idx])
+}
+
+func Test_BAL_InsufficientBalanceToCoverIntrinsicGas(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	pre := map[types.Address]*PreState{
+		from: {Nonce: 0, Balance: 10_000},
+	}
+	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+
+	msg := &types.Transaction{
+		Type:     types.LegacyTx,
+		From:     from,
+		To:       &to,
+		Value:    big.NewInt(10_000),
+		Gas:      21_000,
+		GasPrice: big.NewInt(1),
+		Nonce:    0,
+	}
+
+	_, err := tr.apply(msg)
+	require.Error(t, err)
+
+	rec := getRecord(t, tr)
+
+	sender := getAccount(t, rec, from)
+	require.Nil(t, sender)
+
+	recipient := getAccount(t, rec, to)
+	require.Nil(t, recipient)
+}
+
+func Test_BAL_InsufficientBalanceToCoverTransfer(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	pre := map[types.Address]*PreState{
+		from: {Nonce: 0, Balance: 30_000},
+	}
+	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+
+	msg := &types.Transaction{
+		Type:     types.LegacyTx,
+		From:     from,
+		To:       &to,
+		Value:    big.NewInt(10_000),
+		Gas:      21_000,
+		GasPrice: big.NewInt(1),
+		Nonce:    0,
+	}
+
+	_, err := tr.apply(msg)
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+
+	sender := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), sender.NonceChanges[idx])
+	require.Equal(t, big.NewInt(9_000), sender.BalanceChanges[idx])
+
+	recipient := getAccount(t, rec, to)
+	require.NotNil(t, recipient)
 }
 
 func TestApply_BAL_ContractCreation(t *testing.T) {
@@ -149,17 +246,36 @@ func TestApply_BAL_ContractCreation(t *testing.T) {
 
 	const idx uint32 = 1
 
-	initCode := []byte{0x60, 0x00, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60, 0x00, 0xF3}
+	// Init code deploys a contract with runtime code that pushes 42 (0x2A)
+	// onto the stack and then stops.
+	initCode := []byte{
+		0x60, 0x60, // PUSH1 0x60
+		0x60, 0x00, // PUSH1 0x00
+		0x53, // MSTORE8 -> memory[0] = 0x60
+
+		0x60, 0x2A, // PUSH1 0x2A
+		0x60, 0x01, // PUSH1 0x01
+		0x53, // MSTORE8 -> memory[1] = 0x2A
+
+		0x60, 0x00, // PUSH1 0x00
+		0x60, 0x02, // PUSH1 0x02
+		0x53, // MSTORE8 -> memory[2] = 0x00
+
+		0x60, 0x03, // PUSH1 3
+		0x60, 0x00, // PUSH1 0
+		0xF3, // RETURN
+	}
 
 	pre := map[types.Address]*PreState{
-		addr1: {Nonce: 0, Balance: 10_000_000},
+		from: {Nonce: 0, Balance: 1_000_000},
 	}
+
 	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
-		From:     addr1,
-		To:       nil, // contract creation
+		From:     from,
+		To:       nil,
 		Value:    big.NewInt(0),
 		Input:    initCode,
 		Gas:      1_000_000,
@@ -171,16 +287,16 @@ func TestApply_BAL_ContractCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "deployment should succeed: %v", res.Err)
 
-	deployed := crypto.CreateAddress(addr1, 0)
-	rec := record(t, tr)
+	deployed := crypto.CreateAddress(from, 0)
+	rec := getRecord(t, tr)
 
-	// C1: caller nonce bumped to 1.
-	caller := account(t, rec, addr1)
+	caller := getAccount(t, rec, from)
 	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(1_000_000), caller.BalanceChanges[idx])
 
-	created := account(t, rec, deployed)
+	created := getAccount(t, rec, deployed)
 	require.Equal(t, uint64(1), created.NonceChanges[idx])
-	require.Equal(t, []byte{0x00}, created.CodeChanges[idx])
+	require.Equal(t, []byte{0x60, 0x2A, 0x00}, created.CodeChanges[idx])
 }
 
 func TestApply_BAL_ContractCreation_Collision(t *testing.T) {
@@ -212,7 +328,7 @@ func TestApply_BAL_ContractCreation_Collision(t *testing.T) {
 	require.True(t, res.Failed())
 	require.ErrorIs(t, res.Err, runtime.ErrContractAddressCollision)
 
-	rec := record(t, tr)
+	rec := getRecord(t, tr)
 	require.Contains(t, rec.Accounts, deployed)
 }
 
@@ -254,8 +370,8 @@ func TestApply_BAL_SStore(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
-	rec := record(t, tr)
-	acc := account(t, rec, contractAddr)
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
 
 	slot0 := types.Hash{} // key 0x00..00
 	writes, ok := acc.StorageWrites[slot0]
@@ -281,8 +397,8 @@ func TestApply_BAL_SLoad(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
-	rec := record(t, tr)
-	acc := account(t, rec, contractAddr)
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
 
 	slot0 := types.Hash{}
 	require.Contains(t, acc.StorageReads, slot0)
@@ -306,8 +422,8 @@ func TestApply_BAL_SLoadThenSStore(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
-	rec := record(t, tr)
-	acc := account(t, rec, contractAddr)
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
 
 	slot0 := types.Hash{}
 	require.Contains(t, acc.StorageWrites, slot0)
@@ -331,8 +447,8 @@ func TestApply_BAL_RevertedWrite_CurrentlyStillMerged(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.Failed(), "call is expected to revert")
 
-	rec := record(t, tr)
-	acc := account(t, rec, contractAddr)
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
 
 	slot0 := types.Hash{}
 	require.Contains(t, acc.StorageWrites, slot0,
