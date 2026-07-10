@@ -162,7 +162,7 @@ func (e *Executor) ProcessBlock(
 ) (*Transition, []*types.Receipt, error) {
 	workersCnt := e.config.WorkersPerVerifier
 	if workersCnt == 0 {
-		workersCnt = goruntime.GOMAXPROCS(0)
+		workersCnt = goruntime.NumCPU()
 	}
 
 	if e.GetTxDependencyHook != nil && workersCnt > 1 {
