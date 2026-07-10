@@ -47,26 +47,15 @@ func balTestConfig(eip7928 bool) chain.ForksInTime {
 	return chain.ForksInTime{
 		Homestead: true,
 		Istanbul:  true,
+		EIP150:    true,
 		EIP155:    true,
 		EIP158:    true,
 		EIP7928:   eip7928,
 	}
 }
 
-func newBALTestTransition(
-	t *testing.T,
-	config chain.ForksInTime,
-	preState map[types.Address]*PreState,
-	balIndex uint,
-) *Transition {
+func newBALTransition(t *testing.T, config chain.ForksInTime, snap Snapshot, balIndex uint) *Transition {
 	t.Helper()
-
-	if preState == nil {
-		preState = map[types.Address]*PreState{}
-	}
-
-	snap := newStateWithPreState(preState)
-
 	return &Transition{
 		logger:      hclog.NewNullLogger(),
 		state:       newTxn(snap),
@@ -78,6 +67,14 @@ func newBALTestTransition(
 		precompiles: precompiled.NewPrecompiled(),
 		BalIndex:    balIndex,
 	}
+}
+
+func newBALTestTransition(t *testing.T, config chain.ForksInTime, preState map[types.Address]*PreState, balIndex uint) *Transition {
+	t.Helper()
+	if preState == nil {
+		preState = map[types.Address]*PreState{}
+	}
+	return newBALTransition(t, config, newStateWithPreState(preState), balIndex)
 }
 
 func getRecord(
@@ -451,8 +448,8 @@ func TestApply_BAL_RevertedWrite_CurrentlyStillMerged(t *testing.T) {
 	acc := getAccount(t, rec, contractAddr)
 
 	slot0 := types.Hash{}
-	require.Contains(t, acc.StorageWrites, slot0,
-		"documents current merge-on-revert behavior; revisit against EIP-7928")
+	require.NotContains(t, acc.StorageWrites, slot0,
+		"a reverted write must NOT be merged into the BAL")
 }
 
 func seedContractState(
@@ -735,4 +732,134 @@ func TestApply_BAL_IndexPropagation(t *testing.T) {
 
 	coinbase := getAccount(t, rec, coinbaseAddr)
 	require.Contains(t, coinbase.BalanceChanges, idx)
+}
+
+func callerCallingCallee() []byte {
+	code := []byte{
+		0x60, 0x00, // retSize
+		0x60, 0x00, // retOffset
+		0x60, 0x00, // inSize
+		0x60, 0x00, // inOffset
+		0x60, 0x00, // value
+	}
+	code = append(code, push20(from)...)  // addr
+	code = append(code, 0x5A, 0xF1, 0x00) // GAS, CALL, STOP
+
+	return code
+}
+
+// seedCallerCallee wires caller code onto contractAddr and callee code onto
+// calleeAddr; `from` is the funded EOA.
+func seedCallerCallee(t *testing.T, callerCode, calleeCode []byte, calleeBalance uint64, idx uint) *Transition {
+	t.Helper()
+
+	snap := newStateWithCode(
+		map[types.Address]*PreState{
+			from:         {Nonce: 0, Balance: 10_000_000},
+			contractAddr: {},
+			from:         {Balance: calleeBalance},
+		},
+		map[types.Address][]byte{
+			contractAddr: callerCode,
+			from:         calleeCode,
+		},
+	)
+
+	return newBALTransition(t, balTestConfig(true), snap, idx)
+}
+
+// callCaller is a tx from `from` to the caller contract.
+func callCaller() *types.Transaction {
+	return &types.Transaction{
+		Type:     types.LegacyTx,
+		From:     from,
+		To:       &contractAddr,
+		Value:    big.NewInt(0),
+		Gas:      10_000_000,
+		GasPrice: big.NewInt(0),
+		Nonce:    0,
+	}
+}
+
+// A successful nested CALL: the callee's storage write bubbles up into the BAL.
+func TestApply_BAL_NestedCall_SuccessMerges(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// callee: SSTORE slot0 = 1, STOP
+	callee := []byte{0x60, 0x01, 0x60, 0x00, 0x55, 0x00}
+
+	tr := seedCallerCallee(t, callerCallingCallee(), callee, 0, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "top-level call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	acc := getAccount(t, rec, from)
+	slot0 := types.Hash{}
+	writes, ok := acc.StorageWrites[slot0]
+	require.True(t, ok, "callee write must be merged into the BAL")
+	require.Equal(t, types.BytesToHash(big.NewInt(1).Bytes()), writes[idx])
+
+	require.Contains(t, rec.Accounts, contractAddr) // caller touched
+	require.Contains(t, rec.Accounts, from)         // callee touched
+}
+
+// A reverted nested CALL: the callee SSTOREs then REVERTs. The caller swallows
+// the failed CALL so the tx succeeds, but the reverted write must NOT reach the
+// BAL (applyCall merges the sub-recorder only on success). EIP-7928 correct.
+func TestApply_BAL_NestedCall_RevertedSubcall_NotMerged(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// callee: SSTORE slot0 = 1, then REVERT
+	callee := []byte{
+		0x60, 0x01, 0x60, 0x00, 0x55,
+		0x60, 0x00, 0x60, 0x00, 0xFD,
+	}
+
+	tr := seedCallerCallee(t, callerCallingCallee(), callee, 0, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "caller swallows the failed CALL, so the tx succeeds")
+
+	rec := getRecord(t, tr)
+
+	slot0 := types.Hash{}
+	if acc := getAccount(t, rec, from); acc != nil {
+		require.NotContains(t, acc.StorageWrites, slot0,
+			"a reverted nested write must NOT be merged into the BAL")
+	}
+}
+
+// SELFDESTRUCT in a nested CALL: the callee's zeroing and the beneficiary
+// credit are merged up into the BAL.
+func TestApply_BAL_NestedCall_Selfdestruct(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// callee: PUSH20 <to> SELFDESTRUCT
+	callee := append(push20(to), 0xFF)
+
+	tr := seedCallerCallee(t, callerCallingCallee(), callee, 500, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "top-level call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	self := getAccount(t, rec, from)
+	require.Equalf(t, 0, self.BalanceChanges[idx].Cmp(big.NewInt(0)),
+		"self-destructed callee balance must be recorded as 0")
+
+	beneficiary := getAccount(t, rec, to)
+	require.Equalf(t, 0, beneficiary.BalanceChanges[idx].Cmp(big.NewInt(500)),
+		"beneficiary must be credited the destructed balance")
 }

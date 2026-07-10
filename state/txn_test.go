@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,10 @@ func (m *mockSnapshot) GetAccount(addr types.Address) (*Account, error) {
 		Nonce:   raw.Nonce,
 	}
 
+	if len(raw.CodeHash) > 0 {
+		acct.CodeHash = raw.CodeHash
+	}
+
 	return acct, nil
 }
 
@@ -67,6 +72,21 @@ func newStateWithPreState(preState map[types.Address]*PreState) Snapshot {
 
 func newTestTxn(p map[types.Address]*PreState) *Txn {
 	return newTxn(newStateWithPreState(p))
+}
+
+func newStateWithCode(preState map[types.Address]*PreState, code map[types.Address][]byte) Snapshot {
+	codes := make(map[types.Hash][]byte, len(code))
+	for addr, c := range code {
+		acc, ok := preState[addr]
+		if !ok {
+			acc = &PreState{}
+			preState[addr] = acc
+		}
+		h := crypto.Keccak256(c)
+		acc.CodeHash = h
+		codes[types.BytesToHash(h)] = c
+	}
+	return &mockSnapshot{state: preState, codes: codes}
 }
 
 func TestTransientStorage(t *testing.T) {

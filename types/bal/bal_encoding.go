@@ -144,7 +144,7 @@ func (aa *AccountAccess) validate(maxBALIndex int) error {
 
 	if n := len(aa.NonceChanges); n > 0 {
 		if last := aa.NonceChanges[n-1].BlockAccessIndex; int(last) > maxBALIndex {
-			return fmt.Errorf("nonce change index exceeds limit, index: %d, limit: %ds")
+			return fmt.Errorf("nonce change index exceeds limit, index: %d, limit: %ds", last, maxBALIndex)
 		}
 	}
 
