@@ -16,7 +16,9 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	jsonIter "github.com/json-iterator/go"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -413,10 +415,14 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 }
 
 func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error) {
-	spanCtx, span := observability.Tracer().Start(ctx, req.Method)
+	// req.Method is untrusted input, so keep it out of the span name and store it
+	// as an attribute instead. The name is promoted to the method once validated.
+	spanCtx, span := observability.Tracer().Start(ctx, "rpc.request",
+		trace.WithAttributes(attribute.String("rpc.method", req.Method)))
 	defer span.End()
 
-	d.logger.With(observability.LogFields(spanCtx)...).Debug("request", "method", req.Method, "id", req.ID)
+	d.logger.Debug("request", append([]interface{}{"method", req.Method, "id", req.ID},
+		observability.LogFields(spanCtx)...)...)
 
 	service, fd, ferr := d.getFnHandler(req)
 	if ferr != nil {
@@ -424,6 +430,9 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 
 		return nil, ferr
 	}
+
+	// req.Method is validated now, so it is safe to use as the span name.
+	span.SetName(req.Method)
 
 	inArgs := make([]reflect.Value, fd.inNum)
 	inArgs[0] = service.sv

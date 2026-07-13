@@ -30,7 +30,7 @@ type sealKey struct {
 // which don't thread a context between them.
 type sealEntry struct {
 	start time.Time
-	ctx   context.Context
+	span  trace.Span
 }
 
 // sealTimeStore tracks per-proposal state across the BuildProposal ->
@@ -49,7 +49,13 @@ func (s *sealTimeStore) store(height uint64, hash types.Hash, entry sealEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.starts[sealKey{height, hash}] = entry
+	key := sealKey{height, hash}
+
+	if old, ok := s.starts[key]; ok && old.span != nil {
+		old.span.End()
+	}
+
+	s.starts[key] = entry
 }
 
 // take returns the entry for (height, hash) if present, deleting it. It also
@@ -64,8 +70,8 @@ func (s *sealTimeStore) take(height uint64, hash types.Hash) (sealEntry, bool) {
 	entry, ok := s.starts[want]
 
 	for k, e := range s.starts {
-		if k != want && e.ctx != nil {
-			trace.SpanFromContext(e.ctx).End()
+		if k != want && e.span != nil {
+			e.span.End()
 		}
 	}
 
@@ -114,7 +120,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
-	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, ctx: ctx})
+	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
 
 	return block.MarshalRLP()
 }
@@ -205,12 +211,14 @@ func (i *backendIBFT) InsertProposal(
 	if entry, ok := i.sealTimes.take(proposedNumber, proposedHash); ok {
 		metrics.MeasureSince([]string{consensusMetrics, "finality", "seal_total"}, entry.start)
 
-		_, commitSpan := observability.Tracer().Start(entry.ctx, "commit", trace.WithTimestamp(commitStart))
+		ctx := trace.ContextWithSpan(context.Background(), entry.span)
+
+		_, commitSpan := observability.Tracer().Start(ctx, "commit", trace.WithTimestamp(commitStart))
 		commitSpan.End()
 
-		trace.SpanFromContext(entry.ctx).End()
+		entry.span.End()
 
-		logger = logger.With(observability.LogFields(entry.ctx)...)
+		logger = logger.With(observability.LogFields(ctx)...)
 	}
 
 	i.updateMetrics(newBlock)
