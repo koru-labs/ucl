@@ -122,7 +122,6 @@ func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Has
 
 // ClearTransientStorage removes all transient storage entries. Must be called at the start
 // of every tx because EIP-1153 requires transient storage to be empty at tx boundaries.
-// very slow (iterating over whole block trie) but most of txs do not use transient storage
 func (txn *Txn) ClearTransientStorage() {
 	var toDelete [][]byte
 
@@ -141,7 +140,7 @@ func (txn *Txn) ClearTransientStorage() {
 
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
-	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
+	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
@@ -790,10 +789,10 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 }
 
 // cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
-func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
+func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
 	remove := [][]byte{}
 
-	txn.Root().Walk(func(k []byte, v interface{}) bool {
+	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
 		if !ok {
 			return false
@@ -807,7 +806,7 @@ func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 	})
 
 	for _, k := range remove {
-		v, ok := txn.Get(k)
+		v, ok := txn.txn.Get(k)
 		if !ok {
 			return fmt.Errorf("failed to retrieve value for %s key", string(k))
 		}
@@ -819,17 +818,17 @@ func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 
 		obj2 := obj.Copy()
 		obj2.Deleted = true
-		txn.Insert(k, obj2)
+		txn.txn.Insert(k, obj2)
 	}
 
 	// delete refunds
-	txn.Delete(refundIndex)
+	txn.txn.Delete(refundIndex)
 
 	return nil
 }
 
 func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
-	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
+	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
