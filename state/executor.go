@@ -410,7 +410,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	}
 
 	// The suicided accounts are set as deleted for the next iteration
-	if err := t.state.CleanDeleteObjects(true); err != nil {
+	if err := t.state.CleanSuicidedObjects(); err != nil {
 		return fmt.Errorf("failed to clean deleted objects: %w", err)
 	}
 

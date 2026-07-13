@@ -50,11 +50,8 @@ type Txn struct {
 	txn       *iradix.Txn
 	codeCache *lru.Cache
 
-	// touched collects accounts written since the last CleanDeleteObjects, so the per-tx
-	// EIP-158 sweep only inspects them instead of walking the whole radix on every tx. It may
-	// hold false positives (a write later rolled back by RevertToSnapshot stays in the set), but
-	// never false negatives
-	touched map[types.Address]struct{}
+	// sucidedAddrs collects accounts suicided since the last CleanSuicidedObjects
+	sucidedAddrs map[types.Address]struct{}
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -71,11 +68,11 @@ func newTxn(snapshot readSnapshot) *Txn {
 	codeCache, _ := lru.New(20)
 
 	return &Txn{
-		snapshot:  snapshot,
-		snapshots: []*iradix.Tree{},
-		txn:       i.Txn(),
-		codeCache: codeCache,
-		touched:   map[types.Address]struct{}{},
+		snapshot:     snapshot,
+		snapshots:    []*iradix.Tree{},
+		txn:          i.Txn(),
+		codeCache:    codeCache,
+		sucidedAddrs: map[types.Address]struct{}{},
 	}
 }
 
@@ -144,13 +141,13 @@ func (txn *Txn) ClearTransientStorage() {
 
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
-	if err := cleanDeleteObjectsGlobal(txn.txn, deleteEmptyObjects); err != nil {
+	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
 	var (
 		nextKey         []byte
-		hasStartKey     = opts.Start != nil && len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
+		hasStartKey     = len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
 		committedIradix = txn.txn.Commit()
 	)
 
@@ -344,7 +341,6 @@ func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *St
 
 	if object != nil {
 		txn.txn.Insert(addr.Bytes(), object)
-		txn.touched[addr] = struct{}{}
 	}
 }
 
@@ -373,14 +369,14 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 		return nil
 	}
 
-	object, exists := txn.getStateObject(addr)
-	if !exists || object.Account.Balance.Cmp(amount) < 0 {
+	// Check if we have enough balance to deduce amount from
+	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
 		return runtime.ErrNotEnoughFunds
 	}
 
-	object.Account.Balance.Sub(object.Account.Balance, amount)
-	txn.txn.Insert(addr.Bytes(), object)
-	txn.touched[addr] = struct{}{}
+	txn.upsertAccount(addr, true, func(object *StateObject) {
+		object.Account.Balance.Sub(object.Account.Balance, amount)
+	})
 
 	return nil
 }
@@ -662,6 +658,7 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		} else {
 			suicided = true
 			object.Suicide = true
+			txn.sucidedAddrs[addr] = struct{}{}
 		}
 
 		if object != nil {
@@ -790,17 +787,29 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	txn.txn.Insert(addr.Bytes(), obj)
-	txn.touched[addr] = struct{}{}
 }
 
-// CleanDeleteObjects runs the per-tx EIP-158 sweep. Only accounts written since the previous
-// sweep can be newly empty or suicided, so it inspects just those - the full-radix walk
-func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
-	for addr := range txn.touched {
-		v, ok := txn.txn.Get(addr.Bytes())
+// cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
+func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
+	remove := [][]byte{}
+
+	txn.Root().Walk(func(k []byte, v interface{}) bool {
+		a, ok := v.(*StateObject)
 		if !ok {
-			// the write was rolled back (reverted tx); nothing to inspect
-			continue
+			return false
+		}
+
+		if a.Suicide || a.Empty() && deleteEmptyObjects {
+			remove = append(remove, k)
+		}
+
+		return false
+	})
+
+	for _, k := range remove {
+		v, ok := txn.Get(k)
+		if !ok {
+			return fmt.Errorf("failed to retrieve value for %s key", string(k))
 		}
 
 		obj, ok := v.(*StateObject)
@@ -808,23 +817,19 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 			return errors.New("found object is not of StateObject type")
 		}
 
-		if obj.Suicide || obj.Empty() && deleteEmptyObjects {
-			obj2 := obj.Copy()
-			obj2.Deleted = true
-			txn.txn.Insert(addr.Bytes(), obj2)
-		}
+		obj2 := obj.Copy()
+		obj2.Deleted = true
+		txn.Insert(k, obj2)
 	}
 
-	clear(txn.touched)
-
 	// delete refunds
-	txn.txn.Delete(refundIndex)
+	txn.Delete(refundIndex)
 
 	return nil
 }
 
 func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
-	if err := cleanDeleteObjectsGlobal(txn.txn, deleteEmptyObjects); err != nil {
+	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
@@ -874,27 +879,13 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	return objs, nil
 }
 
-// cleanDeleteObjectsGlobal cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
-func cleanDeleteObjectsGlobal(txn *iradix.Txn, deleteEmptyObjects bool) error {
-	remove := [][]byte{}
-
-	txn.Root().Walk(func(k []byte, v interface{}) bool {
-		a, ok := v.(*StateObject)
+// CleanSucicidedObjects cleans only suicided objects
+func (txn *Txn) CleanSuicidedObjects() error {
+	for addr := range txn.sucidedAddrs {
+		v, ok := txn.txn.Get(addr.Bytes())
 		if !ok {
-			return false
-		}
-
-		if a.Suicide || a.Empty() && deleteEmptyObjects {
-			remove = append(remove, k)
-		}
-
-		return false
-	})
-
-	for _, k := range remove {
-		v, ok := txn.Get(k)
-		if !ok {
-			return fmt.Errorf("failed to retrieve value for %s key", string(k))
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
 		}
 
 		obj, ok := v.(*StateObject)
@@ -902,13 +893,17 @@ func cleanDeleteObjectsGlobal(txn *iradix.Txn, deleteEmptyObjects bool) error {
 			return errors.New("found object is not of StateObject type")
 		}
 
-		obj2 := obj.Copy()
-		obj2.Deleted = true
-		txn.Insert(k, obj2)
+		if obj.Suicide {
+			obj2 := obj.Copy()
+			obj2.Deleted = true
+			txn.txn.Insert(addr.Bytes(), obj2)
+		}
 	}
 
+	clear(txn.sucidedAddrs)
+
 	// delete refunds
-	txn.Delete(refundIndex)
+	txn.txn.Delete(refundIndex)
 
 	return nil
 }
