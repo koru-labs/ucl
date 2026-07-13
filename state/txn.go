@@ -49,6 +49,9 @@ type Txn struct {
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
 	codeCache *lru.Cache
+
+	// sucidedAddrs collects accounts suicided since the last CleanSuicidedObjects
+	sucidedAddrs map[types.Address]struct{}
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -65,10 +68,11 @@ func newTxn(snapshot readSnapshot) *Txn {
 	codeCache, _ := lru.New(20)
 
 	return &Txn{
-		snapshot:  snapshot,
-		snapshots: []*iradix.Tree{},
-		txn:       i.Txn(),
-		codeCache: codeCache,
+		snapshot:     snapshot,
+		snapshots:    []*iradix.Tree{},
+		txn:          i.Txn(),
+		codeCache:    codeCache,
+		sucidedAddrs: map[types.Address]struct{}{},
 	}
 }
 
@@ -136,13 +140,13 @@ func (txn *Txn) ClearTransientStorage() {
 
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
-	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
+	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
 	var (
 		nextKey         []byte
-		hasStartKey     = opts.Start != nil && len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
+		hasStartKey     = len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
 		committedIradix = txn.txn.Commit()
 	)
 
@@ -653,6 +657,7 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		} else {
 			suicided = true
 			object.Suicide = true
+			txn.sucidedAddrs[addr] = struct{}{}
 		}
 
 		if object != nil {
@@ -783,7 +788,8 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	txn.txn.Insert(addr.Bytes(), obj)
 }
 
-func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
+// cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
+func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
 	remove := [][]byte{}
 
 	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
@@ -822,7 +828,7 @@ func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
 }
 
 func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
-	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
+	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
@@ -870,4 +876,33 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	})
 
 	return objs, nil
+}
+
+// CleanSucicidedObjects cleans only suicided objects
+func (txn *Txn) CleanSuicidedObjects() error {
+	for addr := range txn.sucidedAddrs {
+		v, ok := txn.txn.Get(addr.Bytes())
+		if !ok {
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
+		}
+
+		obj, ok := v.(*StateObject)
+		if !ok {
+			return errors.New("found object is not of StateObject type")
+		}
+
+		if obj.Suicide {
+			obj2 := obj.Copy()
+			obj2.Deleted = true
+			txn.txn.Insert(addr.Bytes(), obj2)
+		}
+	}
+
+	clear(txn.sucidedAddrs)
+
+	// delete refunds
+	txn.txn.Delete(refundIndex)
+
+	return nil
 }
