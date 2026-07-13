@@ -30,7 +30,7 @@ require (
 	github.com/hashicorp/hcl v1.0.1-vault-7
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/holiman/uint256 v1.3.2
-	github.com/jellydator/ttlcache/v3 v3.4.0
+	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/json-iterator/go v1.1.12
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/libp2p/go-libp2p-kbucket v0.8.0
