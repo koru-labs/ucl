@@ -45,12 +45,13 @@ var (
 
 func balTestConfig(eip7928 bool) chain.ForksInTime {
 	return chain.ForksInTime{
-		Homestead: true,
-		Istanbul:  true,
-		EIP150:    true,
-		EIP155:    true,
-		EIP158:    true,
-		EIP7928:   eip7928,
+		Homestead:      true,
+		Istanbul:       true,
+		EIP150:         true,
+		EIP155:         true,
+		EIP158:         true,
+		Constantinople: true,
+		EIP7928:        eip7928,
 	}
 }
 
@@ -638,7 +639,43 @@ func TestApply_BAL_ExtCodeSize_AccountRead(t *testing.T) {
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
 	rec := getRecord(t, tr)
-	require.Contains(t, rec.Accounts, to)
+	acc := getAccount(t, rec, to)
+
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.BalanceChanges)
+	require.Empty(t, acc.NonceChanges)
+	require.Empty(t, acc.CodeChanges)
+}
+
+// EXTCODEHASH(to) must touch to in the BAL as a bare account read.
+func TestApply_BAL_ExtCodeHash_AccountRead(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// PUSH20 <to>
+	// EXTCODEHASH
+	// POP
+	// STOP
+	code := append(push20(to), 0x3F, 0x50, 0x00)
+
+	tr := seedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	acc := getAccount(t, rec, to)
+	require.NotNil(t, acc)
+
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.BalanceChanges)
+	require.Empty(t, acc.NonceChanges)
+	require.Empty(t, acc.CodeChanges)
 }
 
 // Writing a slot with the value it already holds yields StorageUnchanged, which
@@ -862,4 +899,401 @@ func TestApply_BAL_NestedCall_Selfdestruct(t *testing.T) {
 	beneficiary := getAccount(t, rec, to)
 	require.Equalf(t, 0, beneficiary.BalanceChanges[idx].Cmp(big.NewInt(500)),
 		"beneficiary must be credited the destructed balance")
+}
+
+// EXTCODECOPY(to) must touch to in the BAL as a bare account read.
+func TestApply_BAL_ExtCodeCopy_AccountRead(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// EXTCODECOPY pops in this order: addr (top), destOff, codeOff, size.
+	// Push them so `addr` ends up on top.
+	code := []byte{
+		0x60, 0x00, // size
+		0x60, 0x00, // codeOffset
+		0x60, 0x00, // destOffset
+	}
+	code = append(code, push20(to)...) // addr on top
+	code = append(code, 0x3C, 0x00)    // EXTCODECOPY, STOP
+
+	tr := seedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	acc := getAccount(t, rec, to)
+	require.NotNil(t, acc)
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.BalanceChanges)
+	require.Empty(t, acc.NonceChanges)
+	require.Empty(t, acc.CodeChanges)
+}
+
+// SLOAD of the same slot twice records exactly one read entry (a set, not a
+// list).
+func TestApply_BAL_SLoad_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// PUSH1 0 SLOAD POP  PUSH1 0 SLOAD POP  STOP
+	code := []byte{
+		0x60, 0x00, 0x54, 0x50,
+		0x60, 0x00, 0x54, 0x50,
+		0x00,
+	}
+
+	tr := seedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+
+	slot0 := types.Hash{}
+	require.Contains(t, acc.StorageReads, slot0)
+	require.Len(t, acc.StorageReads, 1, "repeated SLOAD of the same slot is a set membership, not a list append")
+}
+
+// BALANCE(<to>) followed by SSTORE on the caller's own storage: `to` must be
+// touched as a bare account read, and the caller's write must land cleanly on
+// its own slot -- no cross-contamination between the two records.
+func TestApply_BAL_AccountRead_DoesNotBleedIntoWrites(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// PUSH20 <to> BALANCE POP  PUSH1 1 PUSH1 0 SSTORE  STOP
+	code := append(push20(to), 0x31, 0x50)
+	code = append(code, 0x60, 0x01, 0x60, 0x00, 0x55, 0x00)
+
+	tr := seedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	target := getAccount(t, rec, to)
+	require.NotNil(t, target)
+	require.Empty(t, target.StorageWrites, "BALANCE target must not accumulate writes")
+
+	caller := getAccount(t, rec, contractAddr)
+	slot0 := types.Hash{}
+	require.Contains(t, caller.StorageWrites, slot0)
+}
+
+// CALL with a non-zero value records BalanceChange for BOTH caller and callee
+// in the sub-recorder, and gets merged up into the block BAL on success.
+func TestApply_BAL_Call_WithValue_RecordsBothBalances(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// caller runtime: CALL(gas=GAS, calleeAddr, value=1, in=0/0, ret=0/0), STOP
+	caller := []byte{
+		0x60, 0x00, // retSize
+		0x60, 0x00, // retOffset
+		0x60, 0x00, // inSize
+		0x60, 0x00, // inOffset
+		0x60, 0x01, // value = 1
+	}
+	caller = append(caller, push20(from)...)
+	caller = append(caller, 0x5A, 0xF1, 0x00) // GAS, CALL, STOP
+
+	// callee: STOP (empty body still receives value)
+	callee := []byte{0x00}
+
+	// give the caller a starting balance so it can transfer 1 wei
+	snap := newStateWithCode(
+		map[types.Address]*PreState{
+			from:         {Nonce: 0, Balance: 10_000_000},
+			contractAddr: {Balance: 100},
+			from:         {},
+		},
+		map[types.Address][]byte{
+			contractAddr: caller,
+			from:         callee,
+		},
+	)
+
+	tr := newBALTransition(t, balTestConfig(true), snap, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	callerAcc := getAccount(t, rec, contractAddr)
+	require.Contains(t, callerAcc.BalanceChanges, idx,
+		"caller must have a BalanceChange recorded for the value transfer")
+
+	calleeAcc := getAccount(t, rec, from)
+	require.Contains(t, calleeAcc.BalanceChanges, idx,
+		"callee must have a BalanceChange recorded for the value received")
+}
+
+// DELEGATECALL executes callee code under the CALLER's storage. So an SSTORE
+// inside callee code must be recorded under the CALLER's account, not the
+// callee's.
+func TestApply_BAL_DelegateCall_StorageBelongsToCaller(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// caller: DELEGATECALL(gas=GAS, calleeAddr, in=0/0, ret=0/0)  STOP
+	// DELEGATECALL pops: gas, addr, inOff, inSize, retOff, retSize  (no value)
+	caller := []byte{
+		0x60, 0x00, // retSize
+		0x60, 0x00, // retOffset
+		0x60, 0x00, // inSize
+		0x60, 0x00, // inOffset
+	}
+	caller = append(caller, push20(from)...)
+	caller = append(caller, 0x5A, 0xF4, 0x00) // GAS, DELEGATECALL, STOP
+
+	// callee: SSTORE slot0 = 1, STOP  -- under DELEGATECALL, this writes to
+	// the CALLER's storage.
+	callee := []byte{0x60, 0x01, 0x60, 0x00, 0x55, 0x00}
+
+	snap := newStateWithCode(
+		map[types.Address]*PreState{
+			from:         {Nonce: 0, Balance: 10_000_000},
+			contractAddr: {},
+			from:         {},
+		},
+		map[types.Address][]byte{
+			contractAddr: caller,
+			from:         callee,
+		},
+	)
+
+	tr := newBALTransition(t, balTestConfig(true), snap, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+
+	slot0 := types.Hash{}
+
+	callerAcc := getAccount(t, rec, contractAddr)
+	require.Contains(t, callerAcc.StorageWrites, slot0,
+		"DELEGATECALL: storage write must be recorded under the caller's address")
+
+	if calleeAcc := getAccount(t, rec, from); calleeAcc != nil {
+		require.NotContains(t, calleeAcc.StorageWrites, slot0,
+			"DELEGATECALL: callee's storage map must NOT receive the write")
+	}
+}
+
+// STATICCALL forbids state modification. An SSTORE inside a static frame
+// triggers errWriteProtection BEFORE the recorder is called, so no write ends
+// up in the BAL.
+func TestApply_BAL_StaticCall_WriteProtection_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	// caller: STATICCALL(gas=GAS, calleeAddr, in=0/0, ret=0/0)  STOP
+	// STATICCALL pops: gas, addr, inOff, inSize, retOff, retSize
+	caller := []byte{
+		0x60, 0x00, // retSize
+		0x60, 0x00, // retOffset
+		0x60, 0x00, // inSize
+		0x60, 0x00, // inOffset
+	}
+	caller = append(caller, push20(from)...)
+	caller = append(caller, 0x5A, 0xFA, 0x00) // GAS, STATICCALL, STOP
+
+	// callee attempts SSTORE, which must be write-protected.
+	callee := []byte{0x60, 0x01, 0x60, 0x00, 0x55, 0x00}
+
+	snap := newStateWithCode(
+		map[types.Address]*PreState{
+			from:         {Nonce: 0, Balance: 10_000_000},
+			contractAddr: {},
+			from:         {},
+		},
+		map[types.Address][]byte{
+			contractAddr: caller,
+			from:         callee,
+		},
+	)
+
+	cfg := balTestConfig(true)
+	cfg.Byzantium = true // STATICCALL requires Byzantium; opCall gate-checks it
+
+	tr := newBALTransition(t, cfg, snap, uint(idx))
+
+	res, err := tr.apply(callCaller())
+	require.NoError(t, err)
+	require.False(t, res.Failed(),
+		"the outer tx succeeds; only the inner STATICCALL fails with write-protection")
+
+	rec := getRecord(t, tr)
+
+	slot0 := types.Hash{}
+	if calleeAcc := getAccount(t, rec, from); calleeAcc != nil {
+		require.NotContains(t, calleeAcc.StorageWrites, slot0,
+			"STATICCALL must reject SSTORE; no write may reach the BAL")
+	}
+	if callerAcc := getAccount(t, rec, contractAddr); callerAcc != nil {
+		require.NotContains(t, callerAcc.StorageWrites, slot0,
+			"STATICCALL: no write may leak into the caller's slot either")
+	}
+}
+
+// Pure stack/arithmetic opcodes: ADD/MUL/SUB/DIV/MOD, PUSH/POP/DUP/SWAP, plus
+// PC/GAS/MSIZE/JUMPDEST -- none touch the BAL. The contract's account is
+// present only because applyCall's AccountRead(c.Address) fires at frame entry;
+// the account record must otherwise be empty.
+func TestApply_BAL_PureStackAndArithmetic_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	// PUSH1 5 PUSH1 3 ADD  PUSH1 2 MUL  DUP1  POP POP  PC POP  GAS POP  STOP
+	code := []byte{
+		0x60, 0x05, 0x60, 0x03, 0x01, // 5 + 3
+		0x60, 0x02, 0x02, // * 2
+		0x80,       // DUP1
+		0x50, 0x50, // POP POP
+		0x58, 0x50, // PC POP
+		0x5A, 0x50, // GAS POP
+		0x00, // STOP
+	}
+
+	tr := seedContract(t, code, 1)
+	_, err := tr.apply(callContract(1))
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	require.NotNil(t, acc)
+
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.BalanceChanges)
+	require.Empty(t, acc.NonceChanges)
+	require.Empty(t, acc.CodeChanges)
+}
+
+// Memory opcodes (MSTORE/MLOAD) are frame-local -- they must not appear in the
+// block BAL.
+func TestApply_BAL_MemoryOps_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	// PUSH1 42 PUSH1 0 MSTORE  PUSH1 0 MLOAD POP  STOP
+	code := []byte{
+		0x60, 0x2A, 0x60, 0x00, 0x52,
+		0x60, 0x00, 0x51, 0x50,
+		0x00,
+	}
+
+	tr := seedContract(t, code, 1)
+	_, err := tr.apply(callContract(1))
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+}
+
+// LOG0/1/2/3/4 emit events; they must not touch the BAL.
+func TestApply_BAL_Log_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	// PUSH1 0 PUSH1 0 LOG0  STOP    (size=0, offset=0 -> zero-length log)
+	code := []byte{0x60, 0x00, 0x60, 0x00, 0xA0, 0x00}
+
+	tr := seedContract(t, code, 1)
+	_, err := tr.apply(callContract(1))
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.BalanceChanges)
+}
+
+// Transient storage (EIP-1153) is per-tx and never touches persistent state,
+// so TSTORE / TLOAD must not appear in the BAL at all.
+func TestApply_BAL_TransientStorage_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	// PUSH1 7 PUSH1 3 TSTORE  PUSH1 3 TLOAD POP  STOP
+	code := []byte{
+		0x60, 0x07, 0x60, 0x03, 0x5D,
+		0x60, 0x03, 0x5C, 0x50,
+		0x00,
+	}
+
+	cfg := balTestConfig(true)
+	cfg.EIP1153 = true
+
+	pre := map[types.Address]*PreState{
+		from:         {Nonce: 0, Balance: 10_000_000},
+		contractAddr: {},
+	}
+	snap := newStateWithCode(pre, map[types.Address][]byte{contractAddr: code})
+
+	tr := newBALTransition(t, cfg, snap, 1)
+
+	_, err := tr.apply(callContract(1))
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+
+	require.Empty(t, acc.StorageReads, "TLOAD must not appear as a persistent StorageRead")
+	require.Empty(t, acc.StorageWrites, "TSTORE must not appear as a persistent StorageWrite")
+}
+
+// Context opcodes ADDRESS/CALLER/CALLVALUE/CALLDATASIZE/GASPRICE/CHAINID etc.
+// read frame or block context, not account state. None must record anything.
+func TestApply_BAL_ContextOps_NoRecording(t *testing.T) {
+	t.Parallel()
+
+	// ADDRESS POP  CALLER POP  CALLVALUE POP  CALLDATASIZE POP  GASPRICE POP  STOP
+	code := []byte{
+		0x30, 0x50, // ADDRESS POP
+		0x33, 0x50, // CALLER POP
+		0x34, 0x50, // CALLVALUE POP
+		0x36, 0x50, // CALLDATASIZE POP
+		0x3A, 0x50, // GASPRICE POP
+		0x00,
+	}
+
+	tr := seedContract(t, code, 1)
+	_, err := tr.apply(callContract(1))
+	require.NoError(t, err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+
+	// The contract is touched (AccountRead at frame entry) but nothing more.
+	require.Empty(t, acc.StorageReads)
+	require.Empty(t, acc.StorageWrites)
+	require.Empty(t, acc.CodeChanges)
+
+	// Critically: the account map must not have gained any other address from
+	// these opcodes. Only the tx participants belong here. `callContract`
+	// sends from addr1 (see bal_test.go), so that -- not `from` -- is the EOA.
+	for addr := range rec.Accounts {
+		require.Contains(t,
+			map[types.Address]struct{}{addr1: {}, contractAddr: {}, coinbaseAddr: {}},
+			addr,
+			"context opcodes must not add unrelated accounts to the BAL (got %s)", addr)
+	}
 }
