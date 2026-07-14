@@ -278,7 +278,7 @@ func (e *ERC20Runner) createERC20Transaction(
 	account *account, feeData *feeData, chainID *big.Int,
 ) (*types.Transaction, error) {
 	var (
-		txInput []byte
+		txInput []byte = e.txInput
 		err     error
 	)
 
