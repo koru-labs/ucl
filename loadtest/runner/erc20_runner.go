@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"math/big"
 	"time"
@@ -278,17 +277,14 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 func (e *ERC20Runner) createERC20Transaction(
 	account *account, feeData *feeData, chainID *big.Int,
 ) (*types.Transaction, error) {
-	txInput := e.txInput
+	var (
+		txInput []byte
+		err     error
+	)
+
 	if e.cfg.SendWorkers > 0 {
-		var (
-			receiver types.Address
-			err      error
-		)
-
-		_, _ = rand.Read(receiver[:])
-
 		txInput, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]any{
-			"receiver":  receiver,
+			"receiver":  *e.receivers.getReceiverForSender(account.index),
 			"numTokens": big.NewInt(1),
 		})
 		if err != nil {
