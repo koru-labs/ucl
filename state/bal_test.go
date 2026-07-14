@@ -47,11 +47,12 @@ func balTestConfig(eip7928 bool) chain.ForksInTime {
 	return chain.ForksInTime{
 		Homestead:      true,
 		Istanbul:       true,
+		Byzantium:      true,
 		EIP150:         true,
 		EIP155:         true,
 		EIP158:         true,
-		Constantinople: true,
 		EIP7928:        eip7928,
+		Constantinople: true,
 	}
 }
 
@@ -70,12 +71,21 @@ func newBALTransition(t *testing.T, config chain.ForksInTime, snap Snapshot, bal
 	}
 }
 
-func newBALTestTransition(t *testing.T, config chain.ForksInTime, preState map[types.Address]*PreState, balIndex uint) *Transition {
+func newBALTestTransition(t *testing.T,
+	config chain.ForksInTime,
+	preState map[types.Address]*PreState,
+	codes map[types.Hash][]byte,
+	balIndex uint) *Transition {
 	t.Helper()
 	if preState == nil {
 		preState = map[types.Address]*PreState{}
 	}
-	return newBALTransition(t, config, newStateWithPreState(preState), balIndex)
+
+	if codes == nil {
+		codes = map[types.Hash][]byte{}
+	}
+
+	return newBALTransition(t, config, newStateWithPreState(preState, codes), balIndex)
 }
 
 func getRecord(
@@ -107,7 +117,7 @@ func Test_BAL_Disabled(t *testing.T) {
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
 
-	tr := newBALTestTransition(t, balTestConfig(false), pre, 1)
+	tr := newBALTestTransition(t, balTestConfig(false), pre, nil, 1)
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -135,7 +145,7 @@ func Test_BAL_ZeroValueTransfer(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -169,7 +179,7 @@ func Test_BAL_Transfer(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -202,7 +212,7 @@ func Test_BAL_InsufficientBalanceToCoverIntrinsicGas(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 10_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -234,7 +244,7 @@ func Test_BAL_InsufficientBalanceToCoverTransfer(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 30_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -268,13 +278,13 @@ func Test_BAL_ContractCreation(t *testing.T) {
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
 
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
 		From:     from,
 		To:       nil,
-		Value:    big.NewInt(0),
+		Value:    big.NewInt(1_000),
 		Input:    initCode,
 		Gas:      1_000_000,
 		GasPrice: big.NewInt(0),
@@ -290,29 +300,30 @@ func Test_BAL_ContractCreation(t *testing.T) {
 
 	caller := getAccount(t, rec, from)
 	require.Equal(t, uint64(1), caller.NonceChanges[idx])
-	require.Equal(t, big.NewInt(1_000_000), caller.BalanceChanges[idx])
+	require.Equal(t, big.NewInt(999_000), caller.BalanceChanges[idx])
 
 	created := getAccount(t, rec, deployed)
 	require.Equal(t, uint64(1), created.NonceChanges[idx])
+	require.Equal(t, big.NewInt(1_000), created.BalanceChanges[idx])
 	require.Equal(t, []byte{0x60, 0x2A, 0x00}, created.CodeChanges[idx])
 }
 
-func TestApply_BAL_ContractCreation_Collision(t *testing.T) {
+func Test_BAL_ContractCreation_Collision(t *testing.T) {
 	t.Parallel()
 
 	const idx uint32 = 1
 
-	deployed := crypto.CreateAddress(addr1, 0)
+	deployed := crypto.CreateAddress(from, 0)
 
 	pre := map[types.Address]*PreState{
-		addr1:    {Nonce: 0, Balance: 10_000_000},
-		deployed: {Nonce: 1}, // makes hasCodeOrNonce == true
+		from:     {Nonce: 0, Balance: 1_000_000},
+		deployed: {Nonce: 1},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
-		From:     addr1,
+		From:     from,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Input:    []byte{0x00},
@@ -330,103 +341,234 @@ func TestApply_BAL_ContractCreation_Collision(t *testing.T) {
 	require.Contains(t, rec.Accounts, deployed)
 }
 
-func seedContract(t *testing.T, code []byte, idx uint) *Transition {
+func newBALTestTranstionWithSeedContract(
+	t *testing.T,
+	code []byte,
+	idx uint) *Transition {
 	t.Helper()
 
 	pre := map[types.Address]*PreState{
-		addr1: {Nonce: 0, Balance: 10_000_000},
+		from:         {Nonce: 0, Balance: 10_000_000},
+		contractAddr: {CodeHash: []byte("code")},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, idx)
-	// install the runtime code directly (bypasses the recorder: setup only)
-	tr.state.SetCode(contractAddr, code)
+
+	codes := map[types.Hash][]byte{
+		types.BytesToHash([]byte("code")): code,
+	}
+
+	tr := newBALTestTransition(t, balTestConfig(true), pre, codes, idx)
 
 	return tr
 }
 
-func callContract(idx uint32) *types.Transaction {
+func callContract(idx uint32, value int64) *types.Transaction {
 	return &types.Transaction{
 		Type:     types.LegacyTx,
-		From:     addr1,
+		From:     from,
 		To:       &contractAddr,
-		Value:    big.NewInt(0),
+		Value:    big.NewInt(value),
 		Gas:      1_000_000,
 		GasPrice: big.NewInt(0),
 		Nonce:    0,
 	}
 }
 
-func TestApply_BAL_SStore(t *testing.T) {
-	t.Parallel()
-
-	const idx uint32 = 1
-
-	code := []byte{0x60, 0x01, 0x60, 0x00, 0x55, 0x00}
-
-	tr := seedContract(t, code, uint(idx))
-
-	res, err := tr.apply(callContract(idx))
-	require.NoError(t, err)
-	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
-
-	rec := getRecord(t, tr)
-	acc := getAccount(t, rec, contractAddr)
-
-	slot0 := types.Hash{} // key 0x00..00
-	writes, ok := acc.StorageWrites[slot0]
-	require.True(t, ok, "expected a write to slot 0")
-
-	val, ok := writes[idx]
-	require.True(t, ok, "write must be keyed by the tx index")
-	require.Equal(t, types.BytesToHash(big.NewInt(1).Bytes()), val)
-
-	require.NotContains(t, acc.StorageReads, slot0)
-}
-
-func TestApply_BAL_SLoad(t *testing.T) {
-	t.Parallel()
-
-	const idx uint32 = 1
-
-	code := []byte{0x60, 0x00, 0x54, 0x50, 0x00}
-
-	tr := seedContract(t, code, uint(idx))
-
-	res, err := tr.apply(callContract(idx))
-	require.NoError(t, err)
-	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
-
-	rec := getRecord(t, tr)
-	acc := getAccount(t, rec, contractAddr)
-
-	slot0 := types.Hash{}
-	require.Contains(t, acc.StorageReads, slot0)
-	require.NotContains(t, acc.StorageWrites, slot0)
-}
-
-func TestApply_BAL_SLoadThenSStore(t *testing.T) {
+func Test_BAL_SStore(t *testing.T) {
 	t.Parallel()
 
 	const idx uint32 = 1
 
 	code := []byte{
-		0x60, 0x00, 0x54, 0x50, // SLOAD slot 0, drop
-		0x60, 0x01, 0x60, 0x00, 0x55, // SSTORE slot 0 = 1
-		0x00,
+		0x61, 0x03, 0xE8, // PUSH2 0x03E8 -> value 1000
+		0x61, 0x03, 0xE8, // PUSH2 0x03E8 -> slot 1000
+		0x55, // SSTORE -> storage[1000] = 1000
+		0x00, // STOP
 	}
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 1_000))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
 	rec := getRecord(t, tr)
 	acc := getAccount(t, rec, contractAddr)
+	caller := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(9_999_000), caller.BalanceChanges[idx])
 
-	slot0 := types.Hash{}
-	require.Contains(t, acc.StorageWrites, slot0)
-	require.NotContains(t, acc.StorageReads, slot0,
+	slot := types.BytesToHash([]byte{0x03, 0xE8})
+	writes, ok := acc.StorageWrites[slot]
+	require.True(t, ok, "expected a write to slot 1000")
+
+	val, ok := writes[idx]
+	require.True(t, ok, "write must be keyed by the tx index")
+	require.Equal(t, types.BytesToHash(big.NewInt(1000).Bytes()), val)
+
+	require.NotContains(t, acc.StorageReads, slot)
+	require.Equal(t, big.NewInt(1_000), acc.BalanceChanges[idx])
+}
+
+func Test_BAL_SLoad(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	code := []byte{
+		0x61, 0x03, 0xE8, // PUSH2 0x03E8 -> value 1000
+		0x54, // SLOAD -> load storage[1000], push onto stack
+		0x50, // POP -> remove value from stack
+		0x00, // STOP
+	}
+
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx, 1_000))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	caller := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(9_999_000), caller.BalanceChanges[idx])
+
+	slot := types.BytesToHash([]byte{0x03, 0xE8})
+	require.Contains(t, acc.StorageReads, slot)
+	require.NotContains(t, acc.StorageWrites, slot)
+	require.Equal(t, big.NewInt(1_000), acc.BalanceChanges[idx])
+}
+
+func Test_BAL_MultipleStorageReadAndWrite(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	code := []byte{
+		// Read from slot 3 (empty, returns 0)
+		0x60, 0x03, // PUSH1 0x03
+		0x54, // SLOAD -> load storage[3], push onto stack
+		0x50, // POP   -> discard
+
+		// Write 0xAB (171) to slot 3
+		0x60, 0xAB, // PUSH1 0xAB
+		0x60, 0x03, // PUSH1 0x03
+		0x55, // SSTORE -> storage[3] = 171
+
+		// Write 0xFF (255) to slot 3 (overwrite)
+		0x60, 0xFF, // PUSH1 0xFF
+		0x60, 0x03, // PUSH1 0x03
+		0x55, // SSTORE -> storage[3] = 255
+
+		// Write 0x42 (66) to slot 7
+		0x60, 0x42, // PUSH1 0x42
+		0x60, 0x07, // PUSH1 0x07
+		0x55, // SSTORE -> storage[7] = 66
+
+		// Read from slot 3 (should return 255)
+		0x60, 0x03, // PUSH1 0x03
+		0x54, // SLOAD -> load storage[3], push onto stack
+		0x50, // POP   -> discard
+
+		// Read from slot 99 (random, returns 0)
+		0x60, 0x63, // PUSH1 0x63
+		0x54, // SLOAD -> load storage[99], push onto stack
+		0x50, // POP   -> discard
+
+		0x00, // STOP
+	}
+
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx, 1_000))
+	require.NoError(t, err)
+	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	caller := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(9_999_000), caller.BalanceChanges[idx])
+
+	slot3 := types.BytesToHash([]byte{0x03})
+	slot7 := types.BytesToHash([]byte{0x07})
+	slot99 := types.BytesToHash([]byte{0x63})
+	require.Contains(t, acc.StorageWrites, slot3)
+	require.Contains(t, acc.StorageWrites, slot7)
+	require.NotContains(t, acc.StorageReads, slot3,
 		"a written slot must not remain in StorageReads")
+	require.Contains(t, acc.StorageReads, slot99)
+	require.NotContains(t, acc.StorageWrites, slot99,
+		"a written slot must not remain in StorageReads")
+
+	val, ok := acc.StorageWrites[slot3][idx]
+	require.True(t, ok, "write must be keyed by the tx index")
+	require.Equal(t, types.BytesToHash(big.NewInt(255).Bytes()), val)
+
+	require.Equal(t, big.NewInt(1_000), acc.BalanceChanges[idx])
+}
+
+func Test_BAL_SStoreAndRevert(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	code := []byte{
+		0x60, 0xAB, // PUSH1 0xAB
+		0x60, 0x03, // PUSH1 0x03
+		0x55,       // SSTORE -> storage[3] = 171
+		0x60, 0x00, // PUSH1 0x00
+		0x60, 0x00, // PUSH1 0x00
+		0xFD, // REVERT -> revert(0, 0)
+	}
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx, 1_000))
+	require.NoError(t, err)
+	require.True(t, res.Failed(), "call should fail: %v", res.Err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	caller := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(10_000_000), caller.BalanceChanges[idx])
+
+	slot := types.BytesToHash([]byte{0x03})
+
+	require.NotContains(t, acc.StorageWrites, slot)
+	require.NotContains(t, acc.StorageReads, slot)
+	require.NotContains(t, acc.BalanceChanges, idx)
+}
+
+func Test_BAL_SLoadAndRevert(t *testing.T) {
+	t.Parallel()
+
+	const idx uint32 = 1
+
+	code := []byte{
+		0x60, 0x03, // PUSH1 0x03
+		0x54,       // SLOAD -> load storage[3], push onto stack
+		0x50,       // POP   -> discard
+		0x60, 0x00, // PUSH1 0x00
+		0x60, 0x00, // PUSH1 0x00
+		0xFD, // REVERT -> revert(0, 0)
+	}
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
+
+	res, err := tr.apply(callContract(idx, 1_000))
+	require.NoError(t, err)
+	require.True(t, res.Failed(), "call should fail: %v", res.Err)
+
+	rec := getRecord(t, tr)
+	acc := getAccount(t, rec, contractAddr)
+	caller := getAccount(t, rec, from)
+	require.Equal(t, uint64(1), caller.NonceChanges[idx])
+	require.Equal(t, big.NewInt(10_000_000), caller.BalanceChanges[idx])
+
+	slot := types.BytesToHash([]byte{0x03})
+	require.NotContains(t, acc.StorageWrites, slot)
+	require.NotContains(t, acc.StorageReads, slot)
+	require.NotContains(t, acc.BalanceChanges, idx)
 }
 
 func TestApply_BAL_RevertedWrite_CurrentlyStillMerged(t *testing.T) {
@@ -439,9 +581,9 @@ func TestApply_BAL_RevertedWrite_CurrentlyStillMerged(t *testing.T) {
 		0x60, 0x00, 0x60, 0x00, 0xFD, // REVERT
 	}
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.True(t, res.Failed(), "call is expected to revert")
 
@@ -466,7 +608,7 @@ func seedContractState(
 		addr1:        {Nonce: 0, Balance: 10_000_000},
 		contractAddr: {Balance: balance, State: storage},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, idx)
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, idx)
 	tr.state.SetCode(contractAddr, code)
 
 	return tr
@@ -487,7 +629,7 @@ func TestApply_BAL_CoinbaseFee(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -527,7 +669,7 @@ func TestApply_BAL_BurnContract_London(t *testing.T) {
 	cfg := balTestConfig(true)
 	cfg.London = true
 
-	tr := newBALTestTransition(t, cfg, pre, uint(idx))
+	tr := newBALTestTransition(t, cfg, pre, nil, uint(idx))
 	tr.ctx.BurnContract = burnAddr
 
 	msg := &types.Transaction{
@@ -561,7 +703,7 @@ func TestApply_BAL_Selfdestruct_WithBalance(t *testing.T) {
 
 	tr := seedContractState(t, code, 500, nil, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -586,9 +728,9 @@ func TestApply_BAL_Selfdestruct_ZeroBalance(t *testing.T) {
 	code := append(push20(to), 0xFF)
 
 	// seedContract gives the contract no balance.
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -611,9 +753,9 @@ func TestApply_BAL_BalanceOpcode_AccountRead(t *testing.T) {
 	// PUSH20 <to>  BALANCE  POP  STOP
 	code := append(push20(to), 0x31, 0x50, 0x00)
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -632,9 +774,9 @@ func TestApply_BAL_ExtCodeSize_AccountRead(t *testing.T) {
 	// PUSH20 <to>  EXTCODESIZE  POP  STOP
 	code := append(push20(to), 0x3B, 0x50, 0x00)
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -660,9 +802,9 @@ func TestApply_BAL_ExtCodeHash_AccountRead(t *testing.T) {
 	// STOP
 	code := append(push20(to), 0x3F, 0x50, 0x00)
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -694,7 +836,7 @@ func TestApply_BAL_SStore_SameValue_RecordsRead(t *testing.T) {
 	// pre-existing storage already holds 1 at slot 0
 	tr := seedContractState(t, code, 0, map[types.Hash]types.Hash{slot0: one}, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -720,9 +862,9 @@ func TestApply_BAL_SStore_MultipleWrites_LastWins(t *testing.T) {
 		0x00,
 	}
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -744,7 +886,7 @@ func TestApply_BAL_IndexPropagation(t *testing.T) {
 	pre := map[types.Address]*PreState{
 		from: {Nonce: 0, Balance: 1_000_000},
 	}
-	tr := newBALTestTransition(t, balTestConfig(true), pre, uint(idx))
+	tr := newBALTestTransition(t, balTestConfig(true), pre, nil, uint(idx))
 
 	msg := &types.Transaction{
 		Type:     types.LegacyTx,
@@ -917,9 +1059,9 @@ func TestApply_BAL_ExtCodeCopy_AccountRead(t *testing.T) {
 	code = append(code, push20(to)...) // addr on top
 	code = append(code, 0x3C, 0x00)    // EXTCODECOPY, STOP
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -948,9 +1090,9 @@ func TestApply_BAL_SLoad_Idempotent(t *testing.T) {
 		0x00,
 	}
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -974,9 +1116,9 @@ func TestApply_BAL_AccountRead_DoesNotBleedIntoWrites(t *testing.T) {
 	code := append(push20(to), 0x31, 0x50)
 	code = append(code, 0x60, 0x01, 0x60, 0x00, 0x55, 0x00)
 
-	tr := seedContract(t, code, uint(idx))
+	tr := newBALTestTranstionWithSeedContract(t, code, uint(idx))
 
-	res, err := tr.apply(callContract(idx))
+	res, err := tr.apply(callContract(idx, 0))
 	require.NoError(t, err)
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
@@ -1172,8 +1314,8 @@ func TestApply_BAL_PureStackAndArithmetic_NoRecording(t *testing.T) {
 		0x00, // STOP
 	}
 
-	tr := seedContract(t, code, 1)
-	_, err := tr.apply(callContract(1))
+	tr := newBALTestTranstionWithSeedContract(t, code, 1)
+	_, err := tr.apply(callContract(1, 0))
 	require.NoError(t, err)
 
 	rec := getRecord(t, tr)
@@ -1199,8 +1341,8 @@ func TestApply_BAL_MemoryOps_NoRecording(t *testing.T) {
 		0x00,
 	}
 
-	tr := seedContract(t, code, 1)
-	_, err := tr.apply(callContract(1))
+	tr := newBALTestTranstionWithSeedContract(t, code, 1)
+	_, err := tr.apply(callContract(1, 0))
 	require.NoError(t, err)
 
 	rec := getRecord(t, tr)
@@ -1216,8 +1358,8 @@ func TestApply_BAL_Log_NoRecording(t *testing.T) {
 	// PUSH1 0 PUSH1 0 LOG0  STOP    (size=0, offset=0 -> zero-length log)
 	code := []byte{0x60, 0x00, 0x60, 0x00, 0xA0, 0x00}
 
-	tr := seedContract(t, code, 1)
-	_, err := tr.apply(callContract(1))
+	tr := newBALTestTranstionWithSeedContract(t, code, 1)
+	_, err := tr.apply(callContract(1, 0))
 	require.NoError(t, err)
 
 	rec := getRecord(t, tr)
@@ -1250,7 +1392,7 @@ func TestApply_BAL_TransientStorage_NoRecording(t *testing.T) {
 
 	tr := newBALTransition(t, cfg, snap, 1)
 
-	_, err := tr.apply(callContract(1))
+	_, err := tr.apply(callContract(1, 0))
 	require.NoError(t, err)
 
 	rec := getRecord(t, tr)
@@ -1275,8 +1417,8 @@ func TestApply_BAL_ContextOps_NoRecording(t *testing.T) {
 		0x00,
 	}
 
-	tr := seedContract(t, code, 1)
-	_, err := tr.apply(callContract(1))
+	tr := newBALTestTranstionWithSeedContract(t, code, 1)
+	_, err := tr.apply(callContract(1, 0))
 	require.NoError(t, err)
 
 	rec := getRecord(t, tr)
