@@ -148,10 +148,6 @@ func (m *mockHost) SetTransientState(addr types.Address, key types.Hash, value t
 	m.Called(addr, key, value)
 }
 
-func (m *mockHost) TouchTransientStorage() {
-	m.transientStorageTouched = true
-}
-
 func TestRun(t *testing.T) {
 	t.Parallel()
 

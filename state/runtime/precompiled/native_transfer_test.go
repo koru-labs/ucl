@@ -203,5 +203,3 @@ func (d dummyHost) GetTransientState(addr types.Address, key types.Hash) types.H
 }
 
 func (d dummyHost) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {}
-
-func (m *dummyHost) TouchTransientStorage() {}
