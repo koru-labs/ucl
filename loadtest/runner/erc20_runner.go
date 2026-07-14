@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"math/big"
 	"time"
@@ -274,8 +275,27 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 }
 
 // createERC20Transaction creates an ERC20 transaction
-func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
-	chainID *big.Int) (*types.Transaction, error) {
+func (e *ERC20Runner) createERC20Transaction(
+	account *account, feeData *feeData, chainID *big.Int,
+) (*types.Transaction, error) {
+	txInput := e.txInput
+	if e.cfg.SendWorkers > 0 {
+		var (
+			receiver types.Address
+			err      error
+		)
+
+		_, _ = rand.Read(receiver[:])
+
+		txInput, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]any{
+			"receiver":  receiver,
+			"numTokens": big.NewInt(1),
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if e.cfg.DynamicTxs {
 		return &types.Transaction{
 			Type:      types.DynamicFeeTx,
@@ -285,7 +305,7 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 			GasFeeCap: feeData.gasFeeCap,
 			GasTipCap: feeData.gasTipCap,
 			ChainID:   chainID,
-			Input:     e.txInput,
+			Input:     txInput,
 		}, nil
 	}
 
@@ -295,6 +315,6 @@ func (e *ERC20Runner) createERC20Transaction(account *account, feeData *feeData,
 		To:       &e.erc20Token,
 		GasPrice: feeData.gasPrice,
 		From:     account.key.Address(),
-		Input:    e.txInput,
+		Input:    txInput,
 	}, nil
 }
