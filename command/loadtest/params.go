@@ -115,7 +115,7 @@ func (ltp *loadTestParams) validateFlags() error {
 		return errInvalidTxsPerUser
 	}
 
-	if ltp.batchSize < 1 || (ltp.batchSize > ltp.txsPerUser && ltp.executionTime == 0) {
+	if ltp.batchSize < 1 || (ltp.batchSize > ltp.txsPerUser && ltp.executionTime == 0 && ltp.sendWorkers == 0) {
 		return errInvalidBatchSize
 	}
 

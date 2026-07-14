@@ -1709,9 +1709,7 @@ func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
 	fallbackSigner := crypto.NewEIP155Signer(chainID.Uint64(), true)
 	signer := crypto.NewLondonSigner(chainID.Uint64(), true, fallbackSigner)
 
-	sendTransaction := func(
-		client *jsonrpc.EthClient, chainID *big.Int, key *crypto.ECDSAKey, txn *types.Transaction,
-	) (types.Hash, error) {
+	signTx := func(chainID *big.Int, key *crypto.ECDSAKey, txn *types.Transaction) error {
 		var hash types.Hash
 
 		if txn.Type == types.DynamicFeeTx {
@@ -1723,7 +1721,7 @@ func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
 
 		sig, err := crypto.Sign(key.PrivateKey(), hash[:])
 		if err != nil {
-			return types.Hash{}, err
+			return err
 		}
 
 		txn.R = new(big.Int).SetBytes(sig[:32])
@@ -1737,7 +1735,7 @@ func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
 			txn.V = big.NewInt(int64(chainID.Uint64())*2 + 35 + int64(sig[64]))
 		}
 
-		return client.SendRawTransaction(txn.MarshalRLPTo(nil))
+		return nil
 	}
 
 	defer func() {
@@ -1786,12 +1784,38 @@ func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
 		return feeDataPtr.Load()
 	}
 
+	sendBatch := func(batchTxs []string, batchTxsData []sendData) {
+		batchedTxHashes, err := r.batchSenders.getBatchSender().SendBatch(batchTxs)
+		if err != nil {
+			for _, dt := range batchTxsData {
+				foundErrs[dt.indx] = err
+			}
+		} else {
+			for i, dt := range batchTxsData {
+				txHashes[dt.indx] = batchedTxHashes[i]
+				r.resultsCollector.VUTxnCountCh <- VUTxnCount{dt.acc.id, 1}
+			}
+		}
+
+		_ = bar.Add(len(batchTxsData))
+	}
+
 	// each worker pulls jobs from the shared queue and sends them
 	for range numWorkers {
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
+
+			var (
+				batchTxs     []string
+				batchTxsData []sendData
+			)
+
+			if r.cfg.BatchSize > 1 {
+				batchTxs = make([]string, 0, r.cfg.BatchSize)
+				batchTxsData = make([]sendData, 0, r.cfg.BatchSize)
+			}
 
 			for data := range mainCh {
 				txn, err := createTxnFn(data.acc, getFeeDataCached(), chainID)
@@ -1807,18 +1831,40 @@ func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
 				txn.Nonce = data.nonce
 				txn.Gas = defaultGasLimit
 
-				txHash, err := sendTransaction(client, chainID, data.acc.key, txn)
-				if err != nil {
+				if err := signTx(chainID, data.acc.key, txn); err != nil {
 					foundErrs[data.indx] = err
 					_ = bar.Add(1)
 
 					continue
 				}
 
-				txHashes[data.indx] = txHash
-				r.resultsCollector.VUTxnCountCh <- VUTxnCount{data.acc.id, 1}
+				if cap(batchTxs) == 0 {
+					txHash, err := client.SendRawTransaction(txn.MarshalRLPTo(nil))
+					if err != nil {
+						foundErrs[data.indx] = err
+						_ = bar.Add(1)
 
-				_ = bar.Add(1)
+						continue
+					}
+
+					txHashes[data.indx] = txHash
+					r.resultsCollector.VUTxnCountCh <- VUTxnCount{data.acc.id, 1}
+
+					_ = bar.Add(1)
+				} else {
+					batchTxs = append(batchTxs, "0x"+hex.EncodeToString(txn.MarshalRLP()))
+					batchTxsData = append(batchTxsData, data)
+
+					if len(batchTxs) == r.cfg.BatchSize {
+						sendBatch(batchTxs, batchTxsData)
+
+						batchTxs, batchTxsData = batchTxs[:0], batchTxsData[:0]
+					}
+				}
+			}
+			// send batch if needed
+			if len(batchTxs) > 0 {
+				sendBatch(batchTxs, batchTxsData)
 			}
 		}()
 	}
