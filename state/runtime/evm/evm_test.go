@@ -31,8 +31,6 @@ type mockHost struct {
 	mock.Mock
 
 	tracer runtime.VMTracer
-
-	transientStorageTouched bool
 }
 
 func (m *mockHost) AccountExists(addr types.Address) bool {
