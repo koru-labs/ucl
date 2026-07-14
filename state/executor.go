@@ -298,9 +298,6 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
-
-	// transient storage
-	transientStorageTouched bool
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -311,10 +308,6 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 	}
-}
-
-func (t *Transition) TouchTransientStorage() {
-	t.transientStorageTouched = true
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -409,8 +402,8 @@ func (t *Transition) Write(txn *types.Transaction) error {
 		GasUsed:           result.GasUsed,
 	}
 
-	// The suicided accounts are set as deleted for the next iteration
-	if err := t.state.CleanSuicidedObjects(); err != nil {
+	// Clean radix tree objects for the next iteration (suicided accounts, transient storage, refund index)
+	if err := t.state.CleanRadixObjects(); err != nil {
 		return fmt.Errorf("failed to clean deleted objects: %w", err)
 	}
 
@@ -485,11 +478,6 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	if t.transientStorageTouched {
-		t.state.ClearTransientStorage()
-	}
-
-	t.transientStorageTouched = false
 	t.state.snapshots = []*iradix.Tree{}
 
 	s := t.state.Snapshot()

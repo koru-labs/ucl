@@ -1031,7 +1031,6 @@ func TestOpTLoad(t *testing.T) {
 		opTLoad(s)
 
 		require.Equal(t, errOpCodeNotFound, s.err)
-		require.False(t, mHost.transientStorageTouched)
 	})
 
 	t.Run("get value from transient storage", func(t *testing.T) {
@@ -1055,7 +1054,6 @@ func TestOpTLoad(t *testing.T) {
 		opTLoad(s)
 
 		require.Equal(t, value, types.Hash(s.top().Bytes32()))
-		require.False(t, mHost.transientStorageTouched)
 	})
 }
 
@@ -1073,7 +1071,6 @@ func TestOpTStore(t *testing.T) {
 		opTStore(s)
 
 		require.Equal(t, errOpCodeNotFound, s.err)
-		require.False(t, mHost.transientStorageTouched)
 	})
 
 	t.Run("static call", func(t *testing.T) {
@@ -1091,7 +1088,6 @@ func TestOpTStore(t *testing.T) {
 		opTStore(s)
 
 		require.Equal(t, errWriteProtection, s.err)
-		require.False(t, mHost.transientStorageTouched)
 	})
 
 	t.Run("write value to transient storage", func(t *testing.T) {
@@ -1118,7 +1114,6 @@ func TestOpTStore(t *testing.T) {
 
 		require.NoError(t, s.err)
 		require.Equal(t, 0, s.stackSize())
-		require.True(t, mHost.transientStorageTouched)
 	})
 }
 
