@@ -66,12 +66,12 @@ func (m *mockSnapshot) Commit(objs []*Object) (Snapshot, []byte, error) {
 	return nil, nil, nil
 }
 
-func newStateWithPreState(preState map[types.Address]*PreState) Snapshot {
-	return &mockSnapshot{state: preState}
+func newStateWithPreState(preState map[types.Address]*PreState, codes map[types.Hash][]byte) Snapshot {
+	return &mockSnapshot{state: preState, codes: codes}
 }
 
 func newTestTxn(p map[types.Address]*PreState) *Txn {
-	return newTxn(newStateWithPreState(p))
+	return newTxn(newStateWithPreState(p, nil))
 }
 
 func newStateWithCode(preState map[types.Address]*PreState, code map[types.Address][]byte) Snapshot {

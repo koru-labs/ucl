@@ -29,7 +29,7 @@ func TestOverride(t *testing.T) {
 				types.ZeroHash: {0x1},
 			},
 		},
-	})
+	}, nil)
 
 	nonce := uint64(2)
 	balance := big.NewInt(2)
