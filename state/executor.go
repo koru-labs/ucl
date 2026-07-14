@@ -558,6 +558,10 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 		t.state.ClearTransientStorage()
 	}
 
+	if t.config.EIP6780 {
+		t.state.ClearCreatedContracts()
+	}
+
 	t.transientStorageTouched = false
 	t.state.snapshots = []*iradix.Tree{}
 
@@ -1052,6 +1056,10 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	// Take snapshot of the current state
 	snapshot := t.state.Snapshot()
 
+	if t.config.EIP6780 {
+		t.state.MarkContractCreated(c.Address)
+	}
+
 	if t.config.EIP158 {
 		// Force the creation of the account
 		t.state.CreateAccount(c.Address)
@@ -1305,6 +1313,33 @@ func (t *Transition) GetNonce(addr types.Address) uint64 {
 }
 
 func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address) {
+	// EIP-6780: outside of the creating transaction SELFDESTRUCT only moves the
+	// balance to the beneficiary and does not delete code, storage or the account.
+	if t.config.EIP6780 && !t.state.IsContractCreatedInTx(addr) {
+		balance := t.state.GetBalance(addr)
+
+		// nothing moves when the contract targets itself, or when it holds no balance
+		if addr == beneficiary || balance.Sign() == 0 {
+			t.balRecorder.AccountRead(addr)
+			t.balRecorder.AccountRead(beneficiary)
+
+			return
+		}
+
+		if err := t.state.SubBalance(addr, balance); err != nil {
+			t.logger.Error("failed to subtract balance on selfdestruct", "address", addr, "err", err)
+
+			return
+		}
+
+		t.state.AddBalance(beneficiary, balance)
+
+		t.balRecorder.BalanceChange(addr, t.state.GetBalance(addr))
+		t.balRecorder.BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+
+		return
+	}
+
 	if !t.state.HasSuicided(addr) {
 		t.state.AddRefund(24000)
 	}
@@ -1313,14 +1348,6 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 
 	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
-
-	if balance.Sign() != 0 {
-		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
-		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
-	} else {
-		t.BlockAccessListRecorder().AccountRead(addr)
-		t.BlockAccessListRecorder().AccountRead(beneficiary)
-	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {

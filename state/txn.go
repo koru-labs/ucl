@@ -872,3 +872,42 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 
 	return objs, nil
 }
+
+var createdContractKeyPrefix = byte(0x05)
+
+func calculateCreatedContractIradixKey(addr types.Address) []byte {
+	k := make([]byte, 1+types.AddressLength)
+	k[0] = createdContractKeyPrefix
+	copy(k[1:], addr.Bytes())
+
+	return k // 0x05 || <20-bytes-address>
+}
+
+// MarkContractCreated marks addr as created within the current transaction (EIP-6780).
+func (txn *Txn) MarkContractCreated(addr types.Address) {
+	txn.txn.Insert(calculateCreatedContractIradixKey(addr), true)
+}
+
+// IsContractCreatedInTx reports whether addr was created in the current transaction.
+func (txn *Txn) IsContractCreatedInTx(addr types.Address) bool {
+	_, exists := txn.txn.Get(calculateCreatedContractIradixKey(addr))
+
+	return exists
+}
+
+// ClearCreatedContracts removes all creation markers. Must be called at the start of every tx.
+func (txn *Txn) ClearCreatedContracts() {
+	var toDelete [][]byte
+
+	txn.txn.Root().Walk(func(key []byte, value interface{}) bool {
+		if len(key) == 1+types.AddressLength && key[0] == createdContractKeyPrefix {
+			toDelete = append(toDelete, key)
+		}
+
+		return false
+	})
+
+	for _, k := range toDelete {
+		txn.txn.Delete(k)
+	}
+}

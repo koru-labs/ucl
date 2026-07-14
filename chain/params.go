@@ -93,7 +93,9 @@ const (
 	EIP5656        = "EIP5656" // MCOPY (cancun fork)
 	EIP7939        = "EIP7939" // CLZ (osaka fork)
 	EIP1153        = "EIP1153" // transient storage (cancun fork)
-	EIP7928        = "EIP7928" // block access list
+	Ucl2           = "ucl2"    // EIP-6780 and EIP 7928
+	EIP6780        = "EIP6780" // SELFDESTRUCT only in same transaction (ucl2 fork)
+	EIP7928        = "EIP7928" // block access list (ucl2 fork)
 )
 
 // Forks is map which contains all forks and their starting blocks from genesis
@@ -119,6 +121,8 @@ func (f *Forks) RemoveFork(name string) *Forks {
 
 // At returns ForksInTime instance that shows which supported forks are enabled for the block
 func (f *Forks) At(block uint64) ForksInTime {
+	ucl2 := f.IsActive(Ucl2, block)
+
 	return ForksInTime{
 		Homestead:      f.IsActive(Homestead, block),
 		Byzantium:      f.IsActive(Byzantium, block),
@@ -135,7 +139,9 @@ func (f *Forks) At(block uint64) ForksInTime {
 		EIP5656:        f.IsActive(EIP5656, block),
 		EIP7939:        f.IsActive(EIP7939, block),
 		EIP1153:        f.IsActive(EIP1153, block),
-		EIP7928:        f.IsActive(EIP7928, block),
+		Ucl2:           f.IsActive(Ucl2, block),
+		EIP6780:        f.IsActive(EIP6780, block) || ucl2,
+		EIP7928:        f.IsActive(EIP7928, block) || ucl2,
 	}
 }
 
@@ -192,6 +198,8 @@ type ForksInTime struct {
 	EIP5656,
 	EIP7939,
 	EIP1153,
+	Ucl2,
+	EIP6780,
 	EIP7928 bool
 }
 
@@ -212,5 +220,7 @@ var AllForksEnabled = &Forks{
 	EIP5656:        NewFork(0),
 	EIP7939:        NewFork(0),
 	EIP1153:        NewFork(0),
+	Ucl2:           NewFork(0),
+	EIP6780:        NewFork(0),
 	EIP7928:        NewFork(0),
 }
