@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/contracts"
@@ -952,6 +953,10 @@ func (r *BaseLoadTestRunner) saveResultsToJSONFile(
 func (r *BaseLoadTestRunner) sendTransactions(
 	createTxnFn func(*account, *feeData, *big.Int) (*types.Transaction, error),
 ) ([]types.Hash, error) {
+	if r.cfg.SendWorkers > 0 {
+		return r.sendTransactionsWithWorkers(createTxnFn)
+	}
+
 	fmt.Println("=============================================================")
 
 	client := r.clients.getClient()
@@ -1680,4 +1685,177 @@ func (r *BaseLoadTestRunner) sendTransactionsRateLimited(
 			go sendBatch(batch)
 		}
 	}
+}
+
+// sendTransactionsWithWorkers sends all VUs' transactions using a bounded pool of SendWorkers routines,
+// so each worker sends on behalf of many VUs instead of one routine per VU
+func (r *BaseLoadTestRunner) sendTransactionsWithWorkers(
+	createTxnFn func(*account, *feeData, *big.Int) (*types.Transaction, error),
+) ([]types.Hash, error) {
+	const defaultGasLimit = 2_000_000
+
+	fmt.Println("=============================================================")
+
+	client := r.clients.getClient()
+	totalTxs := r.cfg.TxsPerUser * r.cfg.VUs
+	bar := progressbar.Default(int64(totalTxs), "Sending transactions")
+	start := time.Now().UTC()
+
+	chainID, err := client.ChainID()
+	if err != nil {
+		return nil, err
+	}
+
+	fallbackSigner := crypto.NewEIP155Signer(chainID.Uint64(), true)
+	signer := crypto.NewLondonSigner(chainID.Uint64(), true, fallbackSigner)
+
+	sendTransaction := func(
+		client *jsonrpc.EthClient, chainID *big.Int, key *crypto.ECDSAKey, txn *types.Transaction,
+	) (types.Hash, error) {
+		var hash types.Hash
+
+		if txn.Type == types.DynamicFeeTx {
+			txn.ChainID = chainID
+			hash = signer.Hash(txn)
+		} else {
+			hash = fallbackSigner.Hash(txn)
+		}
+
+		sig, err := crypto.Sign(key.PrivateKey(), hash[:])
+		if err != nil {
+			return types.Hash{}, err
+		}
+
+		txn.R = new(big.Int).SetBytes(sig[:32])
+		txn.S = new(big.Int).SetBytes(sig[32:64])
+
+		if txn.Type == types.DynamicFeeTx {
+			// EIP-1559: V is just the parity bit (0 or 1)
+			txn.V = big.NewInt(int64(sig[64]))
+		} else {
+			// Legacy/EIP-155: V must be chain_id * 2 + 35 + parity
+			txn.V = big.NewInt(int64(chainID.Uint64())*2 + 35 + int64(sig[64]))
+		}
+
+		return client.SendRawTransaction(txn.MarshalRLPTo(nil))
+	}
+
+	defer func() {
+		_ = bar.Close()
+
+		fmt.Println("Sending transactions took", time.Since(start))
+	}()
+
+	type sendData struct {
+		acc   *account
+		nonce uint64
+		indx  int
+	}
+
+	var (
+		numWorkers      = min(r.cfg.SendWorkers, r.cfg.VUs)
+		txHashes        = make([]types.Hash, totalTxs)
+		foundErrs       = make([]error, totalTxs)
+		mainCh          = make(chan sendData)
+		wg              sync.WaitGroup
+		inc             atomic.Uint64
+		feeDataPtr      atomic.Pointer[feeData]
+		checkFeeDataNum = uint64(totalTxs / 5)
+	)
+
+	// initialFeeData is shared by all workers through an atomic pointer and refreshed periodically
+	initialFeeData, err := getFeeData(client, r.cfg.DynamicTxs)
+	if err != nil {
+		return nil, err
+	}
+
+	feeDataPtr.Store(initialFeeData)
+
+	getFeeDataCached := func() (txFeeData *feeData) {
+		if checkFeeDataNum > 0 && inc.Add(1)%checkFeeDataNum == 0 {
+			newFeeData, err := getFeeData(client, r.cfg.DynamicTxs)
+			if err != nil {
+				return feeDataPtr.Load()
+			}
+
+			feeDataPtr.Store(newFeeData)
+
+			return newFeeData
+		}
+
+		return feeDataPtr.Load()
+	}
+
+	// each worker pulls jobs from the shared queue and sends them
+	for range numWorkers {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for data := range mainCh {
+				txn, err := createTxnFn(data.acc, getFeeDataCached(), chainID)
+				if err != nil {
+					foundErrs[data.indx] = err
+					_ = bar.Add(1)
+
+					continue
+				}
+
+				// the nonce is assigned at feed time so the same account can be sent
+				// concurrently by different workers without colliding
+				txn.Nonce = data.nonce
+				txn.Gas = defaultGasLimit
+
+				txHash, err := sendTransaction(client, chainID, data.acc.key, txn)
+				if err != nil {
+					foundErrs[data.indx] = err
+					_ = bar.Add(1)
+
+					continue
+				}
+
+				txHashes[data.indx] = txHash
+				r.resultsCollector.VUTxnCountCh <- VUTxnCount{data.acc.id, 1}
+
+				_ = bar.Add(1)
+			}
+		}()
+	}
+
+	// feed the jobs to the workers. each account's i-th transaction gets
+	// nonce base+i so ordering is preserved across workers
+	indx := 0
+
+	for i := range r.cfg.TxsPerUser {
+		for _, vu := range r.vus {
+			mainCh <- sendData{acc: vu, nonce: vu.nonce + uint64(i), indx: indx}
+
+			indx++
+		}
+	}
+
+	close(mainCh)
+
+	// advance local nonces past the fed transactions so later senders
+	for _, vu := range r.vus {
+		vu.nonce += uint64(r.cfg.TxsPerUser)
+	}
+
+	wg.Wait()
+
+	if err := errors.Join(foundErrs...); err != nil {
+		fmt.Println("Errors found while sending transactions:")
+
+		fmt.Println(err)
+	}
+
+	allSuccessTxHashes := make([]types.Hash, 0, len(txHashes))
+	for _, txHash := range txHashes {
+		if txHash != types.ZeroHash {
+			allSuccessTxHashes = append(allSuccessTxHashes, txHash)
+		}
+	}
+
+	return allSuccessTxHashes, nil
 }

@@ -30,6 +30,7 @@ const (
 	executionTimeFlag     = "execution-time"
 	stateReadThreadsFlag  = "state-read-threads"
 	txpoolReadThreadsFlag = "txpool-read-threads"
+	sendWorkersFlag       = "send-workers"
 
 	receiversNumFlag = "receivers-num"
 
@@ -56,6 +57,7 @@ var (
 	errInvalidReceiversNum                  = errors.New("receivers-num must be greater than 0")
 	errInvalidStateReadThreads              = errors.New("state-read-threads must be equal or greater than 0")
 	errInvalidTxpoolReadThreads             = errors.New("txpool-read-threads must be equal or greater than 0")
+	errInvalidSendWorkers                   = errors.New("send-workers must be equal or greater than 0")
 	errNoTokenContractAddressProvided       = errors.New("no token contract address provided")
 )
 
@@ -79,6 +81,7 @@ type loadTestParams struct {
 	executionTime     time.Duration
 	stateReadThreads  int
 	txpoolReadThreads int
+	sendWorkers       int
 
 	receiversNum int
 
@@ -153,6 +156,10 @@ func (ltp *loadTestParams) validateFlags() error {
 
 	if ltp.txpoolReadThreads < 0 {
 		return errInvalidTxpoolReadThreads
+	}
+
+	if ltp.sendWorkers < 0 {
+		return errInvalidSendWorkers
 	}
 
 	if ltp.loadTestType == runner.PTokenTestType {

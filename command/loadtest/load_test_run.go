@@ -140,6 +140,13 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().IntVar(
+		&params.sendWorkers,
+		sendWorkersFlag,
+		0,
+		"the number of workers that send transactions on behalf of the VUs (each worker sends transactions for multiple VUs); 0 means normal behavior without workers.", //nolint:lll
+	)
+
+	cmd.Flags().IntVar(
 		&params.receiversNum,
 		receiversNumFlag,
 		1,
@@ -200,6 +207,7 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		ExecutionTime:        params.executionTime,
 		StateReadThreads:     params.stateReadThreads,
 		TxPoolReadThreads:    params.txpoolReadThreads,
+		SendWorkers:          params.sendWorkers,
 		ReceiversNum:         params.receiversNum,
 		BlockNumberDeadband:  params.blockNumberDeadband,
 		TearDown:             params.tearDown,
