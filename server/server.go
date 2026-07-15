@@ -32,6 +32,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/jsonrpc"
 	"github.com/0xPolygon/polygon-edge/network"
+	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/server/proto"
 	"github.com/0xPolygon/polygon-edge/state"
@@ -43,9 +44,11 @@ import (
 	"github.com/0xPolygon/polygon-edge/txpool"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validate"
+	"github.com/0xPolygon/polygon-edge/versioning"
 	"github.com/hashicorp/go-hclog"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -83,6 +86,8 @@ type Server struct {
 	txpool *txpool.TxPool
 
 	prometheusServer *http.Server
+
+	tracerShutdown func(context.Context) error
 
 	// secrets manager
 	secretsManager secrets.SecretsManager
@@ -146,11 +151,18 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, fmt.Errorf("could not setup new logger instance, %w", err)
 	}
 
+	if config.MaxGrpcMsgSize < 1<<20 { // max GRPC msg size at leat 1MB
+		return nil, fmt.Errorf("expected max GRPC message size at least 1 MB, got %d", config.MaxGrpcMsgSize)
+	}
+
 	m := &Server{
-		logger:             logger.Named("server"),
-		config:             config,
-		chain:              config.Chain,
-		grpcServer:         grpc.NewServer(grpc.UnaryInterceptor(unaryInterceptor)),
+		logger: logger.Named("server"),
+		config: config,
+		chain:  config.Chain,
+		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(unaryInterceptor),
+			grpc.StatsHandler(otelgrpc.NewServerHandler()),
+			grpc.MaxRecvMsgSize(config.MaxGrpcMsgSize),
+			grpc.MaxSendMsgSize(config.MaxGrpcMsgSize)),
 		restoreProgression: progress.NewProgressionWrapper(progress.ChainSyncRestore),
 	}
 
@@ -179,8 +191,15 @@ func NewServer(config *Config) (*Server, error) {
 		m.prometheusServer = m.startPrometheusServer(config.Telemetry.PrometheusAddr)
 	}
 
+	shutdown, otelErr := observability.InitObservability(context.Background(), versioning.Version)
+	if otelErr != nil {
+		m.logger.Error("OpenTelemetry tracing setup failed", "err", otelErr.Error())
+	} else {
+		m.tracerShutdown = shutdown
+	}
+
 	// Set up datadog profiler
-	if ddErr := m.enableDataDogProfiler(); err != nil {
+	if ddErr := m.enableDataDogProfiler(); ddErr != nil {
 		m.logger.Error("DataDog profiler setup failed", "err", ddErr.Error())
 	}
 
@@ -200,6 +219,7 @@ func NewServer(config *Config) (*Server, error) {
 		netConfig.Chain = m.config.Chain
 		netConfig.DataDir = filepath.Join(m.config.DataDir, "libp2p")
 		netConfig.SecretsManager = m.secretsManager
+		netConfig.MaxGrpcMessageSize = config.MaxGrpcMsgSize
 
 		network, err := network.NewServer(logger, netConfig)
 		if err != nil {
@@ -217,7 +237,7 @@ func NewServer(config *Config) (*Server, error) {
 
 	m.stateStorage = stateStorage
 
-	st := itrie.NewState(stateStorage)
+	st := itrie.NewState(stateStorage, itrie.WithCaching(config.WithTrieCaching))
 	m.state = st
 
 	m.executor = state.NewExecutor(config.Chain.Params, st, logger)
@@ -1228,6 +1248,15 @@ func (s *Server) Close() {
 	// Close the networking layer
 	if err := s.network.Close(); err != nil {
 		s.logger.Error("failed to close networking", "err", err.Error())
+	}
+
+	if s.tracerShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.tracerShutdown(ctx); err != nil {
+			s.logger.Error("OpenTelemetry tracer shutdown error", "err", err.Error())
+		}
 	}
 
 	// Close DataDog profiler

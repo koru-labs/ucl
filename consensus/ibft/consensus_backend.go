@@ -14,11 +14,83 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/hashicorp/go-metrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
+type sealKey struct {
+	height uint64
+	hash   types.Hash
+}
+
+// sealEntry carries per-proposal state from BuildProposal to InsertProposal,
+// which don't thread a context between them.
+type sealEntry struct {
+	start time.Time
+	span  trace.Span
+}
+
+// sealTimeStore tracks per-proposal state across the BuildProposal ->
+// InsertProposal callbacks. It is safe for concurrent use, tolerates lookup
+// misses, and evicts stale entries to bound memory.
+type sealTimeStore struct {
+	mu     sync.Mutex
+	starts map[sealKey]sealEntry
+}
+
+func newSealTimeStore() *sealTimeStore {
+	return &sealTimeStore{starts: make(map[sealKey]sealEntry)}
+}
+
+func (s *sealTimeStore) store(height uint64, hash types.Hash, entry sealEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := sealKey{height, hash}
+
+	if old, ok := s.starts[key]; ok && old.span != nil {
+		old.span.End()
+	}
+
+	s.starts[key] = entry
+}
+
+// take returns the entry for (height, hash) if present, deleting it. It also
+// evicts every other entry — those belong to losing proposals of already-decided
+// rounds that can never match again — and ends their orphaned root spans so they
+// don't leak.
+func (s *sealTimeStore) take(height uint64, hash types.Hash) (sealEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	want := sealKey{height, hash}
+	entry, ok := s.starts[want]
+
+	for k, e := range s.starts {
+		if k != want && e.span != nil {
+			e.span.End()
+		}
+	}
+
+	clear(s.starts)
+
+	return entry, ok
+}
+
 func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
+	start := time.Now().UTC()
+
+	ctx, rootSpan := observability.Tracer().Start(
+		context.Background(),
+		"block.produce",
+		trace.WithAttributes(attribute.Int64("block.number", int64(view.Height))),
+	)
+
 	var (
 		latestHeader      = i.blockchain.Header()
 		latestBlockNumber = latestHeader.Number
@@ -31,17 +103,26 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 			latestBlockNumber,
 		)
 
+		rootSpan.SetStatus(codes.Error, "missing parent block")
+		rootSpan.End()
+
 		return nil
 	}
 
-	block, receipts, err := i.buildBlock(latestHeader)
+	block, receipts, err := i.buildBlock(ctx, latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
+
+		rootSpan.RecordError(err)
+		rootSpan.SetStatus(codes.Error, err.Error())
+		rootSpan.End()
 
 		return nil
 	}
 
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
+
+	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
 
 	return block.MarshalRLP()
 }
@@ -57,6 +138,11 @@ func (i *backendIBFT) InsertProposal(
 
 		return
 	}
+
+	// Capture the proposed identity before WriteCommittedSeals mutates the
+	// header (and therefore the hash); needed to match the BuildProposal start.
+	proposedNumber := newBlock.Number()
+	proposedHash := newBlock.Hash()
 
 	committedSealsMap := make(map[types.Address][]byte, len(committedSeals))
 
@@ -111,15 +197,35 @@ func (i *backendIBFT) InsertProposal(
 	newBlock.Header = header
 
 	// Save the block locally
+	commitStart := time.Now().UTC()
+
 	if err := i.blockchain.WriteBlock(newBlock, "consensus"); err != nil {
 		i.logger.Error("cannot write block", "err", err)
 
 		return
 	}
 
+	metrics.MeasureSince([]string{consensusMetrics, "span", "commit"}, commitStart)
+	metrics.SetGauge([]string{consensusMetrics, "block_size_bytes"}, float32(len(proposal.RawProposal)))
+
+	logger := i.logger
+
+	if entry, ok := i.sealTimes.take(proposedNumber, proposedHash); ok {
+		metrics.MeasureSince([]string{consensusMetrics, "finality", "seal_total"}, entry.start)
+
+		ctx := trace.ContextWithSpan(context.Background(), entry.span)
+
+		_, commitSpan := observability.Tracer().Start(ctx, "commit", trace.WithTimestamp(commitStart))
+		commitSpan.End()
+
+		entry.span.End()
+
+		logger = logger.With(observability.LogFields(ctx)...)
+	}
+
 	i.updateMetrics(newBlock)
 
-	i.logger.Info(
+	logger.Info(
 		"block committed",
 		"number", newBlock.Number(),
 		"hash", newBlock.Hash(),
@@ -186,7 +292,12 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, error) {
+func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, error) {
+	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
+	defer buildSpan.End()
+
+	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
+
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     parent.Number + 1,
@@ -230,6 +341,8 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	}
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
+
+	execStart := time.Now().UTC()
 
 	transition, err := i.executor.BeginTxnWithCustomTxn(
 		parent.StateRoot, header, signer.Address(), func(s state.Snapshot) state.ITransitionTxn {
@@ -314,6 +427,12 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	}
 
 	header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
+	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
+
+	// Recorded retrospectively; error paths above abort before this point.
+	_, execSpan := observability.Tracer().Start(ctx, "execution", trace.WithTimestamp(execStart))
+	execSpan.End()
+
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 

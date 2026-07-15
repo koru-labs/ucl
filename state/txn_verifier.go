@@ -581,7 +581,7 @@ func (txn *TxnVerifier) CreateAccount(addr types.Address) {
 	txn.setLocal(NewAddressKey(addr), obj, true)
 }
 
-func (txn *TxnVerifier) CleanDeleteObjects(_ bool) error {
+func (txn *TxnVerifier) CleanRadixObjects() error {
 	// do nothing, everything will be cleared on PopulateBlockRadix
 	return nil
 }

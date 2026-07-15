@@ -220,9 +220,6 @@ func TestE2E_TxPool_TransactionWithHeaderInstructions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(types.ReceiptSuccess), receipt.Status)
 
-	// wait for state root update after contract deployment
-	time.Sleep(500 * time.Millisecond)
-
 	receipt, err = ABITransaction(relayer, sidechainKey, contractsapi.TestWriteBlockMetadata,
 		receipt.ContractAddress, "init", []interface{}{})
 	require.NoError(t, err)
@@ -258,7 +255,7 @@ func TestE2E_TxPool_BroadcastTransactions(t *testing.T) {
 	// First account should have some matics premined
 	cluster := frameworkV2.NewTestCluster(t, 5,
 		frameworkV2.WithPremine(map[types.Address]*big.Int{
-			types.Address(sender.Address()): ethgo.Ether(1),
+			types.Address(sender.Address()): ethgo.Ether(txNum + 1),
 		}),
 		frameworkV2.WithBurnContract(&polybft.BurnContractInfo{BlockNumber: 0, Address: types.ZeroAddress}),
 		frameworkV2.WithBootnodeCount(1),

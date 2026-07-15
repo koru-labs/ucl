@@ -92,6 +92,10 @@ type backendIBFT struct {
 
 	// Channels
 	closeCh chan struct{} // Channel for closing
+
+	// sealTimes tracks per-proposal build start times across the
+	// BuildProposal -> InsertProposal callbacks for the seal_total metric
+	sealTimes *sealTimeStore
 }
 
 // Factory implements the base consensus Factory method
@@ -163,6 +167,8 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 
 		// Channels
 		closeCh: make(chan struct{}),
+
+		sealTimes: newSealTimeStore(),
 	}
 
 	// Istanbul requires a different header hash function
@@ -355,6 +361,15 @@ func (i *backendIBFT) updateMetrics(block *types.Block) {
 
 	// Update the base fee metric
 	metrics.SetGauge([]string{consensusMetrics, "base_fee"}, float32(block.Header.BaseFee))
+
+	// Update the gas metrics
+	metrics.SetGauge([]string{consensusMetrics, "gas_used"}, float32(block.Header.GasUsed))
+	metrics.SetGauge([]string{consensusMetrics, "gas_limit"}, float32(block.Header.GasLimit))
+
+	if block.Header.GasLimit > 0 {
+		gasUtilization := float32(block.Header.GasUsed) / float32(block.Header.GasLimit)
+		metrics.SetGauge([]string{consensusMetrics, "gas_utilization"}, gasUtilization)
+	}
 }
 
 // verifyHeaderImpl verifies fields including Extra

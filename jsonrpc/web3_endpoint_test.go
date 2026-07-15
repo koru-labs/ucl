@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"testing"
@@ -22,7 +23,7 @@ func TestWeb3EndpointSha3(t *testing.T) {
 			blockRangeLimit:         1000,
 		})
 
-	resp, err := dispatcher.Handle([]byte(`{
+	resp, err := dispatcher.Handle(context.Background(), []byte(`{
 		"method": "web3_sha3",
 		"params": ["0x68656c6c6f20776f726c64"]
 	}`))
@@ -52,7 +53,7 @@ func TestWeb3EndpointClientVersion(t *testing.T) {
 		},
 	)
 
-	resp, err := dispatcher.Handle([]byte(`{
+	resp, err := dispatcher.Handle(context.Background(), []byte(`{
 		"method": "web3_clientVersion",
 		"params": []
 	}`))

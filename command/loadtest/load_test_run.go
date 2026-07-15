@@ -140,6 +140,13 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().IntVar(
+		&params.sendWorkers,
+		sendWorkersFlag,
+		0,
+		"the number of workers that send transactions on behalf of the VUs (each worker sends transactions for multiple VUs); 0 means normal behavior without workers.", //nolint:lll
+	)
+
+	cmd.Flags().IntVar(
 		&params.receiversNum,
 		receiversNumFlag,
 		1,
@@ -167,10 +174,15 @@ func setFlags(cmd *cobra.Command) {
 		"token smart contract address",
 	)
 
+	cmd.Flags().IntVar(
+		&params.txsPerSecond,
+		txsPerSecondFlag,
+		0,
+		"number of transactions per second",
+	)
+
 	_ = cmd.MarkFlagRequired(MnemonicFlag)
 	_ = cmd.MarkFlagRequired(loadTestTypeFlag)
-
-	cmd.MarkFlagsMutuallyExclusive(executionTimeFlag, txsPerUserFlag)
 }
 
 func runCommand(cmd *cobra.Command, _ []string) {
@@ -195,10 +207,12 @@ func runCommand(cmd *cobra.Command, _ []string) {
 		ExecutionTime:        params.executionTime,
 		StateReadThreads:     params.stateReadThreads,
 		TxPoolReadThreads:    params.txpoolReadThreads,
+		SendWorkers:          params.sendWorkers,
 		ReceiversNum:         params.receiversNum,
 		BlockNumberDeadband:  params.blockNumberDeadband,
 		TearDown:             params.tearDown,
 		TokenContractAddress: types.StringToAddress(params.tokenContractAddress),
+		TxsPerSecond:         params.txsPerSecond,
 	})
 	if err != nil {
 		outputter.SetError(err)

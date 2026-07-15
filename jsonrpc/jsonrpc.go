@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/versioning"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // JSONRPC is an API consensus
@@ -26,7 +29,7 @@ type JSONRPC struct {
 type dispatcher interface {
 	RemoveFilterByWs(conn wsConn)
 	HandleWs(reqBody []byte, conn wsConn) ([]byte, error)
-	Handle(reqBody []byte) ([]byte, error)
+	Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 }
 
 // JSONRPCStore defines all the methods required
@@ -355,7 +358,9 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 	// log request
 	j.logger.Debug("handle", "request", string(data))
 
-	resp, err := j.dispatcher.Handle(data)
+	ctx := otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
+
+	resp, err := j.dispatcher.Handle(ctx, data)
 	if err != nil {
 		_, _ = w.Write([]byte(err.Error()))
 	} else {

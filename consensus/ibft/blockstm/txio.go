@@ -18,6 +18,11 @@ type WriteDescriptor struct {
 	Val  interface{}
 }
 
+type Version struct {
+	TxnIndex    int
+	Incarnation int
+}
+
 type TxnInput []ReadDescriptor
 type TxnOutput []WriteDescriptor
 
@@ -75,23 +80,6 @@ func MakeTxnInputOutput(numTx int) *TxnInputOutput {
 		outputsSet: make([]map[Key]struct{}, numTx),
 		allOutputs: make([]TxnOutput, numTx),
 	}
-}
-
-func (io *TxnInputOutput) recordRead(txId int, input []ReadDescriptor) {
-	io.inputs[txId] = input
-}
-
-func (io *TxnInputOutput) recordWrite(txId int, output []WriteDescriptor) {
-	io.outputs[txId] = output
-	io.outputsSet[txId] = make(map[Key]struct{}, len(output))
-
-	for _, v := range output {
-		io.outputsSet[txId][v.Path] = struct{}{}
-	}
-}
-
-func (io *TxnInputOutput) recordAllWrite(txId int, output []WriteDescriptor) {
-	io.allOutputs[txId] = output
 }
 
 func (io *TxnInputOutput) RecordReadAtOnce(inputs [][]ReadDescriptor) {

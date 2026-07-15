@@ -3,23 +3,39 @@ package itrie
 import (
 	"fmt"
 
-	lru "github.com/hashicorp/golang-lru"
-
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 type State struct {
 	storage Storage
 	cache   *lru.Cache
+
+	withCaching bool
+	// maybe add capacity for cache?
 }
 
-func NewState(storage Storage) *State {
+type Option func(*State)
+
+func WithCaching(caching bool) Option {
+	return func(s *State) {
+		s.withCaching = caching
+	}
+}
+
+func NewState(storage Storage, opts ...Option) *State {
 	cache, _ := lru.New(128)
 
 	s := &State{
 		storage: storage,
 		cache:   cache,
+
+		withCaching: true,
+	}
+
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	return s
@@ -130,5 +146,7 @@ func (s *State) newTrieAt(root types.Hash) (*Trie, error) {
 }
 
 func (s *State) AddState(root types.Hash, t *Trie) {
-	s.cache.Add(root, t)
+	if s.withCaching {
+		s.cache.Add(root, t)
+	}
 }

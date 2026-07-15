@@ -75,7 +75,7 @@ type ITransitionTxn interface {
 	RevertToSnapshot(id int) error
 
 	// Lifecycle
-	CleanDeleteObjects(deleteEmptyObjects bool) error
+	CleanRadixObjects() error
 	Commit(deleteEmptyObjects bool) ([]*Object, error)
 
 	// Access tracking (block-STM)
@@ -122,8 +122,12 @@ type Txn struct {
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
 	codeCache *lru.Cache
-
+	// keeps state changes (or dummy)
 	accessTracker ITxAccessTracker
+	// sucidedAddrs collects accounts suicided since the last CleanRadixObjects
+	sucidedAddrs map[types.Address]struct{}
+	// transientKeys collects transient storage keys since the last CleanRadixObjects
+	transientKeys map[string]struct{}
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -163,6 +167,8 @@ func newTxnWithTxAccessTracker(snapshot readSnapshot, accessTracker ITxAccessTra
 		txn:           i.Txn(),
 		codeCache:     codeCache,
 		accessTracker: accessTracker,
+		sucidedAddrs:  map[types.Address]struct{}{},
+		transientKeys: map[string]struct{}{},
 	}
 }
 
@@ -192,8 +198,10 @@ func (txn *Txn) SetTransientState(addr types.Address, slot types.Hash, value typ
 
 	if (value == types.Hash{}) {
 		txn.txn.Delete(key)
+		delete(txn.transientKeys, string(key))
 	} else {
 		txn.txn.Insert(key, value.Bytes())
+		txn.transientKeys[string(key)] = struct{}{}
 	}
 }
 
@@ -210,33 +218,15 @@ func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Has
 	return types.BytesToHash(val.([]byte)) //nolint:forcetypeassert
 }
 
-// ClearTransientStorage removes all transient storage entries. Must be called at the start
-// of every tx because EIP-1153 requires transient storage to be empty at tx boundaries.
-func (txn *Txn) ClearTransientStorage() {
-	var toDelete [][]byte
-
-	txn.txn.Root().Walk(func(key []byte, value interface{}) bool {
-		if bytes.HasPrefix(key, []byte{transientStorageKeyPrefix}) && len(key) == 53 {
-			toDelete = append(toDelete, key)
-		}
-
-		return false
-	})
-
-	for _, k := range toDelete {
-		txn.txn.Delete(k)
-	}
-}
-
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
-	if err := txn.CleanDeleteObjects(deleteEmptyObjects); err != nil {
+	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
 	var (
 		nextKey         []byte
-		hasStartKey     = opts.Start != nil && len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
+		hasStartKey     = len(opts.Start) > 0 && !bytes.Equal(opts.Start, types.EmptyRootHash.Bytes())
 		committedIradix = txn.txn.Commit()
 	)
 
@@ -672,6 +662,7 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		} else {
 			suicided = true
 			object.Suicide = true
+			txn.sucidedAddrs[addr] = struct{}{}
 		}
 
 		if suicided {
@@ -810,10 +801,6 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	txn.txn.Insert(addr.Bytes(), obj)
 }
 
-func (txn *Txn) CleanDeleteObjects(deleteEmptyObjects bool) error {
-	return cleanDeleteObjects(txn.txn, deleteEmptyObjects)
-}
-
 func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	return commitTxn(txn.txn, deleteEmptyObjects)
 }
@@ -828,6 +815,52 @@ func (txn *Txn) SetCurrentTxContext(txContext TxWithIndex) {
 func (txn *Txn) AddPendingBalances() {
 }
 
+// CleanRadixObjects cleans suicided accounts, transient storage, refund index
+func (txn *Txn) CleanRadixObjects() error {
+	// clean suicided accounts
+	for addr := range txn.sucidedAddrs {
+		v, ok := txn.txn.Get(addr.Bytes())
+		if !ok {
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
+		}
+
+		obj, ok := v.(*StateObject)
+		if !ok {
+			return errors.New("found object is not of StateObject type")
+		}
+
+		if obj.Suicide {
+			obj2 := obj.Copy(true)
+			obj2.Deleted = true
+			txn.txn.Insert(addr.Bytes(), obj2)
+		}
+	}
+
+	// clean transient storage
+	for keyStr := range txn.transientKeys {
+		key := []byte(keyStr)
+
+		_, ok := txn.txn.Get(key)
+		if !ok {
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
+		}
+
+		txn.txn.Delete(key)
+	}
+
+	// clean refunds
+	txn.txn.Delete(refundIndex)
+
+	// clear the tracking maps
+	clear(txn.sucidedAddrs)
+	clear(txn.transientKeys)
+
+	return nil
+}
+
+// cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
 func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 	remove := [][]byte{}
 

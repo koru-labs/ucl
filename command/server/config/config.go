@@ -42,6 +42,7 @@ type Config struct {
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
 	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
+	MaxGrpcMsgSize           int           `json:"max_grpc_msg_size" yaml:"max_grpc_msg_size"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -63,6 +64,10 @@ type Config struct {
 	// memory. Setting this to 0 disables the cache. See
 	// `state/runtime/evm/jumpdest_cache.go`
 	JumpdestCacheSize uint64 `json:"jumpdest_cache_size" yaml:"jumpdest_cache_size"`
+
+	// Used to enable caching of tries in the state.
+	// This can improve performance but will increase memory usage.
+	WithTrieCaching bool `json:"with_trie_caching" yaml:"with_trie_caching"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -125,9 +130,14 @@ const (
 	// A value of 0 means the metrics are disabled.
 	DefaultMetricsInterval time.Duration = time.Second * 8
 
+	// JSON RPC max request body size
 	DefaultRequestBodySize = 5 << 20 // 5 MiB
 
+	// JSON RPC request timeout
 	DefaultJSONRPCTimeout = 30 * time.Second
+
+	// Max grpc message size, applies to all grpc messages, e.g. blocks dispatched through the syncer
+	DefaultMaxGrpcMsgSize = 5 << 20 // 5 MiB
 )
 
 // DefaultConfig returns the default server configuration
@@ -181,6 +191,8 @@ func DefaultConfig() *Config {
 		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
 		EnableTxPoolEndpoints:    false,
 		EnableAllDebugEndpoints:  false,
+		MaxGrpcMsgSize:           DefaultMaxGrpcMsgSize,
+		WithTrieCaching:          true,
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
@@ -22,10 +21,7 @@ type ERC20Runner struct {
 
 	erc20Token         types.Address
 	erc20TokenArtifact *artifact.Artifact
-	mu                 sync.Mutex
-	addressTxNumMap    map[types.Address]uint64
-	addressIndexMap    map[types.Address]uint64
-	addressCounter     uint64
+	txInput            []byte
 }
 
 // NewERC20Runner creates a new ERC20Runner instance with the given LoadTestConfig.
@@ -36,11 +32,7 @@ func NewERC20Runner(cfg LoadTestConfig) (*ERC20Runner, error) {
 		return nil, err
 	}
 
-	return &ERC20Runner{
-		BaseLoadTestRunner: runner,
-		addressTxNumMap:    make(map[types.Address]uint64),
-		addressIndexMap:    make(map[types.Address]uint64),
-	}, nil
+	return &ERC20Runner{BaseLoadTestRunner: runner}, nil
 }
 
 // Run executes the ERC20 load test.
@@ -183,6 +175,16 @@ func (e *ERC20Runner) deployERC20Token() error {
 	e.erc20Token = types.Address(receipt.ContractAddress)
 	e.erc20TokenArtifact = artifact
 
+	input, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
+		"receiver":  e.receivers.getReceiver(),
+		"numTokens": big.NewInt(1),
+	})
+	if err != nil {
+		return err
+	}
+
+	e.txInput = input
+
 	fmt.Printf("Deploying ERC20 token took %s\n", time.Since(start))
 
 	return nil
@@ -271,39 +273,23 @@ func (e *ERC20Runner) mintERC20TokenToVUs() error {
 	return nil
 }
 
-func (e *ERC20Runner) getReceiverAddr(addr types.Address) (res types.Address) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	addressIndx, exists := e.addressIndexMap[addr]
-	if !exists {
-		e.addressCounter++
-		addressIndx = e.addressCounter
-
-		e.addressIndexMap[addr] = addressIndx
-	}
-
-	txNum := e.addressTxNumMap[addr]
-	e.addressTxNumMap[addr] = txNum + 1
-
-	res[0] = byte(txNum & 255)
-	res[1] = byte(addressIndx & 3)
-
-	return res
-}
-
 // createERC20Transaction creates an ERC20 transaction
 func (e *ERC20Runner) createERC20Transaction(
 	account *account, feeData *feeData, chainID *big.Int,
 ) (*types.Transaction, error) {
-	addr := account.key.Address()
+	var (
+		txInput []byte = e.txInput
+		err     error
+	)
 
-	input, err := e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]interface{}{
-		"receiver":  e.getReceiverAddr(addr),
-		"numTokens": big.NewInt(1),
-	})
-	if err != nil {
-		return nil, err
+	if e.cfg.SendWorkers > 0 {
+		txInput, err = e.erc20TokenArtifact.Abi.Methods["transfer"].Encode(map[string]any{
+			"receiver":  *e.receivers.getReceiverForSender(account.index),
+			"numTokens": big.NewInt(1),
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if e.cfg.DynamicTxs {
@@ -311,11 +297,11 @@ func (e *ERC20Runner) createERC20Transaction(
 			Type:      types.DynamicFeeTx,
 			Nonce:     account.nonce,
 			To:        &e.erc20Token,
-			From:      addr,
+			From:      account.key.Address(),
 			GasFeeCap: feeData.gasFeeCap,
 			GasTipCap: feeData.gasTipCap,
 			ChainID:   chainID,
-			Input:     input,
+			Input:     txInput,
 		}, nil
 	}
 
@@ -324,7 +310,7 @@ func (e *ERC20Runner) createERC20Transaction(
 		Nonce:    account.nonce,
 		To:       &e.erc20Token,
 		GasPrice: feeData.gasPrice,
-		From:     addr,
-		Input:    input,
+		From:     account.key.Address(),
+		Input:    txInput,
 	}, nil
 }
