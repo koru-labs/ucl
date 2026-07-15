@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,8 +92,8 @@ func TestBitset_ToSlice(t *testing.T) {
 	assert.Equal(t, []int{5, 63, 64, 100}, b.ToSlice())
 }
 
-func makeKey(addr int, slot int) Key {
-	return NewStateKey(
+func makeKey(addr int, slot int) state.Key {
+	return state.NewStateKey(
 		types.BytesToAddress(big.NewInt(int64(addr)).Bytes()),
 		types.BytesToHash(big.NewInt(int64(slot)).Bytes()),
 	)
@@ -102,16 +103,16 @@ func TestDepsBuilder_NoDeps(t *testing.T) {
 	db := NewDepsBuilder()
 
 	db.AddTransaction(0,
-		[]ReadDescriptor{{Path: makeKey(0, 0)}},
-		[]WriteDescriptor{{Path: makeKey(0, 1)}},
+		[]state.ReadDescriptor{{Path: makeKey(0, 0)}},
+		[]state.WriteDescriptor{{Path: makeKey(0, 1)}},
 	)
 	db.AddTransaction(1,
-		[]ReadDescriptor{{Path: makeKey(1, 0)}},
-		[]WriteDescriptor{{Path: makeKey(1, 1)}},
+		[]state.ReadDescriptor{{Path: makeKey(1, 0)}},
+		[]state.WriteDescriptor{{Path: makeKey(1, 1)}},
 	)
 	db.AddTransaction(2,
-		[]ReadDescriptor{{Path: makeKey(2, 0)}},
-		[]WriteDescriptor{{Path: makeKey(2, 1)}},
+		[]state.ReadDescriptor{{Path: makeKey(2, 0)}},
+		[]state.WriteDescriptor{{Path: makeKey(2, 1)}},
 	)
 
 	deps := db.GetDeps()
@@ -125,9 +126,9 @@ func TestDepsBuilder_LinearChain(t *testing.T) {
 	keyA := makeKey(0, 0)
 	keyB := makeKey(0, 1)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(1, []ReadDescriptor{{Path: keyA}}, []WriteDescriptor{{Path: keyB}})
-	db.AddTransaction(2, []ReadDescriptor{{Path: keyB}}, nil)
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyB}})
+	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyB}}, nil)
 
 	deps := db.GetDeps()
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
@@ -139,9 +140,9 @@ func TestDepsBuilder_TransitiveReduction(t *testing.T) {
 	keyA := makeKey(0, 0)
 	keyB := makeKey(0, 1)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(1, []ReadDescriptor{{Path: keyA}}, []WriteDescriptor{{Path: keyB}})
-	db.AddTransaction(2, []ReadDescriptor{{Path: keyA}, {Path: keyB}}, nil)
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyB}})
+	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}, {Path: keyB}}, nil)
 
 	deps := db.GetDeps()
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
@@ -154,10 +155,10 @@ func TestDepsBuilder_DiamondDeps(t *testing.T) {
 	keyC := makeKey(1, 0)
 	keyD := makeKey(1, 1)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}, {Path: keyB}})
-	db.AddTransaction(1, []ReadDescriptor{{Path: keyA}}, []WriteDescriptor{{Path: keyC}})
-	db.AddTransaction(2, []ReadDescriptor{{Path: keyB}}, []WriteDescriptor{{Path: keyD}})
-	db.AddTransaction(3, []ReadDescriptor{{Path: keyC}, {Path: keyD}}, nil)
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}, {Path: keyB}})
+	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyC}})
+	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyB}}, []state.WriteDescriptor{{Path: keyD}})
+	db.AddTransaction(3, []state.ReadDescriptor{{Path: keyC}, {Path: keyD}}, nil)
 
 	deps := db.GetDeps()
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
@@ -169,9 +170,9 @@ func TestDepsBuilder_LatestWriterWins(t *testing.T) {
 	db := NewDepsBuilder()
 	keyA := makeKey(0, 0)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(1, nil, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(2, []ReadDescriptor{{Path: keyA}}, nil)
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(1, nil, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}}, nil)
 
 	deps := db.GetDeps()
 	assert.Empty(t, deps[0])
@@ -183,9 +184,9 @@ func TestDepsBuilder_ReadAndWriteSameKey(t *testing.T) {
 	db := NewDepsBuilder()
 	keyA := makeKey(0, 0)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(1, []ReadDescriptor{{Path: keyA}}, []WriteDescriptor{{Path: keyA}})
-	db.AddTransaction(2, []ReadDescriptor{{Path: keyA}}, nil)
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}}, nil)
 
 	deps := db.GetDeps()
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
@@ -201,8 +202,8 @@ func TestDepsBuilder_Empty(t *testing.T) {
 func TestDepsBuilder_SingleTx(t *testing.T) {
 	db := NewDepsBuilder()
 	db.AddTransaction(0,
-		[]ReadDescriptor{{Path: makeKey(0, 0)}},
-		[]WriteDescriptor{{Path: makeKey(0, 1)}},
+		[]state.ReadDescriptor{{Path: makeKey(0, 0)}},
+		[]state.WriteDescriptor{{Path: makeKey(0, 1)}},
 	)
 
 	deps := db.GetDeps()
@@ -227,10 +228,10 @@ func TestDepsBuilder_DynamicGrow(t *testing.T) {
 	// Exceed the default bitset width (512) to force a grow
 	n := defaultBitsetWidth + 100
 	for i := 0; i < n; i++ {
-		db.AddTransaction(i, nil, []WriteDescriptor{{Path: keyA}})
+		db.AddTransaction(i, nil, []state.WriteDescriptor{{Path: keyA}})
 	}
 	// Last tx reads the key, should depend on tx n-2 (the latest writer before it)
-	db.AddTransaction(n, []ReadDescriptor{{Path: keyA}}, nil)
+	db.AddTransaction(n, []state.ReadDescriptor{{Path: keyA}}, nil)
 
 	deps := db.GetDeps()
 	assert.Equal(t, map[int]bool{n - 1: true}, deps[n])
@@ -243,9 +244,9 @@ func TestDepsBuilder_AllReadSameKey(t *testing.T) {
 	db := NewDepsBuilder()
 	keyA := makeKey(0, 0)
 
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
 	for i := 1; i < 10; i++ {
-		db.AddTransaction(i, []ReadDescriptor{{Path: keyA}}, nil)
+		db.AddTransaction(i, []state.ReadDescriptor{{Path: keyA}}, nil)
 	}
 
 	deps := db.GetDeps()
@@ -260,9 +261,9 @@ func TestDepsBuilder_WriteChain(t *testing.T) {
 	keyA := makeKey(0, 0)
 
 	n := 20
-	db.AddTransaction(0, nil, []WriteDescriptor{{Path: keyA}})
+	db.AddTransaction(0, nil, []state.WriteDescriptor{{Path: keyA}})
 	for i := 1; i < n; i++ {
-		db.AddTransaction(i, []ReadDescriptor{{Path: keyA}}, []WriteDescriptor{{Path: keyA}})
+		db.AddTransaction(i, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyA}})
 	}
 
 	deps := db.GetDeps()
@@ -291,10 +292,10 @@ func TestDepsBuilder_IndexAtCapacityBoundary(t *testing.T) {
 	keyA := makeKey(0, 0)
 
 	for i := 0; i < 513; i++ {
-		readList := []ReadDescriptor{}
-		writeList := []WriteDescriptor{{Path: keyA}}
+		readList := []state.ReadDescriptor{}
+		writeList := []state.WriteDescriptor{{Path: keyA}}
 		if i > 0 {
-			readList = []ReadDescriptor{{Path: keyA}}
+			readList = []state.ReadDescriptor{{Path: keyA}}
 		}
 		require.NoError(t, db.AddTransaction(i, readList, writeList))
 	}
@@ -340,32 +341,32 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 		numTx := 10 + rng.Intn(50)
 		numKeys := 5 + rng.Intn(20)
 
-		keys := make([]Key, numKeys)
+		keys := make([]state.Key, numKeys)
 		for i := range keys {
 			keys[i] = makeKey(rng.Intn(10), i)
 		}
 
 		type txSets struct {
-			reads  []ReadDescriptor
-			writes []WriteDescriptor
+			reads  []state.ReadDescriptor
+			writes []state.WriteDescriptor
 		}
 
 		txs := make([]txSets, numTx)
 		for i := range txs {
-			seen := make(map[Key]bool)
+			seen := make(map[state.Key]bool)
 			for j := 0; j < rng.Intn(8); j++ {
 				k := keys[rng.Intn(numKeys)]
 				if !seen[k] {
-					txs[i].reads = append(txs[i].reads, ReadDescriptor{Path: k})
+					txs[i].reads = append(txs[i].reads, state.ReadDescriptor{Path: k})
 					seen[k] = true
 				}
 			}
 
-			seen = make(map[Key]bool)
+			seen = make(map[state.Key]bool)
 			for j := 0; j < 1+rng.Intn(5); j++ {
 				k := keys[rng.Intn(numKeys)]
 				if !seen[k] {
-					txs[i].writes = append(txs[i].writes, WriteDescriptor{Path: k})
+					txs[i].writes = append(txs[i].writes, state.WriteDescriptor{Path: k})
 					seen[k] = true
 				}
 			}
@@ -378,8 +379,8 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 		newDeps := db.GetDeps()
 
 		// Compute raw latest-writer & reader deps without transitive reduction
-		latestReader := make(map[Key]int)
-		latestWriter := make(map[Key]int)
+		latestReader := make(map[state.Key]int)
+		latestWriter := make(map[state.Key]int)
 		rawDeps := make([]map[int]bool, numTx)
 
 		for i := 0; i < numTx; i++ {
@@ -433,32 +434,34 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 	}
 }
 
-func benchSetup(numTx, numKeys, readsPerTx, writesPerTx int) ([][]ReadDescriptor, [][]WriteDescriptor) {
+func benchSetup(
+	numTx, numKeys, readsPerTx, writesPerTx int,
+) ([][]state.ReadDescriptor, [][]state.WriteDescriptor) {
 	rng := rand.New(rand.NewSource(12345))
 
-	keys := make([]Key, numKeys)
+	keys := make([]state.Key, numKeys)
 	for i := range keys {
 		keys[i] = makeKey(rng.Intn(100), i)
 	}
 
-	reads := make([][]ReadDescriptor, numTx)
-	writes := make([][]WriteDescriptor, numTx)
+	reads := make([][]state.ReadDescriptor, numTx)
+	writes := make([][]state.WriteDescriptor, numTx)
 
 	for i := 0; i < numTx; i++ {
-		seen := make(map[Key]bool)
+		seen := make(map[state.Key]bool)
 		for j := 0; j < readsPerTx; j++ {
 			k := keys[rng.Intn(numKeys)]
 			if !seen[k] {
-				reads[i] = append(reads[i], ReadDescriptor{Path: k})
+				reads[i] = append(reads[i], state.ReadDescriptor{Path: k})
 				seen[k] = true
 			}
 		}
 
-		seen = make(map[Key]bool)
+		seen = make(map[state.Key]bool)
 		for j := 0; j < writesPerTx; j++ {
 			k := keys[rng.Intn(numKeys)]
 			if !seen[k] {
-				writes[i] = append(writes[i], WriteDescriptor{Path: k})
+				writes[i] = append(writes[i], state.WriteDescriptor{Path: k})
 				seen[k] = true
 			}
 		}

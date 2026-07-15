@@ -13,7 +13,6 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -80,7 +79,7 @@ type ITransitionTxn interface {
 
 	// Access tracking (block-STM)
 	ClearAccessTracker(writesOnly bool)
-	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
+	GetReadWriteSet(txIndx int) TxReadWriteSet
 
 	// Debug / RPC helpers
 	GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error)
@@ -150,7 +149,7 @@ func (txn *Txn) ClearAccessTracker(writesOnly bool) {
 	txn.accessTracker.Clear(writesOnly)
 }
 
-func (txn *Txn) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+func (txn *Txn) GetReadWriteSet(txIndx int) TxReadWriteSet {
 	return txn.accessTracker.GetReadWriteSet(txIndx)
 }
 

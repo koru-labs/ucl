@@ -358,15 +358,15 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	defer cancelFn()
 
 	var (
-		depsBuilder *blockstm.DepsBuilder        = blockstm.NewDepsBuilder()
-		chDeps      chan blockstm.TxReadWriteSet = make(chan blockstm.TxReadWriteSet, 10)
+		depsBuilder = blockstm.NewDepsBuilder()
+		chDeps      = make(chan state.TxReadWriteSet, 10)
 		depsWg      sync.WaitGroup
 	)
 
 	if isParallelVerification {
 		depsWg.Add(1)
 
-		go func(chDeps chan blockstm.TxReadWriteSet) {
+		go func(chDeps chan state.TxReadWriteSet) {
 			for t := range chDeps {
 				if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
 					// Non-sequential index indicates a systematic bug, not a transient error.
@@ -493,7 +493,7 @@ type txExeResult struct {
 
 type transitionInterface interface {
 	Write(txn *types.Transaction) (*types.Receipt, error)
-	GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet
+	GetTxReadWriteSet(txIndx int) state.TxReadWriteSet
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -501,7 +501,7 @@ func (i *backendIBFT) writeTransactions(
 	gasLimit,
 	blockNumber uint64,
 	transition transitionInterface,
-	chDeps chan blockstm.TxReadWriteSet,
+	chDeps chan state.TxReadWriteSet,
 	isParallelVerification bool,
 ) (executed []*types.Transaction, receipts []*types.Receipt, hasBalanceReads bool) {
 	defer close(chDeps)

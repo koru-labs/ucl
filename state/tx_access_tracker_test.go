@@ -3,7 +3,6 @@ package state
 import (
 	"testing"
 
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/require"
 )
@@ -44,14 +43,14 @@ func trackerCases() []trackerCase {
 }
 
 // trackerSets flattens GetReadWriteSet into key sets for easy assertions.
-func trackerSets(t *testing.T, tracker ITxAccessTracker, txIndx int) (reads, writes map[blockstm.Key]struct{}) {
+func trackerSets(t *testing.T, tracker ITxAccessTracker, txIndx int) (reads, writes map[Key]struct{}) {
 	t.Helper()
 
 	rw := tracker.GetReadWriteSet(txIndx)
 	require.Equal(t, txIndx, rw.Index)
 
-	reads = map[blockstm.Key]struct{}{}
-	writes = map[blockstm.Key]struct{}{}
+	reads = map[Key]struct{}{}
+	writes = map[Key]struct{}{}
 
 	for _, d := range rw.ReadList {
 		reads[d.Path] = struct{}{}
@@ -104,14 +103,14 @@ func TestTxAccessTracker_WriteShadowsRead(t *testing.T) {
 
 			reads, writes := trackerSets(t, tracker, 3)
 
-			slotKey := blockstm.Key(NewStateKey(addrA, slot))
-			accAKey := blockstm.Key(NewSubpathKey(addrA, FullPath))
-			accBKey := blockstm.Key(NewSubpathKey(addrB, FullPath))
+			slotKey := NewStateKey(addrA, slot)
+			accAKey := NewSubpathKey(addrA, FullPath)
+			accBKey := NewSubpathKey(addrB, FullPath)
 
-			require.Equal(t, map[blockstm.Key]struct{}{slotKey: {}, accAKey: {}}, writes)
+			require.Equal(t, map[Key]struct{}{slotKey: {}, accAKey: {}}, writes)
 			// a key reported as a write must never also appear as a read: it would clobber the
 			// DAG builder's last-reader record and lose write-after-read dependency edges
-			require.Equal(t, map[blockstm.Key]struct{}{accBKey: {}}, reads)
+			require.Equal(t, map[Key]struct{}{accBKey: {}}, reads)
 		})
 	}
 }
@@ -141,8 +140,8 @@ func TestTxAccessTracker_Dedup(t *testing.T) {
 			require.Len(t, rw.WriteList, 1, "the storage write must appear exactly once")
 
 			reads, writes := trackerSets(t, tracker, 0)
-			require.Equal(t, map[blockstm.Key]struct{}{blockstm.Key(NewSubpathKey(addr, FullPath)): {}}, reads)
-			require.Equal(t, map[blockstm.Key]struct{}{blockstm.Key(NewStateKey(addr, slot)): {}}, writes)
+			require.Equal(t, map[Key]struct{}{NewSubpathKey(addr, FullPath): {}}, reads)
+			require.Equal(t, map[Key]struct{}{NewStateKey(addr, slot): {}}, writes)
 		})
 	}
 }
@@ -175,13 +174,13 @@ func TestTxAccessTracker_Clear(t *testing.T) {
 				reads, writes := trackerSets(t, tracker, 0)
 				require.Empty(t, writes, "Clear(writesOnly) must drop every write")
 
-				expectedReads := map[blockstm.Key]struct{}{
-					blockstm.Key(NewSubpathKey(addrR, FullPath)): {},
+				expectedReads := map[Key]struct{}{
+					NewSubpathKey(addrR, FullPath): {},
 				}
 				if tc.shadowedReadSurvivesWritesOnlyClear {
 					// the read of addrRW lives in a separate map from its write, so clearing the
 					// writes leaves the read behind
-					expectedReads[blockstm.Key(NewSubpathKey(addrRW, FullPath))] = struct{}{}
+					expectedReads[NewSubpathKey(addrRW, FullPath)] = struct{}{}
 				}
 
 				require.Equal(t, expectedReads, reads,

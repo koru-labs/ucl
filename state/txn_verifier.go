@@ -11,7 +11,6 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -94,8 +93,8 @@ func (txn *TxnVerifier) ClearLocalChanges() {
 func (txn *TxnVerifier) ClearAccessTracker(_ bool) {
 }
 
-func (txn *TxnVerifier) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	return blockstm.TxReadWriteSet{}
+func (txn *TxnVerifier) GetReadWriteSet(txIndx int) TxReadWriteSet {
+	return TxReadWriteSet{}
 }
 
 // SetTransientState writes a value into transient storage for the given address and slot.

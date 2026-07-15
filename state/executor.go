@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/contracts"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -532,7 +531,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	return result, err
 }
 
-func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+func (t *Transition) GetTxReadWriteSet(txIndx int) TxReadWriteSet {
 	return t.state.GetReadWriteSet(txIndx)
 }
 

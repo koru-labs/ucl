@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/heimdalr/dag"
 )
 
@@ -53,7 +54,7 @@ func HasReadDep(txFrom TxnOutput, txTo TxnInput) bool {
 	// For larger inputs, use map for O(n+m) complexity
 	// Using struct{} instead of bool saves memory (0 bytes vs 1 byte per entry)
 	// since we only need set membership, not associated values
-	reads := make(map[Key]struct{})
+	reads := make(map[state.Key]struct{})
 	for _, v := range txTo {
 		reads[v.Path] = struct{}{}
 	}
@@ -234,32 +235,25 @@ func (b *TxBitset) ToSlice() []int {
 	return result
 }
 
-// TxReadWriteSet holds a single transaction's read and write sets for dependency tracking.
-type TxReadWriteSet struct {
-	Index     int
-	ReadList  []ReadDescriptor
-	WriteList []WriteDescriptor
-}
-
 // DepsBuilder builds a transitive-reduced dependency DAG incrementally.
 // Uses an inverted index (key → latest writer) for O(R) dependency lookups per tx,
 // and bitsets for O(N/64) transitive reduction via word-parallel set operations.
 // Transactions must be added in sequential order (0, 1, 2, ...).
 type DepsBuilder struct {
-	lastWriter map[Key]int   // inverted index: state key → latest tx that wrote it
-	lastReader map[Key]int   // inverted index: state key → latest tx that read it
-	directDeps []TxBitset    // per-tx direct dependencies (after transitive reduction)
-	reachable  []TxBitset    // per-tx transitive closure of all dependencies
-	width      int           // bitset width in transactions (grows dynamically)
-	numTx      int           // count of transactions added
-	err        error         // error
-	elapsed    time.Duration // time spent building the DAG
+	lastWriter map[state.Key]int // inverted index: state key → latest tx that wrote it
+	lastReader map[state.Key]int // inverted index: state key → latest tx that read it
+	directDeps []TxBitset        // per-tx direct dependencies (after transitive reduction)
+	reachable  []TxBitset        // per-tx transitive closure of all dependencies
+	width      int               // bitset width in transactions (grows dynamically)
+	numTx      int               // count of transactions added
+	err        error             // error
+	elapsed    time.Duration     // time spent building the DAG
 }
 
 func NewDepsBuilder() *DepsBuilder {
 	return &DepsBuilder{
-		lastWriter: make(map[Key]int, 256),
-		lastReader: make(map[Key]int, 256),
+		lastWriter: make(map[state.Key]int, 256),
+		lastReader: make(map[state.Key]int, 256),
 		width:      defaultBitsetWidth,
 		directDeps: make([]TxBitset, 0, defaultBitsetWidth),
 		reachable:  make([]TxBitset, 0, defaultBitsetWidth),
@@ -290,7 +284,9 @@ func (db *DepsBuilder) ensureCapacity(needed int) {
 
 // AddTransaction records a transaction's read/write sets and computes its
 // reduced dependency set. Must be called with sequential indices (0, 1, 2, ...).
-func (db *DepsBuilder) AddTransaction(index int, readList []ReadDescriptor, writeList []WriteDescriptor) error {
+func (db *DepsBuilder) AddTransaction(
+	index int, readList []state.ReadDescriptor, writeList []state.WriteDescriptor,
+) error {
 	start := time.Now()
 	defer func() { db.elapsed += time.Since(start) }()
 

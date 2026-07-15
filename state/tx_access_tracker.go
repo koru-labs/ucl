@@ -1,7 +1,6 @@
 package state
 
 import (
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
@@ -11,7 +10,7 @@ type ITxAccessTracker interface {
 	AddRead(addr types.Address, subpath byte)
 	AddStorageWrite(addr types.Address, slot types.Hash, val any)
 	AddStorageRead(addr types.Address, slot types.Hash)
-	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
+	GetReadWriteSet(txIndx int) TxReadWriteSet
 }
 
 type txAccessTrackerMap struct {
@@ -51,12 +50,12 @@ func (a *txAccessTrackerMap) AddStorageRead(addr types.Address, slot types.Hash)
 }
 
 // GetReadWriteSet returns a TxReadWriteSet for the requested transaction index.
-func (a *txAccessTrackerMap) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	readDescs := ([]blockstm.ReadDescriptor)(nil)
-	writeDescs := ([]blockstm.WriteDescriptor)(nil)
+func (a *txAccessTrackerMap) GetReadWriteSet(txIndx int) TxReadWriteSet {
+	readDescs := ([]ReadDescriptor)(nil)
+	writeDescs := ([]WriteDescriptor)(nil)
 
 	if len(a.txReadAccessMap) > 0 {
-		readDescs = make([]blockstm.ReadDescriptor, 0, len(a.txReadAccessMap))
+		readDescs = make([]ReadDescriptor, 0, len(a.txReadAccessMap))
 
 		for k := range a.txReadAccessMap {
 			// A key this tx also wrote must only be reported as a write: the write already
@@ -69,23 +68,23 @@ func (a *txAccessTrackerMap) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 				continue
 			}
 
-			readDescs = append(readDescs, blockstm.ReadDescriptor{
-				Path: blockstm.Key(k),
+			readDescs = append(readDescs, ReadDescriptor{
+				Path: k,
 			})
 		}
 	}
 
 	if len(a.txWriteAccessMap) > 0 {
-		writeDescs = make([]blockstm.WriteDescriptor, 0, len(a.txWriteAccessMap))
+		writeDescs = make([]WriteDescriptor, 0, len(a.txWriteAccessMap))
 
 		for k := range a.txWriteAccessMap {
-			writeDescs = append(writeDescs, blockstm.WriteDescriptor{
-				Path: blockstm.Key(k),
+			writeDescs = append(writeDescs, WriteDescriptor{
+				Path: k,
 			})
 		}
 	}
 
-	return blockstm.TxReadWriteSet{
+	return TxReadWriteSet{
 		Index:     txIndx,
 		ReadList:  readDescs,
 		WriteList: writeDescs,
@@ -111,8 +110,8 @@ func (a *txAccessTrackerNoOp) AddStorageWrite(addr types.Address, slot types.Has
 func (a *txAccessTrackerNoOp) AddStorageRead(addr types.Address, slot types.Hash) {
 }
 
-func (e *txAccessTrackerNoOp) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	return blockstm.TxReadWriteSet{Index: txIndx}
+func (e *txAccessTrackerNoOp) GetReadWriteSet(txIndx int) TxReadWriteSet {
+	return TxReadWriteSet{Index: txIndx}
 }
 
 // txAccessTrackerSingleMap collects one tx's read/write set for the blockstm DAG builder. A write
@@ -172,23 +171,23 @@ func (a *txAccessTrackerSingleMap) AddStorageRead(addr types.Address, slot types
 }
 
 // GetReadWriteSet returns a TxReadWriteSet for the requested transaction index.
-func (a *txAccessTrackerSingleMap) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	readDescs := ([]blockstm.ReadDescriptor)(nil)
-	writeDescs := ([]blockstm.WriteDescriptor)(nil)
+func (a *txAccessTrackerSingleMap) GetReadWriteSet(txIndx int) TxReadWriteSet {
+	readDescs := ([]ReadDescriptor)(nil)
+	writeDescs := ([]WriteDescriptor)(nil)
 
 	for k, v := range a.txAccessMap {
 		if v {
-			writeDescs = append(writeDescs, blockstm.WriteDescriptor{
-				Path: blockstm.Key(k),
+			writeDescs = append(writeDescs, WriteDescriptor{
+				Path: k,
 			})
 		} else {
-			readDescs = append(readDescs, blockstm.ReadDescriptor{
-				Path: blockstm.Key(k),
+			readDescs = append(readDescs, ReadDescriptor{
+				Path: k,
 			})
 		}
 	}
 
-	return blockstm.TxReadWriteSet{
+	return TxReadWriteSet{
 		Index:     txIndx,
 		ReadList:  readDescs,
 		WriteList: writeDescs,

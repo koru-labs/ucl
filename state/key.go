@@ -106,3 +106,20 @@ func NewGenericKey(addr types.Address, hash types.Hash, subpath byte) Key {
 
 	return newKey(addr, hash, subpath, keyType)
 }
+
+type ReadDescriptor struct {
+	Path Key
+	// Kind int
+}
+
+type WriteDescriptor struct {
+	Path Key
+	// Val  any
+}
+
+// TxReadWriteSet holds a single transaction's read and write sets for dependency tracking.
+type TxReadWriteSet struct {
+	Index     int
+	ReadList  []ReadDescriptor
+	WriteList []WriteDescriptor
+}
