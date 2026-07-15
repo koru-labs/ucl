@@ -422,6 +422,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	}
 
 	header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
+
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
 
 	// Recorded retrospectively; error paths above abort before this point.
