@@ -334,6 +334,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	// Set the header timestamp
 	potentialTimestamp := i.calcHeaderTimestamp(parent.Timestamp, time.Now().UTC())
 	header.Timestamp = uint64(potentialTimestamp.Unix())
+	isParallelVerification := i.config.Params.Forks.IsActive(chain.EIPBorTxDeps, header.Number)
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
@@ -346,9 +347,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	transition, err := i.executor.BeginTxnWithCustomTxn(
 		parent.StateRoot, header, signer.Address(), func(s state.Snapshot) state.ITransitionTxn {
-			isNoOp := !i.config.Params.Forks.IsActive(chain.EIPBorTxDeps, header.Number)
-
-			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(isNoOp))
+			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(!isParallelVerification))
 		})
 	if err != nil {
 		return nil, nil, err
@@ -364,24 +363,27 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		depsWg      sync.WaitGroup
 	)
 
-	depsWg.Add(1)
+	if isParallelVerification {
+		depsWg.Add(1)
 
-	go func(chDeps chan blockstm.TxReadWriteSet) {
-		for t := range chDeps {
-			if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
-				// Non-sequential index indicates a systematic bug, not a transient error.
-				// Drain the channel so the sender never blocks, then stop processing.
-				i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint", "tx", t.Index, "err", err)
+		go func(chDeps chan blockstm.TxReadWriteSet) {
+			for t := range chDeps {
+				if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
+					// Non-sequential index indicates a systematic bug, not a transient error.
+					// Drain the channel so the sender never blocks, then stop processing.
+					i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint",
+						"tx", t.Index, "err", err)
 
-				for range chDeps {
+					for range chDeps {
+					}
+
+					break
 				}
-
-				break
 			}
-		}
 
-		depsWg.Done()
-	}(chDeps)
+			depsWg.Done()
+		}(chDeps)
+	}
 
 	txs, receipts, hasBalanceReads := i.writeTransactions(
 		writeCtx,
@@ -389,6 +391,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		header.Number,
 		transition,
 		chDeps,
+		isParallelVerification,
 	)
 
 	// provide dummy block instance to the PreCommitState
@@ -402,31 +405,29 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
-	depsWg.Wait()
+	if isParallelVerification {
+		depsWg.Wait()
 
-	deps := depsBuilder.GetDeps()
-	if deps == nil {
-		i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
-	}
+		deps := depsBuilder.GetDeps()
+		if deps == nil {
+			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
+		}
 
-	var txDependency [][]uint64
+		var txDependency [][]uint64
 
-	// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
-	if deps != nil && !hasBalanceReads {
-		txDependency = make([][]uint64, len(txs))
+		// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
+		if deps != nil && !hasBalanceReads {
+			txDependency = make([][]uint64, len(txs))
 
-		for i := range len(txs) {
-			for j := range deps[i] {
-				txDependency[i] = append(txDependency[i], uint64(j))
+			for i := range len(txs) {
+				for j := range deps[i] {
+					txDependency[i] = append(txDependency[i], uint64(j))
+				}
 			}
 		}
-	}
 
-	for idx, dep := range txDependency {
-		i.logger.Debug("tx dependecies CREW", "txIndx", idx, "dependency", dep)
+		header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 	}
-
-	header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
 
@@ -501,6 +502,7 @@ func (i *backendIBFT) writeTransactions(
 	blockNumber uint64,
 	transition transitionInterface,
 	chDeps chan blockstm.TxReadWriteSet,
+	isParallelVerification bool,
 ) (executed []*types.Transaction, receipts []*types.Receipt, hasBalanceReads bool) {
 	defer close(chDeps)
 
@@ -547,12 +549,14 @@ write:
 			case success:
 				receipts = append(receipts, result.receipt)
 				// Send maps to dag with timeout to prevent deadlock
-				select {
-				case chDeps <- transition.GetTxReadWriteSet(len(executed)):
-					// Successfully sent
-				case <-time.After(1 * time.Second):
-					// Timeout after 1 second - channel is blocked
-					return
+				if isParallelVerification {
+					select {
+					case chDeps <- transition.GetTxReadWriteSet(len(executed)):
+						// Successfully sent
+					case <-time.After(1 * time.Second):
+						// Timeout after 1 second - channel is blocked
+						return
+					}
 				}
 
 				executed = append(executed, result.tx)

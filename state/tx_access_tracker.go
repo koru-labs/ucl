@@ -200,5 +200,5 @@ func TxAccessTrackerFactory(isNoOp bool) ITxAccessTracker {
 		return &txAccessTrackerNoOp{}
 	}
 
-	return &txAccessTrackerSingleMap{}
+	return &txAccessTrackerMap{}
 }
