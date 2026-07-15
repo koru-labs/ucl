@@ -1,6 +1,7 @@
 package ibft
 
 import (
+	"context"
 	"math/big"
 	"testing"
 	"time"
@@ -1157,7 +1158,7 @@ func newParHarness(tb testing.TB) *parHarness {
 			},
 		}
 
-		return i.buildBlock(parent)
+		return i.buildBlock(context.TODO(), parent)
 	}
 
 	return &parHarness{

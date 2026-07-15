@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
-	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -513,14 +512,12 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	t.state.snapshots = []*iradix.Tree{}
-
+	t.state.ClearLocalChanges(false)
 	s := t.state.Snapshot()
-	t.state.ClearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
-		t.state.ClearAccessTracker(true) // clear writes if tx has been reverted
+		t.state.ClearLocalChanges(true) // clear writes if tx has been reverted
 
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr

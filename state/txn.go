@@ -68,18 +68,17 @@ type ITransitionTxn interface {
 	// Transient storage (EIP-1153)
 	GetTransientState(addr types.Address, slot types.Hash) types.Hash
 	SetTransientState(addr types.Address, slot types.Hash, value types.Hash)
-	ClearTransientStorage()
 
 	// Snapshots
 	Snapshot() int
 	RevertToSnapshot(id int) error
 
 	// Lifecycle
+	ClearLocalChanges(accessTrackerWritesOnly bool)
 	CleanRadixObjects() error
 	Commit(deleteEmptyObjects bool) ([]*Object, error)
 
 	// Access tracking (block-STM)
-	ClearAccessTracker(writesOnly bool)
 	GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet
 
 	// Debug / RPC helpers
@@ -142,8 +141,12 @@ func (txn *Txn) GetRadix() *iradix.Txn {
 	return txn.txn
 }
 
-func (txn *Txn) ClearAccessTracker(writesOnly bool) {
-	txn.accessTracker.Clear(writesOnly)
+func (txn *Txn) ClearLocalChanges(accessTrackerWritesOnly bool) {
+	if len(txn.snapshots) > 0 {
+		txn.snapshots = []*iradix.Tree{}
+	}
+
+	txn.accessTracker.Clear(accessTrackerWritesOnly)
 }
 
 func (txn *Txn) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {

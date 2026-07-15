@@ -84,7 +84,11 @@ func NewTxnVerifier(
 	}
 }
 
-func (txn *TxnVerifier) ClearAccessTracker(writesOnly bool) {
+func (txn *TxnVerifier) ClearLocalChanges(accessTrackerWritesOnly bool) {
+	txn.txLocalLogs = nil
+	txn.txLocalRefund = 0
+	txn.journal = nil
+	txn.snapshots = nil
 }
 
 func (txn *TxnVerifier) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
@@ -112,22 +116,6 @@ func (txn *TxnVerifier) GetTransientState(addr types.Address, slot types.Hash) t
 	}
 
 	return types.BytesToHash(val.value.([]byte)) //nolint:forcetypeassert
-}
-
-// ClearTransientStorage removes all transient storage entries. Must be called at the start
-// of every tx because EIP-1153 requires transient storage to be empty at tx boundaries.
-func (txn *TxnVerifier) ClearTransientStorage() {
-	var toDelete []Key
-
-	for key := range txn.txLocalMap {
-		if key.IsTransientState() {
-			toDelete = append(toDelete, key)
-		}
-	}
-
-	for _, k := range toDelete {
-		txn.deleteLocal(k)
-	}
 }
 
 // GetDumpTree function returns accounts based on the selected criteria.
@@ -581,8 +569,20 @@ func (txn *TxnVerifier) CreateAccount(addr types.Address) {
 	txn.setLocal(NewAddressKey(addr), obj, true)
 }
 
+// CleanRadixObjects removes all transient storage entries from txLocalMap
 func (txn *TxnVerifier) CleanRadixObjects() error {
-	// do nothing, everything will be cleared on PopulateBlockRadix
+	var toDelete []Key
+
+	for key := range txn.txLocalMap {
+		if key.IsTransientState() {
+			toDelete = append(toDelete, key)
+		}
+	}
+
+	for _, k := range toDelete {
+		txn.deleteLocal(k)
+	}
+
 	return nil
 }
 
@@ -612,11 +612,6 @@ func (txn *TxnVerifier) PopulateBlockRadix() error {
 				delete(txn.txLocalMap, je.key)
 			}
 		}
-
-		txn.txLocalLogs = nil
-		txn.txLocalRefund = 0
-		txn.journal = nil
-		txn.snapshots = nil
 
 		return nil
 	}
@@ -697,7 +692,7 @@ func (txn *TxnVerifier) populateBlockRadixNoLock() error {
 		txn.globalRadix.Insert(addr.Bytes(), obj)
 	}
 
-	txn.cleanAll()
+	txn.txLocalMap = map[Key]txLocalValue{} // delete tx local map
 
 	return nil
 }
@@ -718,14 +713,6 @@ func (txn *TxnVerifier) AddPendingBalances() {
 	}
 
 	txn.pendingAddBalances = map[types.Address]*big.Int{}
-}
-
-func (txn *TxnVerifier) cleanAll() {
-	txn.txLocalLogs = nil                   // clean logs
-	txn.txLocalRefund = 0                   // reset refunds
-	txn.txLocalMap = map[Key]txLocalValue{} // delete tx local map
-	txn.journal = nil
-	txn.snapshots = nil
 }
 
 // setLocal writes key into txLocalMap with journaling
