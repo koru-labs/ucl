@@ -66,6 +66,7 @@ type LoadTestConfig struct {
 	ExecutionTime     time.Duration // ExecutionTime is the duration for which the load test should run.
 	StateReadThreads  int           // StateReadThreads is the number of threads to read state.
 	TxPoolReadThreads int           // TxPoolReadThreads is the number of threads to read tx pool.
+	SendWorkers       int           // SendWorkers is the number of workers that send transactions for the VUs.
 
 	ReceiversNum int // ReceiversNum is the number of receivers for different types of tokens
 
