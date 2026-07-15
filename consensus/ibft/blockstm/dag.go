@@ -17,6 +17,14 @@ var (
 
 const defaultBitsetWidth = 512
 
+type ExecutionStat struct {
+	TxIdx       int
+	Incarnation int
+	Start       uint64
+	End         uint64
+	Worker      int
+}
+
 type DAG struct {
 	*dag.DAG
 }
