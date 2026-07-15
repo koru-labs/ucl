@@ -61,8 +61,8 @@ const (
 
 	metricsIntervalFlag = "metrics-interval"
 
-	EnableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
-	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+	enableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
+	enableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
 
 	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
 	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
@@ -70,6 +70,7 @@ const (
 	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 
 	settlementMetricsFlag = "settlement-metrics"
+	withTrieCachingFlag   = "with-trie-caching"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -244,6 +245,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
+		WithTrieCaching:         p.rawConfig.WithTrieCaching,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}

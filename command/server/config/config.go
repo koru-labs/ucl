@@ -64,6 +64,10 @@ type Config struct {
 	// memory. Setting this to 0 disables the cache. See
 	// `state/runtime/evm/jumpdest_cache.go`
 	JumpdestCacheSize uint64 `json:"jumpdest_cache_size" yaml:"jumpdest_cache_size"`
+
+	// Used to enable caching of tries in the state.
+	// This can improve performance but will increase memory usage.
+	WithTrieCaching bool `json:"with_trie_caching" yaml:"with_trie_caching"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -188,6 +192,7 @@ func DefaultConfig() *Config {
 		EnableTxPoolEndpoints:    false,
 		EnableAllDebugEndpoints:  false,
 		MaxGrpcMsgSize:           DefaultMaxGrpcMsgSize,
+		WithTrieCaching:          true,
 	}
 }
 
