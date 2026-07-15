@@ -48,8 +48,8 @@ type benchHost struct {
 	hash types.Hash
 }
 
-func (h *benchHost) AccountExists(types.Address) bool                              { return true }
-func (h *benchHost) GetStorage(types.Address, types.Hash) types.Hash               { return types.Hash{} }
+func (h *benchHost) AccountExists(types.Address) bool                { return true }
+func (h *benchHost) GetStorage(types.Address, types.Hash) types.Hash { return types.Hash{} }
 func (h *benchHost) SetStorage(types.Address, types.Hash, types.Hash, *chain.ForksInTime) runtime.StorageStatus {
 	return runtime.StorageUnchanged
 }
@@ -66,14 +66,13 @@ func (h *benchHost) EmitLog(types.Address, []types.Hash, []byte)    {}
 func (h *benchHost) Callx(*runtime.Contract, runtime.Host) *runtime.ExecutionResult {
 	return &runtime.ExecutionResult{}
 }
-func (h *benchHost) Empty(types.Address) bool                                  { return false }
-func (h *benchHost) GetNonce(types.Address) uint64                             { return 0 }
-func (h *benchHost) Transfer(types.Address, types.Address, *big.Int) error    { return nil }
-func (h *benchHost) GetTracer() runtime.VMTracer                               { return nil }
-func (h *benchHost) GetRefund() uint64                                         { return 0 }
-func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash   { return types.Hash{} }
-func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash)  {}
-func (h *benchHost) TouchTransientStorage()                                    {}
+func (h *benchHost) Empty(types.Address) bool                                { return false }
+func (h *benchHost) GetNonce(types.Address) uint64                           { return 0 }
+func (h *benchHost) Transfer(types.Address, types.Address, *big.Int) error   { return nil }
+func (h *benchHost) GetTracer() runtime.VMTracer                             { return nil }
+func (h *benchHost) GetRefund() uint64                                       { return 0 }
+func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash  { return types.Hash{} }
+func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash) {}
 
 func benchmarkRun(b *testing.B, codeSize int, cacheSize int) {
 	b.Helper()
@@ -120,14 +119,20 @@ func benchmarkRun(b *testing.B, codeSize int, cacheSize int) {
 	}
 }
 
-func BenchmarkJumpdestCache_500B_Cached(b *testing.B)  { benchmarkRun(b, 500, DefaultJumpdestCacheSize) }
+func BenchmarkJumpdestCache_500B_Cached(b *testing.B)   { benchmarkRun(b, 500, DefaultJumpdestCacheSize) }
 func BenchmarkJumpdestCache_500B_Uncached(b *testing.B) { benchmarkRun(b, 500, 0) }
 
-func BenchmarkJumpdestCache_5KB_Cached(b *testing.B)  { benchmarkRun(b, 5*1024, DefaultJumpdestCacheSize) }
+func BenchmarkJumpdestCache_5KB_Cached(b *testing.B) {
+	benchmarkRun(b, 5*1024, DefaultJumpdestCacheSize)
+}
 func BenchmarkJumpdestCache_5KB_Uncached(b *testing.B) { benchmarkRun(b, 5*1024, 0) }
 
-func BenchmarkJumpdestCache_24KB_Cached(b *testing.B)  { benchmarkRun(b, 24*1024, DefaultJumpdestCacheSize) }
+func BenchmarkJumpdestCache_24KB_Cached(b *testing.B) {
+	benchmarkRun(b, 24*1024, DefaultJumpdestCacheSize)
+}
 func BenchmarkJumpdestCache_24KB_Uncached(b *testing.B) { benchmarkRun(b, 24*1024, 0) }
 
-func BenchmarkJumpdestCache_50KB_Cached(b *testing.B)  { benchmarkRun(b, 50*1024, DefaultJumpdestCacheSize) }
+func BenchmarkJumpdestCache_50KB_Cached(b *testing.B) {
+	benchmarkRun(b, 50*1024, DefaultJumpdestCacheSize)
+}
 func BenchmarkJumpdestCache_50KB_Uncached(b *testing.B) { benchmarkRun(b, 50*1024, 0) }
