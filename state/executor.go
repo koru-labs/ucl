@@ -512,12 +512,13 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	t.state.ClearLocalChanges(false)
+	t.state.ClearLocalChanges()
 	s := t.state.Snapshot()
+	t.state.ClearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
-		t.state.ClearLocalChanges(true) // clear writes if tx has been reverted
+		t.state.ClearAccessTracker(true) // clear writes if tx has been reverted
 
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr

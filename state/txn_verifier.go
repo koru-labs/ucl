@@ -84,11 +84,14 @@ func NewTxnVerifier(
 	}
 }
 
-func (txn *TxnVerifier) ClearLocalChanges(accessTrackerWritesOnly bool) {
+func (txn *TxnVerifier) ClearLocalChanges() {
 	txn.txLocalLogs = nil
 	txn.txLocalRefund = 0
 	txn.journal = nil
 	txn.snapshots = nil
+}
+
+func (txn *TxnVerifier) ClearAccessTracker(_ bool) {
 }
 
 func (txn *TxnVerifier) GetReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
