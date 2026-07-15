@@ -58,6 +58,8 @@ type Config struct {
 
 	MaxRequestBodySize int64
 
+	MaxGrpcMsgSize int
+
 	JSONRPCTimeout time.Duration
 
 	Relayer bool
@@ -72,6 +74,10 @@ type Config struct {
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
 	// 0 disables the cache.
 	JumpdestCacheSize uint64
+
+	// Used to enable caching of tries in the state.
+	// This can improve performance but will increase memory usage.
+	WithTrieCaching bool
 }
 
 // Telemetry holds the config details for metric services

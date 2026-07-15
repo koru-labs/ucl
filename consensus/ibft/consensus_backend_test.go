@@ -1,6 +1,7 @@
 package ibft
 
 import (
+	"context"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -176,7 +177,7 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 			blockTime:   1 * time.Second,
 		}
 
-		return i.buildBlock(parentHeader)
+		return i.buildBlock(context.TODO(), parentHeader)
 	}
 
 	checkExtraData := func(t *testing.T, extraDataBytes []byte, expected [][]uint64) {

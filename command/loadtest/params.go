@@ -30,6 +30,7 @@ const (
 	executionTimeFlag     = "execution-time"
 	stateReadThreadsFlag  = "state-read-threads"
 	txpoolReadThreadsFlag = "txpool-read-threads"
+	sendWorkersFlag       = "send-workers"
 
 	receiversNumFlag = "receivers-num"
 
@@ -38,6 +39,8 @@ const (
 	tearDownFlag = "tear-down"
 
 	tokenContractAddressFlag = "token-sc-address"
+
+	txsPerSecondFlag = "txs-per-second"
 )
 
 var (
@@ -54,6 +57,7 @@ var (
 	errInvalidReceiversNum                  = errors.New("receivers-num must be greater than 0")
 	errInvalidStateReadThreads              = errors.New("state-read-threads must be equal or greater than 0")
 	errInvalidTxpoolReadThreads             = errors.New("txpool-read-threads must be equal or greater than 0")
+	errInvalidSendWorkers                   = errors.New("send-workers must be equal or greater than 0")
 	errNoTokenContractAddressProvided       = errors.New("no token contract address provided")
 )
 
@@ -77,6 +81,7 @@ type loadTestParams struct {
 	executionTime     time.Duration
 	stateReadThreads  int
 	txpoolReadThreads int
+	sendWorkers       int
 
 	receiversNum int
 
@@ -85,6 +90,8 @@ type loadTestParams struct {
 	tearDown bool
 
 	tokenContractAddress string
+
+	txsPerSecond int
 }
 
 func (ltp *loadTestParams) validateFlags() error {
@@ -108,7 +115,7 @@ func (ltp *loadTestParams) validateFlags() error {
 		return errInvalidTxsPerUser
 	}
 
-	if ltp.batchSize < 1 || (ltp.batchSize > ltp.txsPerUser && ltp.executionTime == 0) {
+	if ltp.batchSize < 1 || (ltp.batchSize > ltp.txsPerUser && ltp.executionTime == 0 && ltp.sendWorkers == 0) {
 		return errInvalidBatchSize
 	}
 
@@ -133,6 +140,12 @@ func (ltp *loadTestParams) validateFlags() error {
 		}
 	}
 
+	if ltp.txsPerSecond > 0 {
+		if ltp.executionTime < time.Second {
+			return errInvalidExecutionTime
+		}
+	}
+
 	if ltp.receiversNum < 1 {
 		return errInvalidReceiversNum
 	}
@@ -143,6 +156,10 @@ func (ltp *loadTestParams) validateFlags() error {
 
 	if ltp.txpoolReadThreads < 0 {
 		return errInvalidTxpoolReadThreads
+	}
+
+	if ltp.sendWorkers < 0 {
+		return errInvalidSendWorkers
 	}
 
 	if ltp.loadTestType == runner.PTokenTestType {

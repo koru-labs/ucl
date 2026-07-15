@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
+	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -310,9 +311,6 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
-
-	// transient storage
-	transientStorageTouched bool
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -323,10 +321,6 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 	}
-}
-
-func (t *Transition) TouchTransientStorage() {
-	t.transientStorageTouched = true
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -417,9 +411,9 @@ func (t *Transition) Write(txn *types.Transaction) (*types.Receipt, error) {
 		GasUsed:           result.GasUsed,
 	}
 
-	// The suicided accounts are set as deleted for the next iteration
-	if err := t.state.CleanDeleteObjects(true); err != nil {
-		return nil, fmt.Errorf("failed to clean deleted objects: %w", err)
+	// Clean radix tree objects for the next iteration (suicided accounts, transient storage, refund index)
+	if err := t.state.CleanRadixObjects(); err != nil {
+		return nil, fmt.Errorf("failed to clean radix objects: %w", err)
 	}
 
 	if result.Failed() {
@@ -492,11 +486,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	if t.transientStorageTouched {
-		t.state.ClearTransientStorage()
-	}
-
-	t.transientStorageTouched = false
+	t.state.snapshots = []*iradix.Tree{}
 
 	s := t.state.Snapshot()
 	t.state.clearAccessTracker(false)

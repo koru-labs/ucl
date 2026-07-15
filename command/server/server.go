@@ -320,6 +320,13 @@ func setFlags(cmd *cobra.Command) {
 		"the maximum size of the JSON-RPC HTTP request body in bytes (default 5MB)",
 	)
 
+	cmd.Flags().IntVar(
+		&params.rawConfig.MaxGrpcMsgSize,
+		MaxGrpcMsgSizeFlag,
+		defaultConfig.MaxGrpcMsgSize,
+		"the maximum size of the GRPC message exchanged through GRPC between nodes in bytes (default 5MB)",
+	)
+
 	cmd.Flags().DurationVar(
 		&params.rawConfig.JSONRPCTimeout,
 		JSONRPCTimeoutFlag,
@@ -329,14 +336,14 @@ func setFlags(cmd *cobra.Command) {
 
 	cmd.Flags().BoolVar(
 		&params.rawConfig.EnableTxPoolEndpoints,
-		EnableTxPoolEndpointsFlag,
+		enableTxPoolEndpointsFlag,
 		defaultConfig.EnableTxPoolEndpoints,
 		"enable all txpool JSON-RPC endpoints",
 	)
 
 	cmd.Flags().BoolVar(
 		&params.rawConfig.EnableAllDebugEndpoints,
-		EnableAllDebugEndpointsFlag,
+		enableAllDebugEndpointsFlag,
 		defaultConfig.EnableAllDebugEndpoints,
 		"enable all debug JSON-RPC endpoints",
 	)
@@ -347,6 +354,13 @@ func setFlags(cmd *cobra.Command) {
 		defaultConfig.JumpdestCacheSize,
 		"number of contract codes (keyed by code hash) for which the EVM keeps a "+
 			"precomputed JUMPDEST bitmap in memory; set to 0 to disable",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.WithTrieCaching,
+		withTrieCachingFlag,
+		defaultConfig.WithTrieCaching,
+		"enable caching of tries in the state; this can improve performance but will increase memory usage",
 	)
 
 	cmd.Flags().BoolVar(
@@ -407,7 +421,7 @@ func setDevFlags(cmd *cobra.Command) {
 
 func (p *serverParams) applyLegacyTxPoolEndpointsFlag(cmd *cobra.Command) {
 	if !cmd.Flags().Changed(disableTxPoolEndpointsFlagLEGACY) ||
-		cmd.Flags().Changed(EnableTxPoolEndpointsFlag) {
+		cmd.Flags().Changed(enableTxPoolEndpointsFlag) {
 		return
 	}
 
