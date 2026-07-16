@@ -1155,17 +1155,6 @@ func newParHarness(tb testing.TB) *parHarness {
 	buildBlockFn := func(
 		parent *types.Header, txs []*types.Transaction, blockTime time.Duration, parallelization bool,
 	) (*types.Block, []*types.Receipt, error) {
-		txPool := &txPoolMock{}
-		txPool.On("Prepare", mock.Anything).Run(func(mock.Arguments) {})
-		txPool.On("Length", mock.Anything).Return(uint64(0))
-
-		for _, tx := range txs {
-			txPool.On("Peek").Return(tx).Once()
-			txPool.On("Pop", mock.Anything).Run(func(mock.Arguments) {}).Once()
-		}
-
-		txPool.On("Peek").Return((*types.Transaction)(nil)).Once()
-
 		if !parallelization {
 			chainParams.Forks.RemoveFork(chain.EIPBorTxDeps)
 		} else {
@@ -1177,7 +1166,7 @@ func newParHarness(tb testing.TB) *parHarness {
 			blockchain:  bc,
 			executor:    executor,
 			logger:      hclog.NewNullLogger(),
-			txpool:      txPool,
+			txpool:      &fakeTxPool{txs: txs},
 			// writeTransactions always waits out the full window, so blockTime is the fixed wall
 			// cost of every build. It must still be long enough to execute the largest test block
 			// under `-race` (5-10x slower), where 250ms was not enough for a 40-tx block.
@@ -1417,3 +1406,25 @@ func eoaTransfer(seed byte, from, to types.Address, nonce uint64, value int64) *
 		Gas: 21000, GasPrice: ethgo.Gwei(2), Nonce: nonce, Type: types.LegacyTx, Input: []byte{},
 	}
 }
+
+type fakeTxPool struct {
+	txs []*types.Transaction
+	idx int
+}
+
+func (p *fakeTxPool) Prepare()       {}
+func (p *fakeTxPool) Length() uint64 { return uint64(len(p.txs) - p.idx) }
+func (p *fakeTxPool) Peek() *types.Transaction {
+	if p.idx >= len(p.txs) {
+		return nil
+	}
+
+	return p.txs[p.idx]
+}
+func (p *fakeTxPool) Pop(*types.Transaction)      { p.idx++ }
+func (p *fakeTxPool) Drop(*types.Transaction)     { p.idx++ }
+func (p *fakeTxPool) Demote(*types.Transaction)   {}
+func (p *fakeTxPool) ResetWithBlock(*types.Block) {}
+func (p *fakeTxPool) SetSealing(bool)             {}
+func (p *fakeTxPool) ReinsertProposed()           {}
+func (p *fakeTxPool) ClearProposed()              {}
