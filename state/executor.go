@@ -516,6 +516,19 @@ func (t *Transition) subGasLimitPrice(msg *types.Transaction) error {
 	return nil
 }
 
+func (t *Transition) checkBalance(msg *types.Transaction) error {
+	if msg.Value == nil || msg.Value.Sign() == 0 {
+		return nil
+	}
+
+	balance := t.state.GetBalance(msg.From)
+	if balance.Cmp(msg.Value) < 0 {
+		return ErrNotEnoughFunds
+	}
+
+	return nil
+}
+
 func (t *Transition) nonceCheck(msg *types.Transaction) error {
 	currentNonce := t.state.GetNonce(msg.From)
 
@@ -580,6 +593,7 @@ var (
 	ErrNonceMax              = errors.New("nonce has max value")
 	ErrSenderNoEOA           = errors.New("sender not an eoa")
 	ErrNonceIncorrect        = errors.New("incorrect nonce")
+	ErrNotEnoughFunds        = errors.New("not enough funds")
 	ErrNotEnoughFundsForGas  = errors.New("not enough funds to cover gas costs")
 	ErrBlockLimitReached     = errors.New("gas limit reached in the pool")
 	ErrIntrinsicGasOverflow  = errors.New("overflow in intrinsic gas calculation")
@@ -1270,10 +1284,15 @@ func checkAndProcessTx(msg *types.Transaction, t *Transition) error {
 			return NewTransitionApplicationError(err, true)
 		}
 
-		// 3. caller has enough balance to cover transaction
+		// 3. check if caller has enough balance to cover gas costs
 		// Skip this check if the given flag is provided.
 		// It happens for eth_call and for other operations that do not change the state.
 		if err := t.subGasLimitPrice(msg); err != nil {
+			return NewTransitionApplicationError(err, true)
+		}
+
+		// 4. check if caller has enough balance for eoa transfer
+		if err := t.checkBalance(msg); err != nil {
 			return NewTransitionApplicationError(err, true)
 		}
 	}

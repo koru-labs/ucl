@@ -90,6 +90,60 @@ func TestSubGasLimitPrice(t *testing.T) {
 	}
 }
 
+func TestCheckBalance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		preState    map[types.Address]*PreState
+		from        types.Address
+		value       int64
+		expectedErr error
+	}{
+		{
+			name: "should succeed",
+			preState: map[types.Address]*PreState{
+				addr1: {
+					Nonce:   0,
+					Balance: 1000,
+				},
+			},
+			from:        addr1,
+			value:       100,
+			expectedErr: nil,
+		},
+		{
+			name: "should fail by ErrNotEnoughFunds",
+			preState: map[types.Address]*PreState{
+				addr1: {
+					Nonce:   0,
+					Balance: 10,
+					State:   map[types.Hash]types.Hash{},
+				},
+			},
+			from:        addr1,
+			value:       100,
+			expectedErr: ErrNotEnoughFunds,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transition := newTestTransition(tt.preState)
+			msg := &types.Transaction{
+				From:  tt.from,
+				Value: big.NewInt(tt.value),
+			}
+
+			err := transition.checkBalance(msg)
+			assert.Equal(t, tt.expectedErr, err)
+		})
+	}
+}
+
 func TestTransfer(t *testing.T) {
 	t.Parallel()
 
