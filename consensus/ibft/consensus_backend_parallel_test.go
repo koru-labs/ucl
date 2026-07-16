@@ -1070,8 +1070,10 @@ func TestParallel_TransientStorage(t *testing.T) {
 // builder's committed state root. This mirrors production: the proposer computes the DAG, the
 // verifier reads it back out of the header (see server.go) and runs ProcessBlock in parallel.
 type parHarness struct {
-	executor          *state.Executor
-	buildBlockFn      func(parent *types.Header, txs []*types.Transaction) (*types.Block, []*types.Receipt, error)
+	executor     *state.Executor
+	buildBlockFn func(
+		parent *types.Header, txs []*types.Transaction, blockTime time.Duration, parallelization bool,
+	) (*types.Block, []*types.Receipt, error)
 	proposer          types.Address
 	parentHeader      *types.Header
 	deployerNonce     uint64
@@ -1110,9 +1112,28 @@ func newParHarness(tb testing.TB) *parHarness {
 	forkManagerMock.On("GetSigner", mock.Anything).Return(mySigner)
 	forkManagerMock.On("GetHooks", mock.Anything).Return(&hook.Hooks{})
 
+	allForksEnabled := &chain.Forks{
+		chain.Homestead:      chain.NewFork(0),
+		chain.EIP150:         chain.NewFork(0),
+		chain.EIP155:         chain.NewFork(0),
+		chain.EIP158:         chain.NewFork(0),
+		chain.Byzantium:      chain.NewFork(0),
+		chain.Constantinople: chain.NewFork(0),
+		chain.Petersburg:     chain.NewFork(0),
+		chain.Istanbul:       chain.NewFork(0),
+		chain.London:         chain.NewFork(0),
+		chain.Ucl:            chain.NewFork(0),
+		chain.EIP3607:        chain.NewFork(0),
+		chain.EIP3855:        chain.NewFork(0),
+		chain.EIP5656:        chain.NewFork(0),
+		chain.EIP7939:        chain.NewFork(0),
+		chain.EIP1153:        chain.NewFork(0),
+		chain.EIPBorTxDeps:   chain.NewFork(0),
+	}
+
 	chainParams := &chain.Params{
 		ChainID:      100,
-		Forks:        chain.AllForksEnabled,
+		Forks:        allForksEnabled,
 		BurnContract: map[uint64]types.Address{0: types.ZeroAddress},
 	}
 
@@ -1131,7 +1152,9 @@ func newParHarness(tb testing.TB) *parHarness {
 	executor := state.NewExecutor(chainParams, itrie.NewState(itrie.NewMemoryStorage()), hclog.NewNullLogger())
 	executor.GetHash = bc.GetHashHelper
 
-	buildBlockFn := func(parent *types.Header, txs []*types.Transaction) (*types.Block, []*types.Receipt, error) {
+	buildBlockFn := func(
+		parent *types.Header, txs []*types.Transaction, blockTime time.Duration, parallelization bool,
+	) (*types.Block, []*types.Receipt, error) {
 		txPool := &txPoolMock{}
 		txPool.On("Prepare", mock.Anything).Run(func(mock.Arguments) {})
 		txPool.On("Length", mock.Anything).Return(uint64(0))
@@ -1143,6 +1166,12 @@ func newParHarness(tb testing.TB) *parHarness {
 
 		txPool.On("Peek").Return((*types.Transaction)(nil)).Once()
 
+		if !parallelization {
+			chainParams.Forks.RemoveFork(chain.EIPBorTxDeps)
+		} else {
+			chainParams.Forks.SetFork(chain.EIPBorTxDeps, chain.NewFork(0))
+		}
+
 		i := &backendIBFT{
 			forkManager: forkManagerMock,
 			blockchain:  bc,
@@ -1152,7 +1181,7 @@ func newParHarness(tb testing.TB) *parHarness {
 			// writeTransactions always waits out the full window, so blockTime is the fixed wall
 			// cost of every build. It must still be long enough to execute the largest test block
 			// under `-race` (5-10x slower), where 250ms was not enough for a 40-tx block.
-			blockTime: 2 * time.Second,
+			blockTime: blockTime,
 			config: &consensus.Config{
 				Params: chainParams,
 			},
@@ -1235,7 +1264,7 @@ func (h *parHarness) deployMore(tb testing.TB, initCodes [][]byte) []types.Addre
 func (h *parHarness) build(tb testing.TB, txs []*types.Transaction) *types.Block {
 	tb.Helper()
 
-	block, receipts, err := h.buildBlockFn(h.parentHeader, txs)
+	block, receipts, err := h.buildBlockFn(h.parentHeader, txs, 2*time.Second, true)
 	require.NoError(tb, err)
 	require.NotNil(tb, block)
 	require.Len(tb, receipts, len(txs), "every tx must have executed successfully in the proposer")

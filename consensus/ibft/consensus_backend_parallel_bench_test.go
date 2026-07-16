@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/state"
@@ -25,27 +26,64 @@ func getBenchData() (txsCount []int, workers []int) {
 	return
 }
 
-// BenchmarkParallelBuild measures the proposer-side cost of turning a tx list into a block:
-// a sequential, access-tracked execution of every tx, DAG derivation from the read/write
-// sets, and a state commit. It deliberately bypasses buildBlock's fixed block-time window
-// (writeTransactions blocks on it on every call), which is a policy delay, not compute, and
-// would otherwise both drown the signal and truncate large blocks - see buildProposer.
-func BenchmarkParallelBuild(b *testing.B) {
+// benchBuildBlock benchmarks the real backendIBFT.buildBlock proposer path end to end: txs fed
+// through the mocked txpool, sequential access-tracked execution, DAG derivation, state commit
+// and header sealing. writeTransactions always waits out the full block-time window (2s in the
+// harness), so every op costs at least that much wall clock - the interesting output is the
+// txs/block metric: how many of the offered transactions actually entered the block before the
+// window closed.
+func benchBuildBlock(
+	b *testing.B, scenario func(tb testing.TB, numTxs int) (*parHarness, []*types.Transaction),
+) {
+	b.Helper()
+
 	benchSizes, _ := getBenchData()
 
 	for _, size := range benchSizes {
-		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
-			h, txs := benchScenario(b, 12, size)
-			header := h.benchHeader()
+		for _, parallelization := range []bool{false, true} {
+			b.Run(fmt.Sprintf("txs=%d, bor-enabled=%v", size, parallelization), func(b *testing.B) {
+				h, txs := scenario(b, size)
 
-			b.ReportAllocs()
-			b.ResetTimer()
+				included := 0
 
-			for range b.N {
-				h.buildProposer(b, header, txs)
-			}
-		})
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for range b.N {
+					block, receipts, err := h.buildBlockFn(h.parentHeader, txs, 2*time.Second, parallelization)
+					require.NoError(b, err)
+					require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
+					require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
+
+					included = len(block.Transactions)
+				}
+
+				b.StopTimer()
+				b.ReportMetric(float64(included), "txs/block")
+
+				if included < len(txs) {
+					b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
+				}
+			})
+		}
 	}
+}
+
+// BenchmarkBuildBlockDependent runs buildBlock over the conflict-rich randomized workload from
+// benchScenario (direct calls, Router CALLs, Proxy DELEGATECALLs, in-contract and EOA transfers),
+// where the derived DAG is dense with real dependency edges.
+func BenchmarkBuildBlockDependent(b *testing.B) {
+	benchBuildBlock(b, func(tb testing.TB, numTxs int) (*parHarness, []*types.Transaction) {
+		tb.Helper()
+
+		return benchScenario(tb, 12, numTxs)
+	})
+}
+
+// BenchmarkBuildBlockIndependent runs buildBlock over fully independent transfers (unique sender
+// and receiver per tx), where the derived DAG has no edges at all.
+func BenchmarkBuildBlockIndependent(b *testing.B) {
+	benchBuildBlock(b, independentScenario)
 }
 
 // BenchmarkParallelVerify measures the verifier-side cost: re-executing a pre-built block
@@ -95,11 +133,10 @@ func BenchmarkParallelVerifyIndependent(b *testing.B) {
 	}
 }
 
-// benchIndependentScenario funds numTxs distinct senders and builds a block of numTxs transfers
-// with a unique sender and receiver per tx, so the dependency graph is empty and every tx can
-// run on any worker. Returns the harness, the block (root pinned from the sequential fallback
-// run) and the all-empty graph.
-func benchIndependentScenario(tb testing.TB, numTxs int) (*parHarness, *types.Block, [][]uint64) {
+// independentScenario funds numTxs distinct senders and returns numTxs transfers with a unique
+// sender and receiver per tx, so no two transactions conflict and the derived dependency graph
+// has no edges.
+func independentScenario(tb testing.TB, numTxs int) (*parHarness, []*types.Transaction) {
 	tb.Helper()
 
 	h := newParHarness(tb)
@@ -123,6 +160,16 @@ func benchIndependentScenario(tb testing.TB, numTxs int) (*parHarness, *types.Bl
 	}
 
 	h.setupParent(tb, balances, nil)
+
+	return h, txs
+}
+
+// benchIndependentScenario builds a block over independentScenario's transfers. Returns the
+// harness, the block (root pinned from the sequential fallback run) and the all-empty graph.
+func benchIndependentScenario(tb testing.TB, numTxs int) (*parHarness, *types.Block, [][]uint64) {
+	tb.Helper()
+
+	h, txs := independentScenario(tb, numTxs)
 
 	header := h.benchHeader()
 	block := &types.Block{Header: header, Transactions: txs}
