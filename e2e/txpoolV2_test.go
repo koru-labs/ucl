@@ -424,15 +424,6 @@ loop:
 func sendTransaction(t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key, txn *types.Transaction) {
 	t.Helper()
 
-	_ = sendTransactionHash(t, client, sender, txn)
-}
-
-// sendTransactionHash is a helper function which signs transaction with provided private key and sends it
-func sendTransactionHash(
-	t *testing.T, client *jsonrpc.EthClient, sender *wallet.Key, txn *types.Transaction,
-) types.Hash {
-	t.Helper()
-
 	chainID, err := client.ChainID()
 	require.NoError(t, err)
 
@@ -465,10 +456,8 @@ func sendTransactionHash(
 
 	txnRlp := txn.MarshalRLPTo(nil)
 
-	hash, err = client.SendRawTransaction(txnRlp)
+	_, err = client.SendRawTransaction(txnRlp)
 	require.NoError(t, err)
-
-	return hash
 }
 
 func txCost(t *types.Transaction) *big.Int {
