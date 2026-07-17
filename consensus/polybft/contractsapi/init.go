@@ -60,11 +60,13 @@ var (
 
 	// test smart contracts
 	//go:embed test-contracts/*
-	testContracts          embed.FS
-	TestWriteBlockMetadata *artifact.Artifact
-	RootERC20              *artifact.Artifact
-	TestSimple             *artifact.Artifact
-	TestRewardToken        *artifact.Artifact
+	testContracts           embed.FS
+	TestWriteBlockMetadata  *artifact.Artifact
+	RootERC20               *artifact.Artifact
+	TestSimple              *artifact.Artifact
+	TestRewardToken         *artifact.Artifact
+	TestBalCaller           *artifact.Artifact
+	TestBallRevertingCallee *artifact.Artifact
 )
 
 func init() {
@@ -296,6 +298,16 @@ func init() {
 	}
 
 	ZexCoinERC20, err = artifact.DecodeArtifact(readTestContractContent("ZexCoinERC20.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	TestBalCaller, err = artifact.DecodeArtifact(readTestContractContent("TestBalCaller.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	TestBallRevertingCallee, err = artifact.DecodeArtifact(readTestContractContent("TestBallRevertingCallee.json"))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -149,6 +149,8 @@ type TestClusterConfig struct {
 	Consensus server.ConsensusType
 
 	WithZKServer bool
+
+	BALEnabled bool
 }
 
 func (c *TestClusterConfig) Dir(name string) string {
@@ -439,6 +441,12 @@ func WithZKServer() ClusterOption {
 	}
 }
 
+func WithBALNonValidators() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.BALEnabled = true
+	}
+}
+
 func isTrueEnv(e string) bool {
 	return strings.ToLower(os.Getenv(e)) == "true"
 }
@@ -659,6 +667,7 @@ func (c *TestCluster) InitTestServer(t *testing.T,
 		config.TLSKeyFile = c.Config.TLSKeyFile
 		config.AllDebugEndpointsEnabled = c.Config.AllDebugEndpointsEnabled
 		config.TxPoolEndpointsEnabled = c.Config.TxPoolEndpointsEnabled
+		config.BALEnabled = c.Config.BALEnabled
 	})
 
 	// watch the server for stop signals. It is important to fix the specific
