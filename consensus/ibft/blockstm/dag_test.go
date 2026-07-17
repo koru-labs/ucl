@@ -115,7 +115,7 @@ func TestDepsBuilder_NoDeps(t *testing.T) {
 		[]state.WriteDescriptor{{Path: makeKey(2, 1)}},
 	)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Empty(t, deps[0])
 	assert.Empty(t, deps[1])
 	assert.Empty(t, deps[2])
@@ -130,7 +130,7 @@ func TestDepsBuilder_LinearChain(t *testing.T) {
 	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyB}})
 	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyB}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
 }
@@ -144,7 +144,7 @@ func TestDepsBuilder_TransitiveReduction(t *testing.T) {
 	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyB}})
 	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}, {Path: keyB}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
 }
 
@@ -160,7 +160,7 @@ func TestDepsBuilder_DiamondDeps(t *testing.T) {
 	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyB}}, []state.WriteDescriptor{{Path: keyD}})
 	db.AddTransaction(3, []state.ReadDescriptor{{Path: keyC}, {Path: keyD}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
 	assert.Equal(t, map[int]bool{0: true}, deps[2])
 	assert.Equal(t, map[int]bool{1: true, 2: true}, deps[3])
@@ -174,7 +174,7 @@ func TestDepsBuilder_LatestWriterWins(t *testing.T) {
 	db.AddTransaction(1, nil, []state.WriteDescriptor{{Path: keyA}})
 	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Empty(t, deps[0])
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
@@ -188,14 +188,14 @@ func TestDepsBuilder_ReadAndWriteSameKey(t *testing.T) {
 	db.AddTransaction(1, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyA}})
 	db.AddTransaction(2, []state.ReadDescriptor{{Path: keyA}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Equal(t, map[int]bool{0: true}, deps[1])
 	assert.Equal(t, map[int]bool{1: true}, deps[2])
 }
 
 func TestDepsBuilder_Empty(t *testing.T) {
 	db := NewDepsBuilder()
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Empty(t, deps)
 }
 
@@ -206,7 +206,7 @@ func TestDepsBuilder_SingleTx(t *testing.T) {
 		[]state.WriteDescriptor{{Path: makeKey(0, 1)}},
 	)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Len(t, deps, 1)
 	assert.Empty(t, deps[0])
 }
@@ -216,7 +216,7 @@ func TestDepsBuilder_NilReadWriteSets(t *testing.T) {
 	db.AddTransaction(0, nil, nil)
 	db.AddTransaction(1, nil, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Empty(t, deps[0])
 	assert.Empty(t, deps[1])
 }
@@ -233,7 +233,7 @@ func TestDepsBuilder_DynamicGrow(t *testing.T) {
 	// Last tx reads the key, should depend on tx n-2 (the latest writer before it)
 	db.AddTransaction(n, []state.ReadDescriptor{{Path: keyA}}, nil)
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.Equal(t, map[int]bool{n - 1: true}, deps[n])
 }
 
@@ -249,7 +249,7 @@ func TestDepsBuilder_AllReadSameKey(t *testing.T) {
 		db.AddTransaction(i, []state.ReadDescriptor{{Path: keyA}}, nil)
 	}
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	for i := 1; i < 10; i++ {
 		assert.Equal(t, map[int]bool{0: true}, deps[i], "tx %d should depend only on tx 0", i)
 	}
@@ -266,7 +266,7 @@ func TestDepsBuilder_WriteChain(t *testing.T) {
 		db.AddTransaction(i, []state.ReadDescriptor{{Path: keyA}}, []state.WriteDescriptor{{Path: keyA}})
 	}
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	for i := 1; i < n; i++ {
 		assert.Equal(t, map[int]bool{i - 1: true}, deps[i],
 			"tx %d should depend only on tx %d (latest writer)", i, i-1)
@@ -284,7 +284,7 @@ func TestDepsBuilder_NonSequentialReturnsError(t *testing.T) {
 	require.ErrorIs(t, db.AddTransaction(1, nil, nil), errNonSequentialIndex)
 
 	// GetDeps should return nil on a failed builder
-	assert.Nil(t, db.GetDeps())
+	assert.Nil(t, getDepsMap(db))
 }
 
 func TestDepsBuilder_IndexAtCapacityBoundary(t *testing.T) {
@@ -300,7 +300,7 @@ func TestDepsBuilder_IndexAtCapacityBoundary(t *testing.T) {
 		require.NoError(t, db.AddTransaction(i, readList, writeList))
 	}
 
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	require.NotNil(t, deps)
 	assert.Len(t, deps, 513)
 	assert.Equal(t, map[int]bool{511: true}, deps[512])
@@ -308,7 +308,7 @@ func TestDepsBuilder_IndexAtCapacityBoundary(t *testing.T) {
 
 func TestDepsBuilder_EmptyBlock(t *testing.T) {
 	db := NewDepsBuilder()
-	deps := db.GetDeps()
+	deps := getDepsMap(db)
 	assert.NotNil(t, deps)
 	assert.Empty(t, deps)
 }
@@ -376,7 +376,7 @@ func TestDepsBuilder_CorrectDAG(t *testing.T) {
 		for i := 0; i < numTx; i++ {
 			db.AddTransaction(i, txs[i].reads, txs[i].writes)
 		}
-		newDeps := db.GetDeps()
+		newDeps := getDepsMap(db)
 
 		// Compute raw latest-writer & reader deps without transitive reduction
 		latestReader := make(map[state.Key]int)
@@ -485,8 +485,27 @@ func BenchmarkDepsBuilder(b *testing.B) {
 					db.AddTransaction(i, reads[i], writes[i])
 				}
 
-				db.GetDeps()
+				getDepsMap(db)
 			}
 		})
 	}
+}
+
+func getDepsMap(db *DepsBuilder) map[int]map[int]bool {
+	deps := db.GetDeps()
+	if deps == nil {
+		return nil
+	}
+
+	result := make(map[int]map[int]bool, len(deps))
+
+	for i, d := range deps {
+		m := make(map[int]bool, len(d))
+		for _, j := range d {
+			m[int(j)] = true
+		}
+		result[i] = m
+	}
+
+	return result
 }

@@ -230,15 +230,9 @@ func (h *parHarness) buildProposer(
 		require.NoError(tb, depsBuilder.AddTransaction(rw.Index, rw.ReadList, rw.WriteList))
 	}
 
-	deps := depsBuilder.GetDeps()
-	require.NotNil(tb, deps, "DAG derivation must not error")
-
-	graph := make([][]uint64, len(txs))
-	for i := range txs {
-		for j := range deps[i] {
-			graph[i] = append(graph[i], uint64(j))
-		}
-	}
+	graph := depsBuilder.GetDeps()
+	require.NotNil(tb, graph, "DAG derivation must not error")
+	require.Len(tb, graph, len(txs))
 
 	_, root, err := transition.Commit()
 	require.NoError(tb, err)

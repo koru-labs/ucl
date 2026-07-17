@@ -219,7 +219,7 @@ func (b *TxBitset) ForEach(fn func(int)) {
 	for w, word := range b.words {
 		for word != 0 {
 			bit := bits.TrailingZeros64(word)
-			fn(w*64 + bit)
+			fn((w << 6) + bit)
 			word &= word - 1
 		}
 	}
@@ -347,19 +347,17 @@ func (db *DepsBuilder) AddTransaction(
 
 // GetDeps returns the reduced dependency graph as a map for backward compatibility
 // with the existing serialization path. Returns nil if the builder encountered an error.
-func (db *DepsBuilder) GetDeps() map[int]map[int]bool {
+func (db *DepsBuilder) GetDeps() [][]uint64 {
 	if db.err != nil {
 		return nil
 	}
 
-	result := make(map[int]map[int]bool, db.numTx)
+	result := make([][]uint64, db.numTx)
 
-	for i := 0; i < db.numTx; i++ {
-		inner := make(map[int]bool)
+	for i := range db.numTx {
 		db.directDeps[i].ForEach(func(j int) {
-			inner[j] = true
+			result[i] = append(result[i], uint64(j))
 		})
-		result[i] = inner
 	}
 
 	return result

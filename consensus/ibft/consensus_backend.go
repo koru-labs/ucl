@@ -387,7 +387,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		}(chDeps)
 	}
 
-	txs, receipts, hasBalanceReads := i.writeTransactions(
+	txs, receipts := i.writeTransactions(
 		writeCtx,
 		gasLimit,
 		header.Number,
@@ -412,22 +412,10 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	if isParallelVerification {
 		depsWg.Wait()
 
-		deps := depsBuilder.GetDeps()
-		if deps == nil {
-			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
-		}
-
-		var txDependency [][]uint64
-
+		txDependency := depsBuilder.GetDeps()
 		// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
-		if deps != nil && !hasBalanceReads {
-			txDependency = make([][]uint64, len(txs))
-
-			for i := range len(txs) {
-				for j := range deps[i] {
-					txDependency[i] = append(txDependency[i], uint64(j))
-				}
-			}
+		if txDependency == nil {
+			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
 		}
 
 		header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
@@ -507,7 +495,7 @@ func (i *backendIBFT) writeTransactions(
 	transition transitionInterface,
 	chDeps chan []state.TxReadWriteSet,
 	isParallelVerification bool,
-) (executed []*types.Transaction, receipts []*types.Receipt, hasBalanceReads bool) {
+) (executed []*types.Transaction, receipts []*types.Receipt) {
 	hooks := i.forkManager.GetHooks(blockNumber)
 	if !hooks.ShouldWriteTransactions(blockNumber) {
 		return
