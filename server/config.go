@@ -25,6 +25,7 @@ type Config struct {
 
 	PriceLimit         uint64
 	MaxAccountEnqueued uint64
+	MaxAccountPromoted uint64
 	MaxSlots           uint64
 	TxGossipBatchSize  uint64
 	JournalRotateSize  uint64

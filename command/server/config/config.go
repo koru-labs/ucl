@@ -93,6 +93,7 @@ type TxPool struct {
 	PriceLimit         uint64 `json:"price_limit" yaml:"price_limit"`
 	MaxSlots           uint64 `json:"max_slots" yaml:"max_slots"`
 	MaxAccountEnqueued uint64 `json:"max_account_enqueued" yaml:"max_account_enqueued"`
+	MaxAccountPromoted uint64 `json:"max_account_promoted" yaml:"max_account_promoted"`
 	TxGossipBatchSize  uint64 `json:"tx_gossip_batch_size" yaml:"tx_gossip_batch_size"`
 	JournalRotateSize  uint64 `json:"journal_rotate_size" yaml:"journal_rotate_size"`
 }
@@ -165,6 +166,7 @@ func DefaultConfig() *Config {
 			PriceLimit:         0,
 			MaxSlots:           4096,
 			MaxAccountEnqueued: 128,
+			MaxAccountPromoted: 128,
 			TxGossipBatchSize:  1,
 			JournalRotateSize:  1000,
 		},

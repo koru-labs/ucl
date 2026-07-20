@@ -201,6 +201,13 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().Uint64Var(
+		&params.rawConfig.TxPool.MaxAccountPromoted,
+		maxPromotedFlag,
+		defaultConfig.TxPool.MaxAccountPromoted,
+		"maximum number of promoted transactions per account",
+	)
+
+	cmd.Flags().Uint64Var(
 		&params.rawConfig.TxPool.TxGossipBatchSize,
 		txGossipBatchSizeFlag,
 		defaultConfig.TxPool.TxGossipBatchSize,

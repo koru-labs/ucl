@@ -15,6 +15,7 @@ type accountsMap struct {
 
 	count            uint64
 	maxEnqueuedLimit uint64
+	maxPromotedLimit uint64
 }
 
 // Initializes an account for the given address.
@@ -26,6 +27,7 @@ func (m *accountsMap) initOnce(addr types.Address, nonce uint64) *account {
 		nonceToTx:     newNonceToTxLookup(),
 		nonceProposed: newNonceToTxLookup(),
 		maxEnqueued:   m.maxEnqueuedLimit,
+		maxPromoted:   m.maxPromotedLimit,
 		nextNonce:     nonce,
 	})
 	newAccount := a.(*account) //nolint:forcetypeassert
@@ -269,8 +271,8 @@ type account struct {
 	// the number of consecutive blocks that don't contain account's transaction
 	skips uint64
 
-	//	maximum number of enqueued transactions
-	maxEnqueued uint64
+	//	maximum number of enqueued & promoted transactions
+	maxEnqueued, maxPromoted uint64
 }
 
 // getNonce returns the next expected nonce for this account.
@@ -391,7 +393,7 @@ func (a *account) promote() (promoted []*types.Transaction, pruned []*types.Tran
 
 	// sanity check
 	currentNonce := a.getNonce()
-	if a.enqueued.length() == 0 || a.enqueued.peek().Nonce > currentNonce {
+	if a.enqueued.length() == 0 || a.enqueued.peek().Nonce > currentNonce || a.promoted.length() >= a.maxPromoted {
 		// nothing to promote
 		return
 	}
