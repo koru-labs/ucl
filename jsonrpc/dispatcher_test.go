@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -255,7 +256,7 @@ func TestDispatcherFuncDecode(t *testing.T) {
 	require.NoError(t, dispatcher.registerService("mock", srv))
 
 	handleReq := func(typ string, msg string) interface{} {
-		_, err := dispatcher.handleReq(Request{
+		_, err := dispatcher.handleReq(context.Background(), Request{
 			Method: "mock_" + typ,
 			Params: []byte(msg),
 		})
@@ -505,7 +506,7 @@ func TestDispatcherBatchRequest(t *testing.T) {
 
 			check(c, res)
 
-			res, _ = c.dispatcher.Handle(c.reqBody)
+			res, _ = c.dispatcher.Handle(context.Background(), c.reqBody)
 
 			check(c, res)
 		})

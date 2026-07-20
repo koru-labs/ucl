@@ -207,5 +207,3 @@ func (d dummyHost) SetTransientState(addr types.Address, key types.Hash, value t
 func (d dummyHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
 	return nil
 }
-
-func (m *dummyHost) TouchTransientStorage() {}

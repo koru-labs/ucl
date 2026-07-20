@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -27,7 +28,7 @@ func FuzzDispatcherFuncDecode(f *testing.F) {
 	require.NoError(f, dispatcher.registerService("mock", srv))
 
 	handleReq := func(typ string, msg string) interface{} {
-		_, err := dispatcher.handleReq(Request{
+		_, err := dispatcher.handleReq(context.Background(), Request{
 			Method: "mock_" + typ,
 			Params: []byte(msg),
 		})
@@ -154,7 +155,7 @@ func FuzzDispatcherBatchRequest(f *testing.F) {
 
 		_, err := dispatcher.HandleWs([]byte(body), mock)
 		assert.NoError(t, err)
-		_, err = dispatcher.Handle([]byte(body))
+		_, err = dispatcher.Handle(context.Background(), []byte(body))
 		assert.NoError(t, err)
 	})
 }

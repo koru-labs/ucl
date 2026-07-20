@@ -25,6 +25,7 @@ type Config struct {
 
 	PriceLimit         uint64
 	MaxAccountEnqueued uint64
+	MaxAccountPromoted uint64
 	MaxSlots           uint64
 	TxGossipBatchSize  uint64
 	JournalRotateSize  uint64
@@ -75,6 +76,10 @@ type Config struct {
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
 	// 0 disables the cache.
 	JumpdestCacheSize uint64
+
+	// Used to enable caching of tries in the state.
+	// This can improve performance but will increase memory usage.
+	WithTrieCaching bool
 }
 
 // Telemetry holds the config details for metric services

@@ -41,6 +41,7 @@ var (
 	ErrInvalidMixHash             = errors.New("invalid mixhash")
 	ErrInvalidSha3Uncles          = errors.New("invalid sha3 uncles")
 	ErrWrongDifficulty            = errors.New("wrong difficulty")
+	ErrWrongBaseFee               = errors.New("wrong base fee")
 )
 
 type txPoolInterface interface {
@@ -394,6 +395,12 @@ func (i *backendIBFT) verifyHeaderImpl(
 	// difficulty has to match number
 	if header.Difficulty != header.Number {
 		return ErrWrongDifficulty
+	}
+
+	// BaseFee has to match the expected value based on the parent header
+	expectedBaseFee := i.blockchain.CalculateBaseFee(parent)
+	if header.BaseFee != expectedBaseFee {
+		return ErrWrongBaseFee
 	}
 
 	// ensure the extra data is correctly formatted

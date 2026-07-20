@@ -31,8 +31,6 @@ type mockHost struct {
 	mock.Mock
 
 	tracer runtime.VMTracer
-
-	transientStorageTouched bool
 }
 
 func (m *mockHost) AccountExists(addr types.Address) bool {
@@ -146,10 +144,6 @@ func (m *mockHost) GetTransientState(addr types.Address, key types.Hash) types.H
 
 func (m *mockHost) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {
 	m.Called(addr, key, value)
-}
-
-func (m *mockHost) TouchTransientStorage() {
-	m.transientStorageTouched = true
 }
 
 func (m *mockHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder {

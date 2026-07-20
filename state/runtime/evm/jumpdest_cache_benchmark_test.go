@@ -73,7 +73,6 @@ func (h *benchHost) GetTracer() runtime.VMTracer                              { 
 func (h *benchHost) GetRefund() uint64                                        { return 0 }
 func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash   { return types.Hash{} }
 func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash)  {}
-func (h *benchHost) TouchTransientStorage()                                   {}
 func (h *benchHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder { return nil }
 
 func benchmarkRun(b *testing.B, codeSize int, cacheSize int) {

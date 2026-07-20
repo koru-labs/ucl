@@ -12,11 +12,15 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-metrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type sealKey struct {
@@ -24,41 +28,68 @@ type sealKey struct {
 	hash   types.Hash
 }
 
-// sealTimeStore tracks per-proposal build start times across the
-// BuildProposal -> InsertProposal callbacks. It is safe for concurrent use,
-// tolerates lookup misses, and evicts stale entries to bound memory.
+// sealEntry carries per-proposal state from BuildProposal to InsertProposal,
+// which don't thread a context between them.
+type sealEntry struct {
+	start time.Time
+	span  trace.Span
+}
+
+// sealTimeStore tracks per-proposal state across the BuildProposal ->
+// InsertProposal callbacks. It is safe for concurrent use, tolerates lookup
+// misses, and evicts stale entries to bound memory.
 type sealTimeStore struct {
 	mu     sync.Mutex
-	starts map[sealKey]time.Time
+	starts map[sealKey]sealEntry
 }
 
 func newSealTimeStore() *sealTimeStore {
-	return &sealTimeStore{starts: make(map[sealKey]time.Time)}
+	return &sealTimeStore{starts: make(map[sealKey]sealEntry)}
 }
 
-func (s *sealTimeStore) store(height uint64, hash types.Hash, start time.Time) {
+func (s *sealTimeStore) store(height uint64, hash types.Hash, entry sealEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.starts[sealKey{height, hash}] = start
+	key := sealKey{height, hash}
+
+	if old, ok := s.starts[key]; ok && old.span != nil {
+		old.span.End()
+	}
+
+	s.starts[key] = entry
 }
 
-// take returns the start time for (height, hash) if present, deleting it, and
-// also evicts any entries for heights at or below the committed height (those
-// belong to already-decided rounds and can never match again).
-func (s *sealTimeStore) take(height uint64, hash types.Hash) (time.Time, bool) {
+// take returns the entry for (height, hash) if present, deleting it. It also
+// evicts every other entry — those belong to losing proposals of already-decided
+// rounds that can never match again — and ends their orphaned root spans so they
+// don't leak.
+func (s *sealTimeStore) take(height uint64, hash types.Hash) (sealEntry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	start, ok := s.starts[sealKey{height, hash}]
+	want := sealKey{height, hash}
+	entry, ok := s.starts[want]
+
+	for k, e := range s.starts {
+		if k != want && e.span != nil {
+			e.span.End()
+		}
+	}
 
 	clear(s.starts)
 
-	return start, ok
+	return entry, ok
 }
 
 func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	start := time.Now().UTC()
+
+	ctx, rootSpan := observability.Tracer().Start(
+		context.Background(),
+		"block.produce",
+		trace.WithAttributes(attribute.Int64("block.number", int64(view.Height))),
+	)
 
 	var (
 		latestHeader      = i.blockchain.Header()
@@ -72,12 +103,19 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 			latestBlockNumber,
 		)
 
+		rootSpan.SetStatus(codes.Error, "missing parent block")
+		rootSpan.End()
+
 		return nil
 	}
 
-	block, receipts, blockAccessList, err := i.buildBlock(latestHeader)
+	block, receipts, blockAccessList, err := i.buildBlock(ctx, latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
+
+		rootSpan.RecordError(err)
+		rootSpan.SetStatus(codes.Error, err.Error())
+		rootSpan.End()
 
 		return nil
 	}
@@ -88,7 +126,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		i.blockchain.AddBlockAccessListToCache(block.Hash(), blockAccessList)
 	}
 
-	i.sealTimes.store(view.Height, block.Hash(), start)
+	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
 
 	return block.MarshalRLP()
 }
@@ -174,13 +212,24 @@ func (i *backendIBFT) InsertProposal(
 	metrics.MeasureSince([]string{consensusMetrics, "span", "commit"}, commitStart)
 	metrics.SetGauge([]string{consensusMetrics, "block_size_bytes"}, float32(len(proposal.RawProposal)))
 
-	if start, ok := i.sealTimes.take(proposedNumber, proposedHash); ok {
-		metrics.MeasureSince([]string{consensusMetrics, "finality", "seal_total"}, start)
+	logger := i.logger
+
+	if entry, ok := i.sealTimes.take(proposedNumber, proposedHash); ok {
+		metrics.MeasureSince([]string{consensusMetrics, "finality", "seal_total"}, entry.start)
+
+		ctx := trace.ContextWithSpan(context.Background(), entry.span)
+
+		_, commitSpan := observability.Tracer().Start(ctx, "commit", trace.WithTimestamp(commitStart))
+		commitSpan.End()
+
+		entry.span.End()
+
+		logger = logger.With(observability.LogFields(ctx)...)
 	}
 
 	i.updateMetrics(newBlock)
 
-	i.logger.Info(
+	logger.Info(
 		"block committed",
 		"number", newBlock.Number(),
 		"hash", newBlock.Hash(),
@@ -247,7 +296,10 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.Receipt, bal.BlockAccessList, error) {
+func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, bal.BlockAccessList, error) {
+	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
+	defer buildSpan.End()
+
 	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
 
 	header := &types.Header{
@@ -327,6 +379,10 @@ func (i *backendIBFT) buildBlock(parent *types.Header) (*types.Block, []*types.R
 	}
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
+
+	// Recorded retrospectively; error paths above abort before this point.
+	_, execSpan := observability.Tracer().Start(ctx, "execution", trace.WithTimestamp(execStart))
+	execSpan.End()
 
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()

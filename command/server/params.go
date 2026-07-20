@@ -32,6 +32,7 @@ const (
 	jsonRPCBlockRangeLimitFlag   = "json-rpc-block-range-limit"
 	maxSlotsFlag                 = "max-slots"
 	maxEnqueuedFlag              = "max-enqueued"
+	maxPromotedFlag              = "max-promoted"
 	blockGasTargetFlag           = "block-gas-target"
 	secretsConfigFlag            = "secrets-config"
 	signerConfigFlag             = "signer-config"
@@ -61,8 +62,8 @@ const (
 
 	metricsIntervalFlag = "metrics-interval"
 
-	EnableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
-	EnableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+	enableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
+	enableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
 	enableBlockAccessListFlag   = "enable-block-access-list"
 
 	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
@@ -71,6 +72,7 @@ const (
 	jumpdestCacheSizeFlag = "jumpdest-cache-size"
 
 	settlementMetricsFlag = "settlement-metrics"
+	withTrieCachingFlag   = "with-trie-caching"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -223,6 +225,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		PriceLimit:         p.rawConfig.TxPool.PriceLimit,
 		MaxSlots:           p.rawConfig.TxPool.MaxSlots,
 		MaxAccountEnqueued: p.rawConfig.TxPool.MaxAccountEnqueued,
+		MaxAccountPromoted: p.rawConfig.TxPool.MaxAccountPromoted,
 		TxGossipBatchSize:  p.rawConfig.TxPool.TxGossipBatchSize,
 		JournalRotateSize:  p.rawConfig.TxPool.JournalRotateSize,
 		SecretsManager:     p.secretsConfig,
@@ -245,6 +248,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
+		WithTrieCaching:         p.rawConfig.WithTrieCaching,
 		EnableBlockAccessList:   p.rawConfig.EnableBlockAccessList,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,

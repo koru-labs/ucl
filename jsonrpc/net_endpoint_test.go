@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
@@ -15,7 +16,7 @@ func TestNetEndpoint_PeerCount(t *testing.T) {
 			chainID: 1,
 		})
 
-	resp, err := dispatcher.Handle([]byte(`{
+	resp, err := dispatcher.Handle(context.Background(), []byte(`{
 		"method": "net_peerCount",
 		"params": [""]
 	}`))

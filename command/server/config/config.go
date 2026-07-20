@@ -65,6 +65,10 @@ type Config struct {
 	// memory. Setting this to 0 disables the cache. See
 	// `state/runtime/evm/jumpdest_cache.go`
 	JumpdestCacheSize uint64 `json:"jumpdest_cache_size" yaml:"jumpdest_cache_size"`
+
+	// Used to enable caching of tries in the state.
+	// This can improve performance but will increase memory usage.
+	WithTrieCaching bool `json:"with_trie_caching" yaml:"with_trie_caching"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -90,6 +94,7 @@ type TxPool struct {
 	PriceLimit         uint64 `json:"price_limit" yaml:"price_limit"`
 	MaxSlots           uint64 `json:"max_slots" yaml:"max_slots"`
 	MaxAccountEnqueued uint64 `json:"max_account_enqueued" yaml:"max_account_enqueued"`
+	MaxAccountPromoted uint64 `json:"max_account_promoted" yaml:"max_account_promoted"`
 	TxGossipBatchSize  uint64 `json:"tx_gossip_batch_size" yaml:"tx_gossip_batch_size"`
 	JournalRotateSize  uint64 `json:"journal_rotate_size" yaml:"journal_rotate_size"`
 }
@@ -162,6 +167,7 @@ func DefaultConfig() *Config {
 			PriceLimit:         0,
 			MaxSlots:           4096,
 			MaxAccountEnqueued: 128,
+			MaxAccountPromoted: 128,
 			TxGossipBatchSize:  1,
 			JournalRotateSize:  1000,
 		},
@@ -190,6 +196,7 @@ func DefaultConfig() *Config {
 		EnableAllDebugEndpoints:  false,
 		EnableBlockAccessList:    false,
 		MaxGrpcMsgSize:           DefaultMaxGrpcMsgSize,
+		WithTrieCaching:          true,
 	}
 }
 

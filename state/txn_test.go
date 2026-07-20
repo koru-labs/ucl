@@ -123,7 +123,7 @@ func TestTransientStorage(t *testing.T) {
 		require.Equal(t, hash2, txn.GetTransientState(addr2, slot0))
 		require.Equal(t, hash1, txn.GetTransientState(addr2, slot1))
 
-		txn.ClearTransientStorage()
+		txn.CleanRadixObjects()
 
 		// After clearing, all transient slots must be zero.
 		// Ordinary storage must remain untouched.
