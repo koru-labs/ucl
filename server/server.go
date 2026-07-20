@@ -403,6 +403,7 @@ func NewServer(config *Config) (*Server, error) {
 				MaxSlots:           m.config.MaxSlots,
 				PriceLimit:         m.config.PriceLimit,
 				MaxAccountEnqueued: m.config.MaxAccountEnqueued,
+				MaxAccountPromoted: m.config.MaxAccountPromoted,
 				TxGossipBatchSize:  m.config.TxGossipBatchSize,
 				JournalRotateSize:  m.config.JournalRotateSize,
 				DataDir:            m.config.DataDir,

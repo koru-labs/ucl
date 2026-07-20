@@ -106,6 +106,7 @@ type Config struct {
 	PriceLimit         uint64
 	MaxSlots           uint64
 	MaxAccountEnqueued uint64
+	MaxAccountPromoted uint64
 	TxGossipBatchSize  uint64
 	JournalRotateSize  uint64
 	ChainID            *big.Int
@@ -231,11 +232,14 @@ func NewTxPool(
 	config *Config,
 ) (*TxPool, error) {
 	pool := &TxPool{
-		logger:            logger.Named("txpool"),
-		forks:             forks,
-		store:             store,
-		executables:       newPricesQueue(config.IsGasPriceQueue, 0, nil),
-		accounts:          accountsMap{maxEnqueuedLimit: config.MaxAccountEnqueued},
+		logger:      logger.Named("txpool"),
+		forks:       forks,
+		store:       store,
+		executables: newPricesQueue(config.IsGasPriceQueue, 0, nil),
+		accounts: accountsMap{
+			maxEnqueuedLimit: config.MaxAccountEnqueued,
+			maxPromotedLimit: config.MaxAccountPromoted,
+		},
 		index:             lookupMap{all: make(map[types.Hash]*types.Transaction)},
 		gauge:             slotGauge{height: 0, max: config.MaxSlots},
 		priceLimit:        config.PriceLimit,
@@ -990,7 +994,7 @@ func (p *TxPool) addTx(origin txOrigin, tx *types.Transaction) error {
 			return ErrReplacementUnderpriced
 		}
 	} else {
-		if account.enqueued.length() == account.maxEnqueued && tx.Nonce != accountNonce {
+		if account.enqueued.length() >= account.maxEnqueued && tx.Nonce != accountNonce {
 			return ErrMaxEnqueuedLimitReached
 		}
 
