@@ -359,7 +359,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	var (
 		depsBuilder = blockstm.NewDepsBuilder()
-		chDeps      = make(chan []state.TxReadWriteSet, 32)
+		chDeps      = make(chan []state.TxReadWriteSet, 128)
 		depsWg      sync.WaitGroup
 	)
 
@@ -501,12 +501,11 @@ func (i *backendIBFT) writeTransactions(
 		return
 	}
 
-	const txSetCacheSize = 128
-
 	var (
-		failed      = 0
-		skipped     = 0
-		txSetsCache = make([]state.TxReadWriteSet, 0, txSetCacheSize)
+		txSetCacheSize = cap(chDeps)
+		failed         = 0
+		skipped        = 0
+		txSetsCache    = make([]state.TxReadWriteSet, txSetCacheSize)
 	)
 
 	defer func() {
