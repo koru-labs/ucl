@@ -354,7 +354,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	}
 
 	// Get the block transactions
-	writeCtx, cancelFn := context.WithTimeout(context.Background(), i.blockTime)
+	writeCtx, cancelFn := context.WithTimeout(ctx, i.blockTime)
 	defer cancelFn()
 
 	var (
@@ -505,7 +505,7 @@ func (i *backendIBFT) writeTransactions(
 		txSetCacheSize = cap(chDeps)
 		failed         = 0
 		skipped        = 0
-		txSetsCache    = make([]state.TxReadWriteSet, txSetCacheSize)
+		txSetsCache    = make([]state.TxReadWriteSet, 0, txSetCacheSize)
 	)
 
 	defer func() {
