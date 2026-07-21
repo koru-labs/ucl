@@ -16,6 +16,7 @@ type AccountAccessRecord struct {
 	// StorageWrites holds the values of storage slots that were modified during
 	// block execution, indexed by slot key and the tx index at which each modification
 	// occurred.
+	// StorageWrites map[types.Hash][]SlotWrites     {index; value}
 	StorageWrites map[types.Hash]map[uint32]types.Hash `json:"storageWrites,omitempty"`
 
 	// StorageReads is the set of slot keys that were read during block execution
@@ -39,12 +40,14 @@ type AccountAccessRecord struct {
 	//
 	// Additional field is required for paralelization:
 	// BalanceReads  map[uint32]struct{} `json:"balanceReads,omitempty"`
+	// BalanceChange []BalanceChange    {index; value}
 	BalanceChanges map[uint32]*big.Int `json:"balanceChange,omitempty"`
 
 	// NonceChanges contains all the changes of the account nonce during the block
 	// execution, keyed by transaction indices where the nonce was changed. Since nonce
 	// reads are not possible from within the EVM (no opcode exists), so R/W conflict
 	// detection is not applicable here.
+	// NonceChanges []NonceChange {index; value}
 	NonceChanges map[uint32]uint64 `json:"nonceChanges,omitempty"`
 
 	// CodeChanges contains all the changes of the account code during the block
@@ -55,6 +58,7 @@ type AccountAccessRecord struct {
 	//
 	// Additional field is required for parallelization:
 	// CodeReads map[uint32]struct{} `json:"codeReads,omitempty"`
+	// CodeChanges []CodeChange {index; value}
 	CodeChanges map[uint32][]byte `json:"codeChanges,omitempty"`
 }
 
