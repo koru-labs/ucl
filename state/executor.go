@@ -376,6 +376,7 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		snap:        snap,
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
+		balRecorder: runtime.NoopBALRecorder{},
 	}
 }
 
