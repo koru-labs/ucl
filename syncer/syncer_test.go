@@ -1032,7 +1032,13 @@ func Test_bulkSyncWithPeer(t *testing.T) {
 			assert.Equal(t, test.lastSyncedBlockNumber, lastSynced)
 			assert.Equal(t, test.shouldTerminate, shouldTerminate)
 			assert.ErrorIs(t, err, test.err)
-			assert.Equal(t, test.blocks, syncedBlocks)
+
+			expectedBlocks := make([]*types.Block, len(test.blocks))
+			for i, sb := range test.blocks {
+				expectedBlocks[i] = sb.Block
+			}
+
+			assert.Equal(t, expectedBlocks, syncedBlocks)
 		})
 	}
 }
