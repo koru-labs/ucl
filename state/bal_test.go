@@ -1437,7 +1437,7 @@ func TestApply_BAL_ContextOps_NoRecording(t *testing.T) {
 	// sends from addr1 (see bal_test.go), so that -- not `from` -- is the EOA.
 	for addr := range rec.Accounts {
 		require.Contains(t,
-			map[types.Address]struct{}{addr1: {}, contractAddr: {}, coinbaseAddr: {}},
+			map[types.Address]struct{}{from: {}, contractAddr: {}},
 			addr,
 			"context opcodes must not add unrelated accounts to the BAL (got %s)", addr)
 	}

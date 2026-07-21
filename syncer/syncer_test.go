@@ -194,6 +194,7 @@ func NewTestSyncer(
 		syncPeerClient:  mockSyncPeerClient,
 		blockTimeout:    blockTimeout,
 		newStatusCh:     make(chan struct{}),
+		forkManager:     &mockForkManager{},
 		peerMap:         new(PeerMap),
 	}
 }
@@ -503,9 +504,11 @@ func blocksToCh(blocks []*SyncBlock, delay time.Duration) <-chan *SyncBlock {
 func createMockSyncerBlocks(num int) []*SyncBlock {
 	blocks := make([]*SyncBlock, num)
 	for i := 0; i < num; i++ {
-		blocks[i].Block = &types.Block{
-			Header: &types.Header{
-				Number: uint64(i + 1),
+		blocks[i] = &SyncBlock{
+			Block: &types.Block{
+				Header: &types.Header{
+					Number: uint64(i + 1),
+				},
 			},
 		}
 	}
@@ -671,7 +674,12 @@ func TestSync(t *testing.T) {
 
 			err := <-errCh
 
-			assert.Equal(t, test.blocks, syncedBlocks)
+			expectedBlocks := make([]*types.Block, len(test.blocks))
+			for i, sb := range test.blocks {
+				expectedBlocks[i] = sb.Block
+			}
+
+			assert.Equal(t, expectedBlocks, syncedBlocks)
 			assert.Equal(t, test.progressionStart, progression.startingBlock)
 			assert.Equal(t, test.progressionHighest, progression.highestBlock)
 			assert.ErrorIs(t, err, test.err)

@@ -147,7 +147,7 @@ func (m *mockHost) SetTransientState(addr types.Address, key types.Hash, value t
 }
 
 func (m *mockHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
-	panic("Not implemented in tests") // TODO:
+	return runtime.NoopBALRecorder{}
 }
 
 func TestRun(t *testing.T) {
