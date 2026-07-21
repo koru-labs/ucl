@@ -1350,6 +1350,14 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 
 	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
+
+	if balance.Sign() != 0 {
+		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
+		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+	} else {
+		t.BlockAccessListRecorder().AccountRead(addr)
+		t.BlockAccessListRecorder().AccountRead(beneficiary)
+	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {

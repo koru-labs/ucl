@@ -314,7 +314,9 @@ func newBALTestCluster(
 		frameworkV2.WithPremine(map[types.Address]*big.Int{
 			senderAddr: ethgo.Ether(100),
 		}),
+		frameworkV2.WithBALValidators(),
 	}
+
 	if withBAL {
 		opts = append(opts, frameworkV2.WithBALNonValidators())
 	}
@@ -327,6 +329,7 @@ func balSubtestName(withBAL bool) string {
 	if withBAL {
 		return "WithBAL"
 	}
+
 	return "WithoutBAL"
 }
 
@@ -355,8 +358,10 @@ func assertBalanceParityAcrossNodes(t *testing.T, cluster *frameworkV2.TestClust
 		require.NoErrorf(t, err, "node %d GetBalance(%s)", i, addr)
 		if i == 0 {
 			reference = bal
+
 			continue
 		}
+
 		require.Equalf(t, 0, reference.Cmp(bal),
 			"node %d balance of %s (%s) diverges from node 0 (%s)",
 			i, addr, bal, reference)
@@ -373,10 +378,13 @@ func assertCodeParity(t *testing.T, cluster *frameworkV2.TestCluster, addr types
 		code, err := s.JSONRPC().GetCode(addr, jsonrpc.LatestBlockNumberOrHash)
 		require.NoErrorf(t, err, "node %d GetCode(%s)", i, addr)
 		require.NotEmptyf(t, code, "node %d reports empty code at %s", i, addr)
+
 		if i == 0 {
 			reference = []byte(code)
+
 			continue
 		}
+
 		require.Equalf(t, reference, []byte(code),
 			"node %d code at %s diverges from node 0", i, addr)
 	}

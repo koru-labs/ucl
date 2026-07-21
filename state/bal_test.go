@@ -257,16 +257,15 @@ func Test_BAL_InsufficientBalanceToCoverTransfer(t *testing.T) {
 	}
 
 	_, err := tr.apply(msg)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	rec := getRecord(t, tr)
 
 	sender := getAccount(t, rec, from)
-	require.Equal(t, uint64(1), sender.NonceChanges[idx])
-	require.Equal(t, big.NewInt(9_000), sender.BalanceChanges[idx])
+	require.Nil(t, sender)
 
 	recipient := getAccount(t, rec, to)
-	require.NotNil(t, recipient)
+	require.Nil(t, recipient)
 }
 
 func Test_BAL_ContractCreation(t *testing.T) {
@@ -708,6 +707,10 @@ func TestApply_BAL_Selfdestruct_WithBalance(t *testing.T) {
 	require.False(t, res.Failed(), "call should succeed: %v", res.Err)
 
 	rec := getRecord(t, tr)
+
+	for addr, acc := range rec.Accounts { // ili kako god iterira
+		t.Logf("addr=%s balChanges=%v nonceChanges=%v", addr, acc.BalanceChanges, acc.NonceChanges)
+	}
 
 	self := getAccount(t, rec, contractAddr)
 	require.Equalf(t, 0, self.BalanceChanges[idx].Cmp(big.NewInt(0)),

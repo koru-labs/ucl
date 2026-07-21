@@ -51,6 +51,7 @@ const (
 	bridgeAllowListEnabledFlag           = "bridge-allow-list-enabled"
 	bridgeBlockListAdminFlag             = "bridge-block-list-admin"
 	bridgeBlockListEnabledFlag           = "bridge-block-list-enabled"
+	enableBlockAccessListFlag            = "enable-block-access-list"
 
 	bootnodePortStart = 30301
 
