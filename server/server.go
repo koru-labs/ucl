@@ -151,18 +151,12 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, fmt.Errorf("could not setup new logger instance, %w", err)
 	}
 
-	if config.MaxGrpcMsgSize < 1<<20 { // max GRPC msg size at leat 1MB
-		return nil, fmt.Errorf("expected max GRPC message size at least 1 MB, got %d", config.MaxGrpcMsgSize)
-	}
-
 	m := &Server{
 		logger: logger.Named("server"),
 		config: config,
 		chain:  config.Chain,
 		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(unaryInterceptor),
-			grpc.StatsHandler(otelgrpc.NewServerHandler()),
-			grpc.MaxRecvMsgSize(config.MaxGrpcMsgSize),
-			grpc.MaxSendMsgSize(config.MaxGrpcMsgSize)),
+			grpc.StatsHandler(otelgrpc.NewServerHandler())),
 		restoreProgression: progress.NewProgressionWrapper(progress.ChainSyncRestore),
 	}
 
@@ -219,7 +213,6 @@ func NewServer(config *Config) (*Server, error) {
 		netConfig.Chain = m.config.Chain
 		netConfig.DataDir = filepath.Join(m.config.DataDir, "libp2p")
 		netConfig.SecretsManager = m.secretsManager
-		netConfig.MaxGrpcMessageSize = config.MaxGrpcMsgSize
 
 		network, err := network.NewServer(logger, netConfig)
 		if err != nil {
