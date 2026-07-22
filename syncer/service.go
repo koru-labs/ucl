@@ -148,7 +148,7 @@ func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServ
 }
 
 // toProtoBlock converts type.Block -> proto.Block
-func toProtoBlock(block *types.Block, receipts types.Receipts, blockAccessList bal.BlockAccessList) *proto.Block {
+func toProtoBlock(block *types.Block, receipts types.Receipts, blockAccessList bal.BlockAccessListEncoded) *proto.Block {
 	resp := &proto.Block{
 		Block: block.MarshalRLP(),
 	}

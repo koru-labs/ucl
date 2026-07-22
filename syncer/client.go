@@ -30,7 +30,7 @@ const (
 type SyncBlock struct {
 	Block           *types.Block
 	Receipts        types.Receipts
-	BlockAccessList bal.BlockAccessList
+	BlockAccessList bal.BlockAccessListEncoded
 }
 
 type syncPeerClient struct {
@@ -431,7 +431,7 @@ func fromProto(protoBlock *proto.Block) (*SyncBlock, error) {
 	}
 
 	if len(protoBlock.BlockAccessList) > 0 {
-		var accessList bal.BlockAccessList
+		var accessList bal.BlockAccessListEncoded
 		if err := accessList.UnmarshalRLP(protoBlock.BlockAccessList); err != nil {
 			return nil, fmt.Errorf("failed to decode block access list: %w", err)
 		}

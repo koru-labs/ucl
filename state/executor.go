@@ -186,7 +186,7 @@ func (e *Executor) ProcessBlock(
 		blockBAL.Merge(txn.balRecorder.GetBlockAccessListRecord())
 	}
 
-	txn.blockBAL = blockBAL.ToEncodingObj()
+	txn.blockBAL = blockBAL.Encode()
 
 	return txn, nil
 }
@@ -282,7 +282,7 @@ func (e *Executor) BeginTxn(
 func (e *Executor) ApplyBlockAccessList(
 	blockNumber uint64,
 	parentRoot types.Hash,
-	accessList bal.BlockAccessList,
+	accessList bal.BlockAccessListEncoded,
 ) (types.Hash, error) {
 	snap, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
@@ -364,7 +364,7 @@ type Transition struct {
 
 	// marshalable block access list for the block, which is used to generate the final block access list after the block execution
 	// one per block
-	blockBAL bal.BlockAccessList
+	blockBAL bal.BlockAccessListEncoded
 
 	BalIndex uint
 }
@@ -1589,18 +1589,18 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	return nil
 }
 
-func (t *Transition) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
+func (t *Transition) BlockAccessListRecorder() types.BlockAccessListRecorder {
 	return t.balRecorder
 }
 
-func (t *Transition) BlockAccessList() bal.BlockAccessList {
+func (t *Transition) BlockAccessList() types.BlockAccessListEncoded {
 	return t.blockBAL
 }
 
-func (t *Transition) SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder) {
+func (t *Transition) SetBlockAccessListRecorder(recorder types.BlockAccessListRecorder) {
 	t.balRecorder = recorder
 }
 
-func (t *Transition) SetBlockAccessList(b bal.BlockAccessList) {
+func (t *Transition) SetBlockAccessList(b types.BlockAccessListEncoded) {
 	t.blockBAL = b
 }

@@ -10,10 +10,10 @@ import (
 
 type BlockAccessListRecorder struct {
 	bal   *bal.BlockAccessListRecord
-	index uint32
+	index uint64
 }
 
-func NewBlockAccessListRecorder(b *bal.BlockAccessListRecord, index uint32) runtime.BlockAccessListRecorder {
+func NewBlockAccessListRecorder(b *bal.BlockAccessListRecord, index uint64) runtime.BlockAccessListRecorder {
 	return &BlockAccessListRecorder{bal: b, index: index}
 }
 
@@ -23,10 +23,6 @@ func (r *BlockAccessListRecorder) getOrCreate(addr types.Address) *bal.AccountAc
 
 func (r *BlockAccessListRecorder) AccountRead(addr types.Address) {
 	r.getOrCreate(addr) // touch only, no-op if already present
-}
-
-func (r *BlockAccessListRecorder) StorageRead(addr types.Address, slot types.Hash) {
-	r.getOrCreate(addr).RecordStorageRead(slot)
 }
 
 func (r *BlockAccessListRecorder) StorageWrite(addr types.Address, slot, val types.Hash) {
@@ -53,7 +49,7 @@ func (r *BlockAccessListRecorder) Merge(balRecorder runtime.BlockAccessListRecor
 	}
 }
 
-func (r *BlockAccessListRecorder) GetIndex() uint32 {
+func (r *BlockAccessListRecorder) GetIndex() uint64 {
 	return r.index
 }
 

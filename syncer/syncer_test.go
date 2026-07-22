@@ -77,11 +77,11 @@ func (m *mockBlockchain) GetReceiptsByHash(bn uint64, bh types.Hash) ([]*types.R
 	return nil, nil
 }
 
-func (m *mockBlockchain) GetBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
+func (m *mockBlockchain) GetBlockAccessList(bn uint64) (bal.BlockAccessListEncoded, error) {
 	return nil, nil
 }
 
-func (m *mockBlockchain) ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessList) (*types.FullBlock, error) {
+func (m *mockBlockchain) ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessListEncoded) (*types.FullBlock, error) {
 	return nil, nil
 }
 

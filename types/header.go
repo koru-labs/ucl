@@ -103,9 +103,10 @@ type FullBlock struct {
 }
 
 type Block struct {
-	Header       *Header
-	Transactions []*Transaction
-	Uncles       []*Header
+	Header          *Header
+	Transactions    []*Transaction
+	Uncles          []*Header
+	BlockAccessList BlockAccessListEncoded
 
 	// Cache
 	size atomic.Pointer[uint64]

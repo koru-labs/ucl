@@ -16,7 +16,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -296,7 +295,7 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, bal.BlockAccessList, error) {
+func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, types.BlockAccessListEncoded, error) {
 	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
 	defer buildSpan.End()
 
@@ -316,7 +315,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	}
 
 	// finalBal is used to store the final block access list for the block, which will be returned to the caller.
-	var finalBAL bal.BlockAccessList
+	var finalBAL types.BlockAccessListEncoded
 
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
@@ -387,22 +386,21 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
+	buildBlockParams := consensus.BuildBlockParams{
+		Header:   header,
+		Txns:     txs,
+		Receipts: transition.Receipts(),
+	}
+
 	if i.config.Params.Forks.At(header.Number).EIP7928 {
 		finalBAL = transition.BlockAccessList()
-		if finalBAL != nil {
-			balHash := finalBAL.Hash()
-			header.BlockAccessListHash = balHash
-		}
-
+		header.BlockAccessListHash = finalBAL.Hash()
+		buildBlockParams.BlockAccessList = finalBAL
 		i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
 	}
 
 	// build the block
-	block := consensus.BuildBlock(consensus.BuildBlockParams{
-		Header:   header,
-		Txns:     txs,
-		Receipts: transition.Receipts(),
-	})
+	block := consensus.BuildBlock(buildBlockParams)
 
 	// write the seal of the block after all the fields are completed
 	header, err = signer.WriteProposerSeal(header)
@@ -453,8 +451,8 @@ type transitionInterface interface {
 	Write(txn *types.Transaction) error
 	SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder)
 	BlockAccessListRecorder() runtime.BlockAccessListRecorder
-	SetBlockAccessList(b bal.BlockAccessList)
-	BlockAccessList() bal.BlockAccessList
+	SetBlockAccessList(b bal.BlockAccessListEncoded)
+	BlockAccessList() bal.BlockAccessListEncoded
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -488,9 +486,9 @@ func (i *backendIBFT) writeTransactions(
 			"remaining", i.txpool.Length(),
 		)
 
-		transition.SetBlockAccessList(blockBAL.ToEncodingObj())
+		transition.SetBlockAccessList(blockBAL.Encode())
 
-		encoded := blockBAL.ToEncodingObj()
+		encoded := blockBAL.Encode()
 		transition.SetBlockAccessList(encoded)
 
 	}()

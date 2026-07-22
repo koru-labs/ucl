@@ -112,7 +112,7 @@ type Executor interface {
 	// ApplyBlockAccessList applies the final (post-execution) state recorded
 	// in accessList directly to the trie rooted at parentRoot, WITHOUT
 	// executing any transaction. Returns the resulting state root.
-	ApplyBlockAccessList(blockNumber uint64, parentRoot types.Hash, accessList bal.BlockAccessList) (types.Hash, error)
+	ApplyBlockAccessList(blockNumber uint64, parentRoot types.Hash, accessList bal.BlockAccessListEncoded) (types.Hash, error)
 }
 
 type TxSigner interface {
@@ -874,7 +874,7 @@ func (b *Blockchain) AddReceiptsToCache(hash types.Hash, receipts []*types.Recei
 	b.receiptsCache.Add(hash, receipts)
 }
 
-func (b *Blockchain) AddBlockAccessListToCache(hash types.Hash, accessList bal.BlockAccessList) {
+func (b *Blockchain) AddBlockAccessListToCache(hash types.Hash, accessList bal.BlockAccessListEncoded) {
 	b.blockAccessListCache.Add(hash, accessList)
 }
 
@@ -1051,13 +1051,13 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 	return extractedReceipts, nil
 }
 
-func (b *Blockchain) GetCachedBlockAccessList(headerHash types.Hash) (bal.BlockAccessList, error) {
+func (b *Blockchain) GetCachedBlockAccessList(headerHash types.Hash) (bal.BlockAccessListEncoded, error) {
 	accessList, found := b.blockAccessListCache.Get(headerHash)
 	if !found {
 		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %s", headerHash)
 	}
 
-	extractedAccessList, ok := accessList.(bal.BlockAccessList)
+	extractedAccessList, ok := accessList.(bal.BlockAccessListEncoded)
 	if !ok {
 		return nil, errors.New("invalid type assertion for block access list")
 	}
@@ -1570,7 +1570,7 @@ func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
 	b.settlementObserver = observer
 }
 
-func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessList) error {
+func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessListEncoded) error {
 	computedHash := computedBAL.Hash()
 
 	b.logger.Debug("computed BAL for verification", "block", block.Number(), "content", "\n"+computedBAL.PrettyPrint())
@@ -1584,13 +1584,13 @@ func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.B
 	return nil
 }
 
-func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList, error) {
+func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessListEncoded, error) {
 	if !b.config.Params.Forks.At(blockNumber).EIP7928 {
-		return bal.BlockAccessList{}, nil
+		return bal.BlockAccessListEncoded{}, nil
 	}
 
 	if blockAccessList, ok := b.blockAccessListCache.Get(blockNumber); ok {
-		return blockAccessList.(bal.BlockAccessList), nil
+		return blockAccessList.(bal.BlockAccessListEncoded), nil
 	}
 
 	return b.db.ReadBlockAccessList(blockNumber)
@@ -1599,7 +1599,7 @@ func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList
 func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	block *types.Block,
 	receipts []*types.Receipt,
-	accessList bal.BlockAccessList,
+	accessList bal.BlockAccessListEncoded,
 ) (*types.FullBlock, error) {
 	if !b.config.Params.Forks.At(block.Number()).EIP7928 {
 		return b.VerifyFinalizedBlock(block)
@@ -1646,10 +1646,6 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 
 	if len(accessList) == 0 {
 		return nil, ErrBALMissingForTrustMode
-	}
-
-	if err := accessList.Validate(block.Header.GasLimit, len(block.Transactions)); err != nil {
-		return nil, fmt.Errorf("invalid block access list structure: %w", err)
 	}
 
 	blockAccessListHash := accessList.Hash()

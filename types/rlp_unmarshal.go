@@ -138,6 +138,14 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 		b.Uncles = append(b.Uncles, bUncle)
 	}
 
+	if len(elems) > 2 {
+		bBal := BlockAccessListEncoded{}
+
+		if err := bBal.unmarshalRLPFrom(p, elems[3]); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

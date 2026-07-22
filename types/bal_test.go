@@ -1,22 +1,21 @@
-package bal
+package types
 
 import (
 	"math/big"
 	"testing"
 
-	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	addrA = types.Address{0x0a}
-	addrB = types.Address{0x0b}
+	addrA = Address{0x0a}
+	addrB = Address{0x0b}
 
-	slotX = types.Hash{0x01}
-	slotY = types.Hash{0x02}
-	slotZ = types.Hash{0x03}
+	slotX = Hash{0x01}
+	slotY = Hash{0x02}
+	slotZ = Hash{0x03}
 
-	valV = types.Hash{0xff}
+	valV = Hash{0xff}
 )
 
 // A write to a slot must remove any prior read of that slot, and subsequent
@@ -120,7 +119,7 @@ func TestBlockRecord_Copy_DeepIndependence(t *testing.T) {
 	cp := rec.Copy()
 
 	// mutate the original after copying
-	a.RecordStorageWrite(1, slotX, types.Hash{0x01})
+	a.RecordStorageWrite(1, slotX, Hash{0x01})
 	a.BalanceChanges[1].SetInt64(9999)
 	a.CodeChanges[1][0] = 0x00
 
@@ -162,14 +161,14 @@ func TestToEncodingObj_Sorting(t *testing.T) {
 	require.Equal(t, uint32(3), yWrites[1].BlockAccessIndex)
 }
 
-func fullEncodingObj(t *testing.T) BlockAccessList {
+func fullEncodingObj(t *testing.T) BlockAccessListEncoded {
 	t.Helper()
 
 	rec := NewBlockAccessListRecord()
 
 	a := rec.GetOrCreate(addrA)
 	a.RecordStorageWrite(1, slotX, valV)
-	a.RecordStorageWrite(2, slotX, types.Hash{0xee})
+	a.RecordStorageWrite(2, slotX, Hash{0xee})
 	a.RecordStorageRead(slotY)
 	a.RecordBalanceChange(1, big.NewInt(1_000_000))
 	a.RecordNonceChange(1, 7)
@@ -187,7 +186,7 @@ func TestBlockAccessList_RLPRoundTrip(t *testing.T) {
 	enc := fullEncodingObj(t)
 	data := enc.MarshalRLP()
 
-	var got BlockAccessList
+	var got BlockAccessListEncoded
 	require.NoError(t, got.UnmarshalRLP(data))
 
 	// byte-level round-trip is the robust check (avoids nil-vs-empty slice noise)
@@ -204,35 +203,21 @@ func TestBlockAccessList_RLPRoundTrip(t *testing.T) {
 func TestBlockAccessList_EmptyRLPRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	var empty BlockAccessList
+	var empty BlockAccessListEncoded
 	data := empty.MarshalRLP()
 
-	var got BlockAccessList
+	var got BlockAccessListEncoded
 	require.NoError(t, got.UnmarshalRLP(data))
 	require.Len(t, got, 0)
-}
-
-func TestBlockAccessList_Hash_Deterministic(t *testing.T) {
-	t.Parallel()
-
-	enc := fullEncodingObj(t)
-
-	require.Equal(t, enc.Hash(), enc.Copy().Hash(), "identical content -> identical hash")
-
-	// the canonical empty-list hash is stable across empty instances
-	require.Equal(t, BlockAccessList{}.Hash(), BlockAccessList(nil).Hash())
-
-	// a non-empty list must differ from the empty one
-	require.NotEqual(t, BlockAccessList{}.Hash(), enc.Hash())
 }
 
 func TestBlockAccessList_Validate_OK(t *testing.T) {
 	t.Parallel()
 
-	bl := BlockAccessList{
+	bl := BlockAccessListEncoded{
 		{
 			Address:      addrA,
-			StorageReads: []types.Hash{slotX},
+			StorageReads: []Hash{slotX},
 		},
 	}
 
@@ -242,7 +227,7 @@ func TestBlockAccessList_Validate_OK(t *testing.T) {
 func TestBlockAccessList_Validate_AccountsNotSorted(t *testing.T) {
 	t.Parallel()
 
-	bl := BlockAccessList{
+	bl := BlockAccessListEncoded{
 		{Address: addrB},
 		{Address: addrA}, // out of order
 	}
@@ -253,13 +238,13 @@ func TestBlockAccessList_Validate_AccountsNotSorted(t *testing.T) {
 func TestBlockAccessList_Validate_ReadWriteConflict(t *testing.T) {
 	t.Parallel()
 
-	bl := BlockAccessList{
+	bl := BlockAccessListEncoded{
 		{
 			Address: addrA,
-			StorageChanges: []SlotChanges{
-				{Slot: slotX, SlotChanges: []StorageWrite{{BlockAccessIndex: 1, PostValue: valV}}},
+			StorageChanges: []slotChanges{
+				{Slot: slotX, SlotChanges: []storageWrite{{TxIndex: 1, PostValue: valV}}},
 			},
-			StorageReads: []types.Hash{slotX}, // same slot appears as read AND write
+			StorageReads: []Hash{slotX}, // same slot appears as read AND write
 		},
 	}
 
@@ -272,10 +257,10 @@ func TestBlockAccessList_Validate_SizeLimitExceeded(t *testing.T) {
 
 	// one account (1 item) + one storage read (1 item) = 2 items.
 	// gasLimit 2000 / BALItemCost(2000) = limit 1 -> must fail.
-	bl := BlockAccessList{
+	bl := BlockAccessListEncoded{
 		{
 			Address:      addrA,
-			StorageReads: []types.Hash{slotX},
+			StorageReads: []Hash{slotX},
 		},
 	}
 
