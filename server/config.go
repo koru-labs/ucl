@@ -59,8 +59,6 @@ type Config struct {
 
 	MaxRequestBodySize int64
 
-	MaxGrpcMsgSize int
-
 	JSONRPCTimeout time.Duration
 
 	Relayer bool

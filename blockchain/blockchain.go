@@ -39,6 +39,7 @@ var (
 	ErrInvalidStateRoot     = errors.New("invalid block state root")
 	ErrInvalidGasUsed       = errors.New("invalid block gas used")
 	ErrInvalidReceiptsRoot  = errors.New("invalid block receipts root")
+	ErrInvalidBlockRlpSize  = errors.New("invalid block rlp size")
 )
 
 // Blockchain is a blockchain reference
@@ -649,6 +650,11 @@ func (b *Blockchain) verifyBlock(block *types.Block) ([]*types.Receipt, error) {
 	// Make sure the block is present
 	if block == nil {
 		return nil, ErrNoBlock
+	}
+
+	// Make sure rlp size of the block is within the limit
+	if block.Size() > types.MaxBlockRlpSize {
+		return nil, ErrInvalidBlockRlpSize
 	}
 
 	// Make sure the block is in line with the parent block

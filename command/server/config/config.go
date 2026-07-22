@@ -42,7 +42,6 @@ type Config struct {
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
 	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
-	MaxGrpcMsgSize           int           `json:"max_grpc_msg_size" yaml:"max_grpc_msg_size"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -136,9 +135,6 @@ const (
 
 	// JSON RPC request timeout
 	DefaultJSONRPCTimeout = 30 * time.Second
-
-	// Max grpc message size, applies to all grpc messages, e.g. blocks dispatched through the syncer
-	DefaultMaxGrpcMsgSize = 5 << 20 // 5 MiB
 )
 
 // DefaultConfig returns the default server configuration
@@ -193,7 +189,6 @@ func DefaultConfig() *Config {
 		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
 		EnableTxPoolEndpoints:    false,
 		EnableAllDebugEndpoints:  false,
-		MaxGrpcMsgSize:           DefaultMaxGrpcMsgSize,
 		WithTrieCaching:          true,
 	}
 }

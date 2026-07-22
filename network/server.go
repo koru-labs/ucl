@@ -467,11 +467,6 @@ func (s *Server) GetProtocols(peerID peer.ID) ([]string, error) {
 	return protocol.ConvertToStrings(protocols), nil
 }
 
-// GetMaxGrpcMsgSize returns max message size for the grpc protocol
-func (s *Server) GetMaxGrpcMsgSize() int {
-	return s.config.MaxGrpcMessageSize
-}
-
 // removePeer removes a peer from the networking server's peer list,
 // and updates relevant counters and metrics. It is called from the
 // disconnection callback of the libp2p network bundle (when the connection is closed)
@@ -614,7 +609,7 @@ func (s *Server) NewProtoConnection(protocol string, peerID peer.ID) (*rawGrpc.C
 		return nil, err
 	}
 
-	return p.Client(stream, s.config.MaxGrpcMessageSize)
+	return p.Client(stream)
 }
 
 func (s *Server) NewStream(proto string, id peer.ID) (network.Stream, error) {
@@ -622,7 +617,7 @@ func (s *Server) NewStream(proto string, id peer.ID) (network.Stream, error) {
 }
 
 type Protocol interface {
-	Client(network.Stream, int) (*rawGrpc.ClientConn, error)
+	Client(network.Stream) (*rawGrpc.ClientConn, error)
 	Handler() func(network.Stream)
 }
 
