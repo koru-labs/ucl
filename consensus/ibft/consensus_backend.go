@@ -464,6 +464,7 @@ func (i *backendIBFT) writeTransactions(
 	}()
 
 	i.txpool.Prepare()
+	i.buildBlockTxsRlpSize = 0
 
 write:
 	for {
