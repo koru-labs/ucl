@@ -71,6 +71,7 @@ const (
 
 	settlementMetricsFlag = "settlement-metrics"
 	withTrieCachingFlag   = "with-trie-caching"
+	withBaseFeeFixedFlag  = "with-base-fee-fixed"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -246,6 +247,7 @@ func (p *serverParams) generateConfig() *server.Config {
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 		WithTrieCaching:         p.rawConfig.WithTrieCaching,
+		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}

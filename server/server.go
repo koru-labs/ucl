@@ -366,6 +366,7 @@ func NewServer(config *Config) (*Server, error) {
 		nil,
 		m.executor,
 		signer,
+		config.WithBaseFeeFixed,
 	)
 	if err != nil {
 		return nil, err

@@ -77,6 +77,9 @@ type Config struct {
 	// Used to enable caching of tries in the state.
 	// This can improve performance but will increase memory usage.
 	WithTrieCaching bool
+
+	// Used to make base fee value constant through the blocks
+	WithBaseFeeFixed bool
 }
 
 // Telemetry holds the config details for metric services
