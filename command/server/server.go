@@ -364,6 +364,13 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().BoolVar(
+		&params.rawConfig.WithBaseFeeFixed,
+		withBaseFeeFixedFlag,
+		defaultConfig.WithBaseFeeFixed,
+		"keep base fee constant through the blocks",
+	)
+
+	cmd.Flags().BoolVar(
 		&params.rawConfig.Telemetry.SettlementMetrics,
 		settlementMetricsFlag,
 		false,

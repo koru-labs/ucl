@@ -81,6 +81,8 @@ type Blockchain struct {
 	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
 
 	settlementObserver func(delta []float64)
+
+	withBaseFeeFixed bool // is base fee value fixed?
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -199,6 +201,7 @@ func NewBlockchain(
 	consensus Verifier,
 	executor Executor,
 	txSigner TxSigner,
+	withBaseFeeFixed bool,
 ) (*Blockchain, error) {
 	b := &Blockchain{
 		logger:    logger.Named("blockchain"),
@@ -212,6 +215,7 @@ func NewBlockchain(
 			price: big.NewInt(0),
 			count: big.NewInt(0),
 		},
+		withBaseFeeFixed: withBaseFeeFixed,
 	}
 
 	if err := b.initCaches(defaultCacheSize); err != nil {
@@ -1438,7 +1442,7 @@ func (b *Blockchain) CalculateBaseFee(parent *types.Header) uint64 {
 	parentGasTarget := parent.GasLimit / b.config.Genesis.BaseFeeEM
 
 	// If the parent gasUsed is the same as the target, the baseFee remains unchanged.
-	if parent.GasUsed == parentGasTarget {
+	if parent.GasUsed == parentGasTarget || b.withBaseFeeFixed {
 		return parent.BaseFee
 	}
 

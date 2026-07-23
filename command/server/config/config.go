@@ -67,6 +67,9 @@ type Config struct {
 	// Used to enable caching of tries in the state.
 	// This can improve performance but will increase memory usage.
 	WithTrieCaching bool `json:"with_trie_caching" yaml:"with_trie_caching"`
+
+	// Used to make base fee value constant through the blocks
+	WithBaseFeeFixed bool `json:"with_base_fee_fixed" yaml:"with_base_fee_fixed"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -190,6 +193,7 @@ func DefaultConfig() *Config {
 		EnableTxPoolEndpoints:    false,
 		EnableAllDebugEndpoints:  false,
 		WithTrieCaching:          true,
+		WithBaseFeeFixed:         false,
 	}
 }
 
