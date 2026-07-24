@@ -295,7 +295,7 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, types.BlockAccessListEncoded, error) {
+func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, types.BlockAccessRecord, error) {
 	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
 	defer buildSpan.End()
 
@@ -315,7 +315,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	}
 
 	// finalBal is used to store the final block access list for the block, which will be returned to the caller.
-	var finalBAL types.BlockAccessListEncoded
+	var finalBAL types.BlockAccessRecord
 
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)

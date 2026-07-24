@@ -83,7 +83,7 @@ type Host interface {
 	GetRefund() uint64
 	GetTransientState(addr types.Address, key types.Hash) types.Hash        // transient storage (TLOAD)
 	SetTransientState(addr types.Address, key types.Hash, value types.Hash) // transient storage (TSTORE)
-	BlockAccessListRecorder() BlockAccessListRecorder
+	BlockAccessListRecorder() types.BlockAccessListRecorder
 }
 
 type VMTracer interface {

@@ -1593,7 +1593,7 @@ func (t *Transition) BlockAccessListRecorder() types.BlockAccessListRecorder {
 	return t.balRecorder
 }
 
-func (t *Transition) BlockAccessList() types.BlockAccessListEncoded {
+func (t *Transition) BlockAccessList() types.BlockAccessRecord {
 	return t.blockBAL
 }
 
@@ -1601,6 +1601,6 @@ func (t *Transition) SetBlockAccessListRecorder(recorder types.BlockAccessListRe
 	t.balRecorder = recorder
 }
 
-func (t *Transition) SetBlockAccessList(b types.BlockAccessListEncoded) {
+func (t *Transition) SetBlockAccessList(b types.BlockAccessRecord) {
 	t.blockBAL = b
 }

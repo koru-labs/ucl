@@ -106,7 +106,7 @@ type Block struct {
 	Header          *Header
 	Transactions    []*Transaction
 	Uncles          []*Header
-	BlockAccessList BlockAccessListEncoded
+	BlockAccessList BlockAccessRecord
 
 	// Cache
 	size atomic.Pointer[uint64]

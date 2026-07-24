@@ -139,7 +139,7 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	}
 
 	if len(elems) > 2 {
-		bBal := BlockAccessListEncoded{}
+		bBal := BlockAccessRecord{}
 
 		if err := bBal.unmarshalRLPFrom(p, elems[3]); err != nil {
 			return err

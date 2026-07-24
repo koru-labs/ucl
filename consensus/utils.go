@@ -10,7 +10,7 @@ type BuildBlockParams struct {
 	Header          *types.Header
 	Txns            []*types.Transaction
 	Receipts        []*types.Receipt
-	BlockAccessList types.BlockAccessListEncoded
+	BlockAccessList types.BlockAccessRecord
 }
 
 // BuildBlock is a utility function that builds a block, based on the passed in header, transactions and receipts

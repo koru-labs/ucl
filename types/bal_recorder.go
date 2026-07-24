@@ -5,15 +5,15 @@ import (
 )
 
 type BlockAccessListRecorderImpl struct {
-	bal   BlockAccessListRecord
+	bal   BlockAccessRuntime
 	index uint64
 }
 
-func NewBlockAccessListRecorder(b BlockAccessListRecord, index uint64) *BlockAccessListRecorderImpl {
+func NewBlockAccessListRecorder(b BlockAccessRuntime, index uint64) *BlockAccessListRecorderImpl {
 	return &BlockAccessListRecorderImpl{bal: b, index: index}
 }
 
-func (r *BlockAccessListRecorderImpl) getOrCreate(addr Address) *AccountAccessRecord {
+func (r *BlockAccessListRecorderImpl) getOrCreate(addr Address) *AccountAccessRuntime {
 	return r.bal.GetOrCreate(addr)
 }
 
@@ -22,7 +22,7 @@ func (r *BlockAccessListRecorderImpl) AccountRead(addr Address) {
 }
 
 func (r *BlockAccessListRecorderImpl) StorageWrite(addr Address, slot, val Hash) {
-	r.getOrCreate(addr).RecordStorageWrite(r.index, slot, val)
+	r.getOrCreate(addr).RecordStorageChange(r.index, slot, val)
 }
 
 func (r *BlockAccessListRecorderImpl) BalanceChange(addr Address, balance *big.Int) {
@@ -49,7 +49,7 @@ func (r *BlockAccessListRecorderImpl) GetIndex() uint64 {
 	return r.index
 }
 
-func (r *BlockAccessListRecorderImpl) GetBlockAccessListRecord() BlockAccessListRecord {
+func (r *BlockAccessListRecorderImpl) GetBlockAccessListRecord() BlockAccessRuntime {
 	return r.bal
 }
 
@@ -63,18 +63,18 @@ type BlockAccessListRecorder interface {
 	CodeChange(addr Address, code []byte)
 	Merge(balRecorder BlockAccessListRecorder)
 	GetIndex() uint64
-	GetBlockAccessListRecord() BlockAccessListRecord
+	GetBlockAccessListRecord() BlockAccessRuntime
 }
 
 // NoopBALRecorder is used for blocks prior to the BAL fork activation, so
 // opcode handlers never need fork-awareness.
 type NoopBALRecorder struct{}
 
-func (NoopBALRecorder) AccountRead(Address)                             {}
-func (NoopBALRecorder) StorageWrite(Address, Hash, Hash)                {}
-func (NoopBALRecorder) BalanceChange(Address, *big.Int)                 {}
-func (NoopBALRecorder) NonceChange(Address, uint64)                     {}
-func (NoopBALRecorder) CodeChange(Address, []byte)                      {}
-func (NoopBALRecorder) Merge(BlockAccessListRecorderImpl)               {}
-func (NoopBALRecorder) GetIndex() uint64                                { return 0 }
-func (NoopBALRecorder) GetBlockAccessListRecord() BlockAccessListRecord { return nil }
+func (NoopBALRecorder) AccountRead(Address)                          {}
+func (NoopBALRecorder) StorageWrite(Address, Hash, Hash)             {}
+func (NoopBALRecorder) BalanceChange(Address, *big.Int)              {}
+func (NoopBALRecorder) NonceChange(Address, uint64)                  {}
+func (NoopBALRecorder) CodeChange(Address, []byte)                   {}
+func (NoopBALRecorder) Merge(BlockAccessListRecorderImpl)            {}
+func (NoopBALRecorder) GetIndex() uint64                             { return 0 }
+func (NoopBALRecorder) GetBlockAccessListRecord() BlockAccessRuntime { return nil }

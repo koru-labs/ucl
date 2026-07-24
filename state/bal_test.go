@@ -11,7 +11,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/0xPolygon/polygon-edge/state/runtime/precompiled"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )

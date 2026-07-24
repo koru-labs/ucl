@@ -7,17 +7,17 @@ import (
 	"github.com/umbracle/fastrlp"
 )
 
-func (b *BlockAccessListEncoded) UnmarshalRLP(input []byte) error {
+func (b *BlockAccessRecord) UnmarshalRLP(input []byte) error {
 	return UnmarshalRlp(b.unmarshalRLPFrom, input)
 }
 
-func (b *BlockAccessListEncoded) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (b *BlockAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
 	}
 
-	accounts := make([]accountAccessEncoded, len(elems))
+	accounts := make([]accountAccessRecord, len(elems))
 	for i, elem := range elems {
 		if err := accounts[i].unmarshalRLPFrom(p, elem); err != nil {
 			return err
@@ -29,11 +29,11 @@ func (b *BlockAccessListEncoded) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.
 	return nil
 }
 
-func (aa *accountAccessEncoded) UnmarshalRLP(input []byte) error {
+func (aa *accountAccessRecord) UnmarshalRLP(input []byte) error {
 	return UnmarshalRlp(aa.unmarshalRLPFrom, input)
 }
 
-func (aa *accountAccessEncoded) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (aa *accountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (aa *accountAccessEncoded) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.V
 		return err
 	}
 
-	aa.StorageChanges = make([]slotChanges, len(scElems))
+	aa.StorageChanges = make([]storageChange, len(scElems))
 	for i, scElem := range scElems {
 		if err = aa.StorageChanges[i].unmarshalRLPFrom(p, scElem); err != nil {
 			return err
@@ -98,7 +98,7 @@ func (aa *accountAccessEncoded) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.V
 	return nil
 }
 
-func (sc *slotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (sc *storageChange) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (sc *slotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) err
 		return err
 	}
 
-	sc.SlotChanges = make([]storageWrite, len(writeElems))
+	sc.SlotChanges = make([]slotChange, len(writeElems))
 	for i, we := range writeElems {
 		if err = sc.SlotChanges[i].unmarshalRLPFrom(p, we); err != nil {
 			return err
@@ -127,7 +127,7 @@ func (sc *slotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) err
 	return nil
 }
 
-func (sw *storageWrite) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
+func (sw *slotChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
@@ -143,7 +143,7 @@ func (sw *storageWrite) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) er
 	}
 	sw.TxIndex = id
 
-	return elems[1].GetHash(sw.PostValue[:])
+	return elems[1].GetHash(sw.Value[:])
 }
 
 func (bc *balanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
@@ -162,9 +162,9 @@ func (bc *balanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) e
 	}
 	bc.TxIndex = id
 
-	bc.PostBalance = new(big.Int)
+	bc.Balance = new(big.Int)
 
-	return elems[1].GetBigInt(bc.PostBalance)
+	return elems[1].GetBigInt(bc.Balance)
 }
 
 func (nc *nonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
@@ -183,7 +183,7 @@ func (nc *nonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) err
 	}
 	nc.TxIndex = id
 
-	nc.PostNonce, err = elems[1].GetUint64()
+	nc.Nonce, err = elems[1].GetUint64()
 
 	return err
 }
@@ -204,7 +204,7 @@ func (cc *codeChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	}
 	cc.TxIndex = id
 
-	cc.NewCode, err = elems[1].GetBytes(cc.NewCode[:0])
+	cc.Code, err = elems[1].GetBytes(cc.Code[:0])
 
 	return err
 }
