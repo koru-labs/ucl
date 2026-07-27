@@ -166,7 +166,7 @@ func (e *Executor) ProcessBlock(
 
 	if e.GetTxDependencyHook != nil && workersCnt > 1 {
 		txDependency := e.GetTxDependencyHook(block.Header)
-		if len(txDependency) > 0 {
+		if e.areTxDependenciesGood(txDependency, len(block.Transactions)) {
 			exc := NewTxDependancyExecutor(workersCnt, e.logger)
 			txp := NewTxDependancyPool(block.Transactions, txDependency)
 
@@ -300,6 +300,34 @@ func (e *Executor) BeginTxnWithCustomTxn(
 	}
 
 	return txn, nil
+}
+
+func (e *Executor) areTxDependenciesGood(txDependancy [][]uint64, txsLen int) bool {
+	if len(txDependancy) == 0 || txsLen <= 1 {
+		return false
+	}
+
+	if ln := len(txDependancy); ln != txsLen {
+		e.logger.Error("TxDependency length from header is invalid", "value", ln, "expected", txsLen)
+
+		return false
+	}
+
+	for i, deps := range txDependancy {
+		for _, d := range deps {
+			if d == uint64(i) {
+				e.logger.Error("TxDependency tx depends on itself", "indx", i)
+
+				return false
+			} else if d > uint64(i) {
+				e.logger.Error("TxDependency tx depends on tx with greater index", "indx", i, "other", d)
+
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 type Transition struct {

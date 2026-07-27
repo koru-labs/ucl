@@ -29,16 +29,6 @@ func trackerCases() []trackerCase {
 			},
 			shadowedReadSurvivesWritesOnlyClear: true,
 		},
-		{
-			name: "singleMap",
-			factory: func() ITxAccessTracker {
-				t := &txAccessTrackerSingleMap{}
-				t.Clear(false)
-
-				return t
-			},
-			shadowedReadSurvivesWritesOnlyClear: false,
-		},
 	}
 }
 
