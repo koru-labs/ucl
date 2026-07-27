@@ -13,11 +13,82 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/0xPolygon/polygon-edge/chain"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 )
+
+type ITransitionTxn interface {
+	// Account
+	GetAccount(addr types.Address) (*Account, bool)
+	CreateAccount(addr types.Address)
+	TouchAccount(addr types.Address)
+	Exist(addr types.Address) bool
+	Empty(addr types.Address) bool
+
+	// Balance
+	GetBalance(addr types.Address) *big.Int
+	AddBalance(addr types.Address, amount *big.Int)
+	AddBalanceDoNotTrack(addr types.Address, amount *big.Int)
+	SubBalance(addr types.Address, amount *big.Int) error
+	SetBalance(addr types.Address, balance *big.Int)
+
+	// Nonce
+	GetNonce(addr types.Address) uint64
+	SetNonce(addr types.Address, nonce uint64)
+	IncrNonce(addr types.Address) error
+
+	// Code
+	GetCode(addr types.Address) []byte
+	GetCodeHash(addr types.Address) types.Hash
+	GetCodeSize(addr types.Address) int
+	SetCode(addr types.Address, code []byte)
+
+	// Storage
+	GetState(addr types.Address, key types.Hash) types.Hash
+	SetState(addr types.Address, key, value types.Hash)
+	SetStorage(addr types.Address, key types.Hash, value types.Hash, config *chain.ForksInTime) runtime.StorageStatus
+	GetStorageRoot(addr types.Address) types.Hash
+	SetFullStorage(addr types.Address, state map[types.Hash]types.Hash)
+
+	// Suicide
+	Suicide(addr types.Address) bool
+	HasSuicided(addr types.Address) bool
+
+	// Refund
+	GetRefund() uint64
+	AddRefund(gas uint64)
+	AddSealingReward(addr types.Address, balance *big.Int)
+
+	// Logs
+	Logs() []*types.Log
+	EmitLog(addr types.Address, topics []types.Hash, data []byte)
+
+	// Transient storage (EIP-1153)
+	GetTransientState(addr types.Address, slot types.Hash) types.Hash
+	SetTransientState(addr types.Address, slot types.Hash, value types.Hash)
+
+	// Snapshots
+	Snapshot() int
+	RevertToSnapshot(id int) error
+
+	// Lifecycle
+	ClearLocalChanges()
+	CleanRadixObjects() error
+	Commit(deleteEmptyObjects bool) ([]*Object, error)
+
+	// Access tracking (block-STM)
+	ClearAccessTracker(writesOnly bool)
+	GetReadWriteSet(txIndx int) TxReadWriteSet
+
+	// Debug / RPC helpers
+	GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error)
+	StorageRangeAt(storageRangeResult *StorageRangeResult, addr *types.Address, keyStart []byte, maxResult int) error
+
+	PopulateBlockRadix() error
+	SetCurrentTxContext(txContext TxWithIndex)
+	AddPendingBalances()
+}
 
 var emptyStateHash = types.StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 
@@ -70,11 +141,15 @@ func (txn *Txn) GetRadix() *iradix.Txn {
 	return txn.txn
 }
 
-func (txn *Txn) clearAccessTracker(writesOnly bool) {
+func (txn *Txn) ClearLocalChanges() {
+	txn.snapshots = []*iradix.Tree{}
+}
+
+func (txn *Txn) ClearAccessTracker(writesOnly bool) {
 	txn.accessTracker.Clear(writesOnly)
 }
 
-func (txn *Txn) getReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
+func (txn *Txn) GetReadWriteSet(txIndx int) TxReadWriteSet {
 	return txn.accessTracker.GetReadWriteSet(txIndx)
 }
 
@@ -148,7 +223,7 @@ func (txn *Txn) GetTransientState(addr types.Address, slot types.Hash) types.Has
 
 // GetDumpTree function returns accounts based on the selected criteria.
 func (txn *Txn) GetDumpTree(dumpObject *Dump, opts *DumpInfo, deleteEmptyObjects bool) ([]byte, error) {
-	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
+	if err := cleanDeleteObjects(txn.txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
@@ -304,31 +379,7 @@ func (txn *Txn) GetAccount(addr types.Address) (*Account, bool) {
 }
 
 func (txn *Txn) getStateObject(addr types.Address) (*StateObject, bool) {
-	// Try to get state from radix tree which holds transient states during block processing first
-	val, exists := txn.txn.Get(addr.Bytes())
-	if exists {
-		obj := val.(*StateObject) //nolint:forcetypeassert
-		if obj.Deleted {
-			return nil, false
-		}
-
-		return obj.Copy(), true
-	}
-
-	account, err := txn.snapshot.GetAccount(addr)
-	if err != nil {
-		return nil, false
-	}
-
-	if account == nil {
-		return nil, false
-	}
-
-	obj := &StateObject{
-		Account: account.Copy(),
-	}
-
-	return obj, true
+	return getStateObject(txn.txn, txn.snapshot, addr, true)
 }
 
 func (txn *Txn) upsertAccount(addr types.Address, create bool, f func(object *StateObject)) {
@@ -360,7 +411,7 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 			object.Account.Balance.Add(object.Account.Balance, balance)
 		}
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
+		txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 	})
 }
 
@@ -370,7 +421,7 @@ func (txn *Txn) AddBalance(addr types.Address, amount *big.Int) {
 		object.Account.Balance.Add(object.Account.Balance, amount)
 
 		if amount.Sign() > 0 {
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
+			txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 		}
 	})
 }
@@ -389,16 +440,17 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 		return nil
 	}
 
-	// Check if we have enough balance to deduce amount from
-	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
+	object, exists := txn.getStateObject(addr)
+	if !exists || object.Account.Balance.Cmp(amount) < 0 {
+		txn.accessTracker.AddWrite(addr, BalancePath, big.NewInt(0))
+
 		return runtime.ErrNotEnoughFunds
 	}
 
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Sub(object.Account.Balance, amount)
+	object.Account.Balance.Sub(object.Account.Balance, amount)
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, new(big.Int).Set(object.Account.Balance))
-	})
+	txn.txn.Insert(addr.Bytes(), object)
+	txn.accessTracker.AddWrite(addr, BalancePath, new(big.Int).Set(object.Account.Balance))
 
 	return nil
 }
@@ -409,13 +461,15 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 		object.Account.Balance.SetBytes(balance.Bytes())
 
 		if object.Account.Balance.Cmp(balance) != 0 {
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, BalancePath, balance)
+			txn.accessTracker.AddWrite(addr, BalancePath, balance)
 		}
 	})
 }
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	txn.accessTracker.AddRead(addr, BalancePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -445,8 +499,6 @@ func (txn *Txn) EmitLog(addr types.Address, topics []types.Hash, data []byte) {
 	txn.txn.Insert(logIndex, logs)
 }
 
-// State
-
 // SetStorage sets the storage of an address
 func (txn *Txn) SetStorage(
 	addr types.Address,
@@ -454,75 +506,7 @@ func (txn *Txn) SetStorage(
 	value types.Hash,
 	config *chain.ForksInTime,
 ) runtime.StorageStatus {
-	oldValue := txn.GetState(addr, key)
-	if oldValue == value {
-		return runtime.StorageUnchanged
-	}
-
-	current := oldValue                          // current - storage dirtied by previous lines of this contract
-	original := txn.GetCommittedState(addr, key) // storage slot before this transaction started
-
-	txn.SetState(addr, key, value)
-
-	legacyGasMetering := !config.Istanbul && (config.Petersburg || !config.Constantinople)
-
-	if legacyGasMetering {
-		if oldValue == types.ZeroHash {
-			return runtime.StorageAdded
-		} else if value == types.ZeroHash {
-			txn.AddRefund(15000)
-
-			return runtime.StorageDeleted
-		}
-
-		return runtime.StorageModified
-	}
-
-	clearingRefund := DefaultClearingRefund
-	if config.London {
-		clearingRefund = LondonClearingRefund
-	}
-
-	if original == current {
-		if original == types.ZeroHash { // create slot (2.1.1)
-			return runtime.StorageAdded
-		}
-
-		if value == types.ZeroHash { // delete slot (2.1.2b)
-			txn.AddRefund(clearingRefund)
-
-			return runtime.StorageDeleted
-		}
-
-		return runtime.StorageModified
-	}
-
-	if original != types.ZeroHash { // Storage slot was populated before this transaction started
-		if current == types.ZeroHash { // recreate slot (2.2.1.1)
-			txn.SubRefund(clearingRefund)
-		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
-			txn.AddRefund(clearingRefund)
-		}
-	}
-
-	if original == value {
-		if original == types.ZeroHash { // reset to original nonexistent slot (2.2.2.1)
-			// Storage was used as memory (allocation and deallocation occurred within the same contract)
-			if config.Istanbul {
-				txn.AddRefund(19200)
-			} else {
-				txn.AddRefund(19800)
-			}
-		} else { // reset to original existing slot (2.2.2.2)
-			if config.Istanbul {
-				txn.AddRefund(4200)
-			} else {
-				txn.AddRefund(4800)
-			}
-		}
-	}
-
-	return runtime.StorageModifiedAgain
+	return setStorage(txn, addr, key, value, config)
 }
 
 // SetState change the state of an address
@@ -543,36 +527,15 @@ func (txn *Txn) SetState(
 		}
 	})
 
-	txn.accessTracker.AddWrite(addr, key, 0, value)
+	// explicit storage key: slot zero must not collide with account-level (address/subpath) keys
+	txn.accessTracker.AddStorageWrite(addr, key, value)
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
-	txn.accessTracker.AddRead(addr, key, 0)
+	txn.accessTracker.AddStorageRead(addr, key)
 
-	object, exists := txn.getStateObject(addr)
-	if !exists {
-		return types.Hash{}
-	}
-
-	// Try to get account state from radix tree first
-	// Because the latest account state should be in in-memory radix tree
-	// if account state update happened in previous transactions of same block
-	if object.Txn != nil {
-		if val, ok := object.Txn.Get(key.Bytes()); ok {
-			if val == nil {
-				return types.Hash{}
-			}
-			//nolint:forcetypeassert
-			return types.BytesToHash(val.([]byte))
-		}
-	}
-
-	if object.withFakeStorage {
-		return types.Hash{}
-	}
-
-	return txn.snapshot.GetStorage(addr, object.Account.Root, key)
+	return getState(txn.txn, txn.snapshot, addr, key, true)
 }
 
 // Nonce
@@ -590,7 +553,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 
 		object.Account.Nonce++
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, object.Account.Nonce+1)
+		txn.accessTracker.AddWrite(addr, NoncePath, object.Account.Nonce+1)
 	})
 
 	return err
@@ -601,12 +564,14 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		object.Account.Nonce = nonce
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, NoncePath, nonce)
+		txn.accessTracker.AddWrite(addr, NoncePath, nonce)
 	})
 }
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	txn.accessTracker.AddRead(addr, NoncePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -624,7 +589,7 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 		object.DirtyCode = true
 		object.Code = code
 
-		txn.accessTracker.AddWrite(addr, types.ZeroHash, CodePath, code)
+		txn.accessTracker.AddWrite(addr, CodePath, code)
 	})
 }
 
@@ -641,6 +606,8 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -672,10 +639,14 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 }
 
 func (txn *Txn) GetCodeSize(addr types.Address) int {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	return len(txn.GetCode(addr))
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	txn.accessTracker.AddRead(addr, CodePath)
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -700,7 +671,9 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		if suicided {
 			object.Account.Balance = new(big.Int)
 
-			txn.accessTracker.AddWrite(addr, types.ZeroHash, SuicidePath, true)
+			// account destruction is a lifecycle write: it wipes balance/nonce/code, so it must
+			// conflict with any later access to those fields, not just an explicit suicide check
+			txn.accessTracker.AddWrite(addr, SuicidePath, true)
 		}
 	})
 
@@ -826,16 +799,75 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	// should this add all subpaths too? for now we will just mark address as write access
-	txn.accessTracker.AddWrite(addr, types.ZeroHash, FullPath, true)
+	txn.accessTracker.AddWrite(addr, FullPath, true)
 
 	txn.txn.Insert(addr.Bytes(), obj)
 }
 
+func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
+	return commitTxn(txn.txn, deleteEmptyObjects)
+}
+
+func (txn *Txn) PopulateBlockRadix() error {
+	return nil
+}
+
+func (txn *Txn) SetCurrentTxContext(txContext TxWithIndex) {
+}
+
+func (txn *Txn) AddPendingBalances() {
+}
+
+// CleanRadixObjects cleans suicided accounts, transient storage, refund index
+func (txn *Txn) CleanRadixObjects() error {
+	// clean suicided accounts
+	for addr := range txn.sucidedAddrs {
+		v, ok := txn.txn.Get(addr.Bytes())
+		if !ok {
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
+		}
+
+		obj, ok := v.(*StateObject)
+		if !ok {
+			return errors.New("found object is not of StateObject type")
+		}
+
+		if obj.Suicide {
+			obj2 := obj.Copy(true)
+			obj2.Deleted = true
+			txn.txn.Insert(addr.Bytes(), obj2)
+		}
+	}
+
+	// clean transient storage
+	for keyStr := range txn.transientKeys {
+		key := []byte(keyStr)
+
+		_, ok := txn.txn.Get(key)
+		if !ok {
+			// the write was rolled back (reverted tx); nothing to inspect
+			continue
+		}
+
+		txn.txn.Delete(key)
+	}
+
+	// clean refunds
+	txn.txn.Delete(refundIndex)
+
+	// clear the tracking maps
+	clear(txn.sucidedAddrs)
+	clear(txn.transientKeys)
+
+	return nil
+}
+
 // cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix
-func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
+func cleanDeleteObjects(txn *iradix.Txn, deleteEmptyObjects bool) error {
 	remove := [][]byte{}
 
-	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
+	txn.Root().Walk(func(k []byte, v interface{}) bool {
 		a, ok := v.(*StateObject)
 		if !ok {
 			return false
@@ -849,7 +881,7 @@ func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
 	})
 
 	for _, k := range remove {
-		v, ok := txn.txn.Get(k)
+		v, ok := txn.Get(k)
 		if !ok {
 			return fmt.Errorf("failed to retrieve value for %s key", string(k))
 		}
@@ -859,23 +891,23 @@ func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
 			return errors.New("found object is not of StateObject type")
 		}
 
-		obj2 := obj.Copy()
+		obj2 := obj.Copy(true)
 		obj2.Deleted = true
-		txn.txn.Insert(k, obj2)
+		txn.Insert(k, obj2)
 	}
 
 	// delete refunds
-	txn.txn.Delete(refundIndex)
+	txn.Delete(refundIndex)
 
 	return nil
 }
 
-func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
-	if err := txn.cleanDeleteObjects(deleteEmptyObjects); err != nil {
+func commitTxn(txn *iradix.Txn, deleteEmptyObjects bool) ([]*Object, error) {
+	if err := cleanDeleteObjects(txn, deleteEmptyObjects); err != nil {
 		return nil, err
 	}
 
-	x := txn.txn.Commit()
+	x := txn.Commit()
 
 	// Do a more complex thing for now
 	objs := []*Object{}
@@ -921,47 +953,140 @@ func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {
 	return objs, nil
 }
 
-// CleanRadixObjects cleans suicided accounts, transient storage, refund index
-func (txn *Txn) CleanRadixObjects() error {
-	// clean suicided accounts
-	for addr := range txn.sucidedAddrs {
-		v, ok := txn.txn.Get(addr.Bytes())
-		if !ok {
-			// the write was rolled back (reverted tx); nothing to inspect
-			continue
+type storageRefunder interface {
+	GetState(addr types.Address, key types.Hash) types.Hash
+	GetCommittedState(addr types.Address, key types.Hash) types.Hash
+	SetState(addr types.Address, key, value types.Hash)
+	AddRefund(gas uint64)
+	SubRefund(gas uint64)
+}
+
+func setStorage(
+	s storageRefunder, addr types.Address, key, value types.Hash, config *chain.ForksInTime,
+) runtime.StorageStatus {
+	oldValue := s.GetState(addr, key)
+	if oldValue == value {
+		return runtime.StorageUnchanged
+	}
+
+	current := oldValue                        // current - storage dirtied by previous lines of this contract
+	original := s.GetCommittedState(addr, key) // storage slot before this transaction started
+
+	s.SetState(addr, key, value)
+
+	legacyGasMetering := !config.Istanbul && (config.Petersburg || !config.Constantinople)
+
+	if legacyGasMetering {
+		if oldValue == types.ZeroHash {
+			return runtime.StorageAdded
+		} else if value == types.ZeroHash {
+			s.AddRefund(15000)
+
+			return runtime.StorageDeleted
 		}
 
-		obj, ok := v.(*StateObject)
-		if !ok {
-			return errors.New("found object is not of StateObject type")
+		return runtime.StorageModified
+	}
+
+	clearingRefund := DefaultClearingRefund
+	if config.London {
+		clearingRefund = LondonClearingRefund
+	}
+
+	if original == current {
+		if original == types.ZeroHash { // create slot (2.1.1)
+			return runtime.StorageAdded
 		}
 
-		if obj.Suicide {
-			obj2 := obj.Copy()
-			obj2.Deleted = true
-			txn.txn.Insert(addr.Bytes(), obj2)
+		if value == types.ZeroHash { // delete slot (2.1.2b)
+			s.AddRefund(clearingRefund)
+
+			return runtime.StorageDeleted
+		}
+
+		return runtime.StorageModified
+	}
+
+	if original != types.ZeroHash { // Storage slot was populated before this transaction started
+		if current == types.ZeroHash { // recreate slot (2.2.1.1)
+			s.SubRefund(clearingRefund)
+		} else if value == types.ZeroHash { // delete slot (2.2.1.2)
+			s.AddRefund(clearingRefund)
 		}
 	}
 
-	// clean transient storage
-	for keyStr := range txn.transientKeys {
-		key := []byte(keyStr)
-
-		_, ok := txn.txn.Get(key)
-		if !ok {
-			// the write was rolled back (reverted tx); nothing to inspect
-			continue
+	if original == value {
+		if original == types.ZeroHash { // reset to original nonexistent slot (2.2.2.1)
+			// Storage was used as memory (allocation and deallocation occurred within the same contract)
+			if config.Istanbul {
+				s.AddRefund(19200)
+			} else {
+				s.AddRefund(19800)
+			}
+		} else { // reset to original existing slot (2.2.2.2)
+			if config.Istanbul {
+				s.AddRefund(4200)
+			} else {
+				s.AddRefund(4800)
+			}
 		}
-
-		txn.txn.Delete(key)
 	}
 
-	// clean refunds
-	txn.txn.Delete(refundIndex)
+	return runtime.StorageModifiedAgain
+}
 
-	// clear the tracking maps
-	clear(txn.sucidedAddrs)
-	clear(txn.transientKeys)
+func getStateObject(
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, copyWithTxn bool,
+) (*StateObject, bool) {
+	// Try to get state from radix tree which holds transient states during block processing first
+	val, exists := txn.Get(addr.Bytes())
+	if exists {
+		obj := val.(*StateObject) //nolint:forcetypeassert
+		if obj.Deleted {
+			return nil, false
+		}
 
-	return nil
+		return obj.Copy(copyWithTxn), true
+	}
+
+	account, err := snapshot.GetAccount(addr)
+	if err != nil {
+		return nil, false
+	}
+
+	if account == nil {
+		return nil, false
+	}
+
+	return &StateObject{
+		Account: account.Copy(),
+	}, true
+}
+
+func getState(
+	txn *iradix.Txn, snapshot readSnapshot, addr types.Address, key types.Hash, copyWithTxn bool,
+) types.Hash {
+	object, exists := getStateObject(txn, snapshot, addr, copyWithTxn)
+	if !exists {
+		return types.Hash{}
+	}
+
+	// Try to get account state from radix tree first
+	// Because the latest account state should be in in-memory radix tree
+	// if account state update happened in previous transactions of same block
+	if object.Txn != nil {
+		if val, ok := object.Txn.Get(key.Bytes()); ok {
+			if val == nil {
+				return types.Hash{}
+			}
+			//nolint:forcetypeassert
+			return types.BytesToHash(val.([]byte))
+		}
+	}
+
+	if object.withFakeStorage {
+		return types.Hash{}
+	}
+
+	return snapshot.GetStorage(addr, object.Account.Root, key)
 }

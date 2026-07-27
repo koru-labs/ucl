@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	goruntime "runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
-	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	"github.com/0xPolygon/polygon-edge/contracts"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
@@ -43,9 +43,10 @@ type Executor struct {
 	state   State
 	GetHash GetHashByNumberHelper
 
-	PostHook         func(txn *Transition)
-	GenesisPostHook  func(*Transition) error
-	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
+	PostHook            func(txn *Transition)
+	GenesisPostHook     func(*Transition) error
+	GetPendingTxHook    func(types.Hash) (*types.Transaction, bool)
+	GetTxDependencyHook func(*types.Header) [][]uint64
 }
 
 // NewExecutor creates a new executor
@@ -72,12 +73,14 @@ func (e *Executor) WriteGenesis(
 		ChainID: e.config.ChainID,
 	}
 
+	gasLimit := uint64(env.GasLimit)
+
 	transition := &Transition{
 		logger:      e.logger,
 		ctx:         env,
 		state:       txn,
 		auxState:    e.state,
-		gasPool:     uint64(env.GasLimit),
+		gasPool:     &gasLimit,
 		config:      config,
 		precompiles: precompiled.NewPrecompiled(),
 	}
@@ -159,6 +162,21 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, []*types.Receipt, error) {
+	workersCnt := e.config.WorkersPerVerifier
+	if workersCnt == 0 {
+		workersCnt = goruntime.NumCPU()
+	}
+
+	if e.GetTxDependencyHook != nil && workersCnt > 1 {
+		txDependency := e.GetTxDependencyHook(block.Header)
+		if e.areTxDependenciesGood(txDependency, len(block.Transactions)) {
+			exc := NewTxDependancyExecutor(workersCnt, e.logger)
+			txp := NewTxDependancyPool(block.Transactions, txDependency)
+
+			return exc.Execute(txp, e, parentRoot, block.Header, blockCreator)
+		}
+	}
+
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
 		return nil, nil, err
@@ -193,19 +211,30 @@ func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
 }
 
+// SetWorkersPerVerifier is used only for testing
+func (e *Executor) SetWorkersPerVerifier(workersCnt int) {
+	e.config.WorkersPerVerifier = workersCnt
+}
+
 func (e *Executor) BeginTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
 ) (*Transition, error) {
-	return e.BeginTxnWithTxAccessTracker(parentRoot, header, coinbaseReceiver, TxAccessTrackerFactory(true))
+	gasLimit := new(uint64)
+	*gasLimit = header.GasLimit
+
+	return e.BeginTxnWithCustomTxn(parentRoot, header, coinbaseReceiver, gasLimit, func(s Snapshot) ITransitionTxn {
+		return newTxnWithTxAccessTracker(s, TxAccessTrackerFactory(true))
+	})
 }
 
-func (e *Executor) BeginTxnWithTxAccessTracker(
+func (e *Executor) BeginTxnWithCustomTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
-	txAccessTracker ITxAccessTracker,
+	gasLimit *uint64,
+	txnFactory func(Snapshot) ITransitionTxn,
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
@@ -222,15 +251,13 @@ func (e *Executor) BeginTxnWithTxAccessTracker(
 		}
 	}
 
-	newTxn := NewTxnWithTxAccessTracker(auxSnap2, txAccessTracker)
-
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
 		Timestamp:    int64(header.Timestamp),
 		Number:       int64(header.Number),
 		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
 		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
-		GasLimit:     int64(header.GasLimit),
+		GasLimit:     int64(*gasLimit),
 		ChainID:      e.config.ChainID,
 		BurnContract: burnContract,
 	}
@@ -238,12 +265,12 @@ func (e *Executor) BeginTxnWithTxAccessTracker(
 	txn := &Transition{
 		logger:   e.logger,
 		ctx:      txCtx,
-		state:    newTxn,
+		state:    txnFactory(auxSnap2),
 		snap:     auxSnap2,
 		getHash:  e.GetHash(header),
 		auxState: e.state,
 		config:   forkConfig,
-		gasPool:  uint64(txCtx.GasLimit),
+		gasPool:  gasLimit,
 
 		totalGas: 0,
 
@@ -282,6 +309,34 @@ func (e *Executor) BeginTxnWithTxAccessTracker(
 	return txn, nil
 }
 
+func (e *Executor) areTxDependenciesGood(txDependancy [][]uint64, txsLen int) bool {
+	if len(txDependancy) == 0 || txsLen <= 1 {
+		return false
+	}
+
+	if ln := len(txDependancy); ln != txsLen {
+		e.logger.Error("TxDependency length from header is invalid", "value", ln, "expected", txsLen)
+
+		return false
+	}
+
+	for i, deps := range txDependancy {
+		for _, d := range deps {
+			if d == uint64(i) {
+				e.logger.Error("TxDependency tx depends on itself", "indx", i)
+
+				return false
+			} else if d > uint64(i) {
+				e.logger.Error("TxDependency tx depends on tx with greater index", "indx", i, "other", d)
+
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 type Transition struct {
 	logger hclog.Logger
 
@@ -290,10 +345,10 @@ type Transition struct {
 	snap     Snapshot
 
 	config  chain.ForksInTime
-	state   *Txn
+	state   ITransitionTxn
 	getHash GetHashByNumber
 	ctx     runtime.TxContext
-	gasPool uint64
+	gasPool *uint64
 
 	// result
 	totalGas uint64
@@ -373,6 +428,11 @@ func (t *Transition) TotalGas() uint64 {
 	return t.totalGas
 }
 
+// SetTotalGas is used only for parallel verifiers
+func (t *Transition) SetTotalGas(totalGas uint64) {
+	t.totalGas = totalGas
+}
+
 var emptyFrom = types.Address{}
 
 // Write writes another transaction to the executor
@@ -450,20 +510,25 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 }
 
 func (t *Transition) subGasPool(amount uint64) error {
-	if t.gasPool < amount {
-		return ErrBlockLimitReached
+	for {
+		current := atomic.LoadUint64(t.gasPool)
+		if current < amount {
+			return ErrBlockLimitReached
+		}
+
+		if atomic.CompareAndSwapUint64(t.gasPool, current, current-amount) {
+			return nil
+		}
+
+		// Another goroutine could modified t.gasPool -> in that case do retry
 	}
-
-	t.gasPool -= amount
-
-	return nil
 }
 
 func (t *Transition) addGasPool(amount uint64) {
-	t.gasPool += amount
+	atomic.AddUint64(t.gasPool, amount)
 }
 
-func (t *Transition) Txn() *Txn {
+func (t *Transition) Txn() ITransitionTxn {
 	return t.state
 }
 
@@ -486,14 +551,13 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	t.state.snapshots = []*iradix.Tree{}
-
+	t.state.ClearLocalChanges()
 	s := t.state.Snapshot()
-	t.state.clearAccessTracker(false)
+	t.state.ClearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
-		t.state.clearAccessTracker(true) // clear writes if tx has been reverted
+		t.state.ClearAccessTracker(true) // clear writes if tx has been reverted
 
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
@@ -507,8 +571,12 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	return result, err
 }
 
-func (t *Transition) GetTxReadWriteSet(txIndx int) blockstm.TxReadWriteSet {
-	return t.state.getReadWriteSet(txIndx)
+func (t *Transition) GetTxReadWriteSet(txIndx int) TxReadWriteSet {
+	return t.state.GetReadWriteSet(txIndx)
+}
+
+func (t *Transition) SetCurrentTxContext(txContext TxWithIndex) {
+	t.state.SetCurrentTxContext(txContext)
 }
 
 // ContextPtr returns reference of context
@@ -1391,4 +1459,12 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
+}
+
+func (txn *Transition) PopulateBlockRadix() error {
+	return txn.state.PopulateBlockRadix()
+}
+
+func (txn *Transition) AddPendingBalances() {
+	txn.state.AddPendingBalances()
 }

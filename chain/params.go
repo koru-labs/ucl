@@ -32,6 +32,8 @@ type Params struct {
 	BurnContract map[uint64]types.Address `json:"burnContract"`
 	// Destination address to initialize default burn contract with
 	BurnContractDestinationAddress types.Address `json:"burnContractDestinationAddress,omitempty"`
+	// WorkersPerVerifier is the parallel verifier's worker count (0 = GOMAXPROCS, 1 = sequential)
+	WorkersPerVerifier int `json:"workersPerVerifier,omitempty"`
 }
 
 type AddressListConfig struct {
@@ -93,6 +95,7 @@ const (
 	EIP5656        = "EIP5656" // MCOPY (cancun fork)
 	EIP7939        = "EIP7939" // CLZ (osaka fork)
 	EIP1153        = "EIP1153" // transient storage (cancun fork)
+	EIPBorTxDeps   = "EIPBorTxDeps"
 )
 
 // Forks is map which contains all forks and their starting blocks from genesis
@@ -134,6 +137,7 @@ func (f *Forks) At(block uint64) ForksInTime {
 		EIP5656:        f.IsActive(EIP5656, block),
 		EIP7939:        f.IsActive(EIP7939, block),
 		EIP1153:        f.IsActive(EIP1153, block),
+		EIPBorTxDeps:   f.IsActive(EIPBorTxDeps, block),
 	}
 }
 
@@ -189,7 +193,8 @@ type ForksInTime struct {
 	EIP3855,
 	EIP5656,
 	EIP7939,
-	EIP1153 bool
+	EIP1153,
+	EIPBorTxDeps bool
 }
 
 // AllForksEnabled should contain all supported forks by current edge version
@@ -209,4 +214,5 @@ var AllForksEnabled = &Forks{
 	EIP5656:        NewFork(0),
 	EIP7939:        NewFork(0),
 	EIP1153:        NewFork(0),
+	EIPBorTxDeps:   NewFork(0),
 }

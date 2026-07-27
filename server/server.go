@@ -339,8 +339,8 @@ func NewServer(config *Config) (*Server, error) {
 	// compute the genesis root state
 	config.Chain.Genesis.StateRoot = genesisRoot
 
-	// Use the london signer with eip-155 as a fallback one
-	var signer crypto.TxSigner = crypto.NewLondonSigner(
+	// Use the london signerInst with eip-155 as a fallback one
+	var signerInst crypto.TxSigner = crypto.NewLondonSigner(
 		uint64(m.config.Chain.Params.ChainID),
 		config.Chain.Params.Forks.IsActive(chain.Homestead, 0),
 		crypto.NewEIP155Signer(
@@ -372,7 +372,7 @@ func NewServer(config *Config) (*Server, error) {
 		config.Chain,
 		nil,
 		m.executor,
-		signer,
+		signerInst,
 	)
 	if err != nil {
 		return nil, err
@@ -414,7 +414,7 @@ func NewServer(config *Config) (*Server, error) {
 			return nil, err
 		}
 
-		m.txpool.SetSigner(signer)
+		m.txpool.SetSigner(signerInst)
 		m.executor.GetPendingTxHook = m.txpool.GetPendingTx
 		m.blockchain.GetPendingTxHook = m.txpool.GetPendingTx
 	}
@@ -432,6 +432,27 @@ func NewServer(config *Config) (*Server, error) {
 		}
 
 		m.blockchain.SetConsensus(m.consensus)
+
+		if m.config.Chain.Params.GetEngine() == string(IBFTConsensus) {
+			m.executor.GetTxDependencyHook = func(h *types.Header) [][]uint64 {
+				if h == nil || len(h.ExtraData) <= signer.IstanbulExtraVanity ||
+					!m.config.Chain.Params.Forks.IsActive(chain.EIPBorTxDeps, h.Number) {
+					return nil
+				}
+
+				var ed signer.IstanbulExtra
+
+				if err := ed.UnmarshalRLPForTxDependecies(h.ExtraData[signer.IstanbulExtraVanity:]); err != nil {
+					logger.Error("Processing tx dependency hook error", "err", err)
+
+					return nil
+				}
+
+				logger.Debug("Processing tx dependency hook finished", "deps", ed.TxDependency)
+
+				return ed.TxDependency
+			}
+		}
 	}
 
 	// after consensus is done, we can mine the genesis block in blockchain
