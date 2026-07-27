@@ -25,15 +25,15 @@ func (b BlockAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (aa *accountAccessRecord) MarshalRLP() []byte {
+func (aa *AccountAccessRecord) MarshalRLP() []byte {
 	return aa.MarshalRLPTo(nil)
 }
 
-func (aa *accountAccessRecord) MarshalRLPTo(dst []byte) []byte {
+func (aa *AccountAccessRecord) MarshalRLPTo(dst []byte) []byte {
 	return MarshalRLPTo(aa.MarshalRLPWith, dst)
 }
 
-func (aa *accountAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (aa *AccountAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 
 	vv.Set(ar.NewCopyBytes(aa.Address.Bytes()))
@@ -81,7 +81,7 @@ func (aa *accountAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value 
 	return vv
 }
 
-func (sc *storageChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (sc *StorageChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewCopyBytes(sc.Slot.Bytes()))
 
@@ -94,7 +94,7 @@ func (sc *storageChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (sw *slotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (sw *SlotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewUint(uint64(sw.TxIndex)))
 	vv.Set(ar.NewCopyBytes(sw.Value.Bytes()))
@@ -102,7 +102,7 @@ func (sw *slotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (bc *balanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (bc *BalanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewUint(uint64(bc.TxIndex)))
 	vv.Set(ar.NewBigInt(bc.Balance))
@@ -110,7 +110,7 @@ func (bc *balanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (nc *nonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (nc *NonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewUint(uint64(nc.TxIndex)))
 	vv.Set(ar.NewUint(nc.Nonce))
@@ -118,7 +118,7 @@ func (nc *nonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (cc *codeChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (cc *CodeChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewUint(uint64(cc.TxIndex)))
 	vv.Set(ar.NewCopyBytes(cc.Code))

@@ -9,12 +9,12 @@ import (
 
 func Test_BlockAccessRuntime_Merge(t *testing.T) {
 	t.Run("merge into empty block access record", func(t *testing.T) {
-		dst := NewBlockAccessRuntime()
-		src := NewBlockAccessRuntime()
+		dst := NewBlockAccessRecord()
+		src := NewBlockAccessRecord()
 
 		addr := Address{1}
 
-		src[addr] = NewAccountAccessRuntime()
+		src[addr] = NewAccountAccessRecord()
 		src[addr].BalanceChanges[0] = big.NewInt(100)
 
 		dst.Merge(src)
@@ -23,11 +23,11 @@ func Test_BlockAccessRuntime_Merge(t *testing.T) {
 	})
 
 	t.Run("merge nil block access record", func(t *testing.T) {
-		dst := NewBlockAccessRuntime()
+		dst := NewBlockAccessRecord()
 
 		addr := BytesToAddress([]byte{1})
 
-		dst[addr] = NewAccountAccessRuntime()
+		dst[addr] = NewAccountAccessRecord()
 		dst[addr].BalanceChanges[0] = big.NewInt(100)
 
 		dst.Merge(nil)
@@ -36,18 +36,18 @@ func Test_BlockAccessRuntime_Merge(t *testing.T) {
 	})
 
 	t.Run("merge when there are no merge conflict", func(t *testing.T) {
-		dst := NewBlockAccessRuntime()
-		src := NewBlockAccessRuntime()
+		dst := NewBlockAccessRecord()
+		src := NewBlockAccessRecord()
 
 		addr := BytesToAddress([]byte{1})
 
-		dst[addr] = NewAccountAccessRuntime()
+		dst[addr] = NewAccountAccessRecord()
 		dst[addr].BalanceChanges[0] = big.NewInt(100)
 		dst[addr].NonceChanges[0] = 1
 		dst[addr].CodeChanges[0] = []byte{1}
 		dst[addr].StorageChanges[Hash{}] = map[uint64]Hash{0: BytesToHash([]byte{1})}
 
-		src[addr] = NewAccountAccessRuntime()
+		src[addr] = NewAccountAccessRecord()
 		src[addr].BalanceChanges[1] = big.NewInt(200)
 		src[addr].NonceChanges[1] = 2
 		src[addr].CodeChanges[1] = []byte{2}
@@ -69,18 +69,18 @@ func Test_BlockAccessRuntime_Merge(t *testing.T) {
 	})
 
 	t.Run("merge when there are merge conflict", func(t *testing.T) {
-		dst := NewBlockAccessRuntime()
-		src := NewBlockAccessRuntime()
+		dst := NewBlockAccessRecord()
+		src := NewBlockAccessRecord()
 
 		addr := BytesToAddress([]byte{1})
 
-		dst[addr] = NewAccountAccessRuntime()
+		dst[addr] = NewAccountAccessRecord()
 		dst[addr].BalanceChanges[0] = big.NewInt(100)
 		dst[addr].NonceChanges[0] = 1
 		dst[addr].CodeChanges[0] = []byte{1}
 		dst[addr].StorageChanges[Hash{}] = map[uint64]Hash{0: BytesToHash([]byte{1})}
 
-		src[addr] = NewAccountAccessRuntime()
+		src[addr] = NewAccountAccessRecord()
 		src[addr].BalanceChanges[0] = big.NewInt(200)
 		src[addr].NonceChanges[0] = 2
 		src[addr].CodeChanges[0] = []byte{2}
@@ -95,16 +95,16 @@ func Test_BlockAccessRuntime_Merge(t *testing.T) {
 	})
 
 	t.Run("merge when there are a new account in other (src)", func(t *testing.T) {
-		dst := NewBlockAccessRuntime()
-		src := NewBlockAccessRuntime()
+		dst := NewBlockAccessRecord()
+		src := NewBlockAccessRecord()
 
 		addr1 := BytesToAddress([]byte{1})
 		addr2 := BytesToAddress([]byte{2})
 
-		dst[addr1] = NewAccountAccessRuntime()
+		dst[addr1] = NewAccountAccessRecord()
 		dst[addr1].BalanceChanges[0] = big.NewInt(100)
 
-		src[addr2] = NewAccountAccessRuntime()
+		src[addr2] = NewAccountAccessRecord()
 		src[addr2].BalanceChanges[0] = big.NewInt(200)
 
 		dst.Merge(src)
@@ -117,14 +117,14 @@ func Test_BlockAccessRuntime_Merge(t *testing.T) {
 func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	// TODO: check this
 	t.Run("empty runtime", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		record := r.Pack()
 
 		require.Empty(t, record)
 	})
 
 	t.Run("single account single change per type", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 		slot := Hash{1}
 
@@ -158,10 +158,10 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("account with no changes", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
-		r[addr] = NewAccountAccessRuntime()
+		r[addr] = NewAccountAccessRecord()
 
 		record := r.Pack()
 
@@ -174,7 +174,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("accounts sorted lexicographically by address", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 
 		addr1 := Address{3}
 		addr2 := Address{1}
@@ -193,7 +193,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("balance changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		r.GetOrCreate(addr).RecordBalanceChange(2, big.NewInt(300))
@@ -212,7 +212,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("nonce changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		r.GetOrCreate(addr).RecordNonceChange(2, 3)
@@ -231,7 +231,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("code changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		r.GetOrCreate(addr).RecordCodeChange(2, []byte{3})
@@ -250,7 +250,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("storage slots sorted lexicographically with correct values", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		slot1 := Hash{3}
@@ -273,7 +273,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("storage slot changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 		slot := Hash{1}
 
@@ -293,7 +293,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("multiple slots with multiple changes", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		slot1 := Hash{1}
@@ -324,7 +324,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("balance value is copied", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		bal := big.NewInt(100)
@@ -337,7 +337,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("code is cloned", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 		addr := Address{1}
 
 		code := []byte{1, 2, 3}
@@ -350,7 +350,7 @@ func Test_BlockAccessRuntime_Pack(t *testing.T) {
 	})
 
 	t.Run("multiple accounts with different changes", func(t *testing.T) {
-		r := NewBlockAccessRuntime()
+		r := NewBlockAccessRecord()
 
 		addr1 := Address{1}
 		addr2 := Address{2}
