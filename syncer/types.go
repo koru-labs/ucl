@@ -64,8 +64,6 @@ type Network interface {
 	SaveProtocolStream(protocol string, stream *rawGrpc.ClientConn, peerID peer.ID)
 	// CloseProtocolStream closes stream
 	CloseProtocolStream(protocol string, peerID peer.ID) error
-	// GetMaxGrpcMsgSize returns max message size for the grpc protocol
-	GetMaxGrpcMsgSize() int
 }
 
 type TxPool interface {

@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -168,30 +169,30 @@ func TestSubscription_NilEventAfterClosingSubscription(t *testing.T) {
 
 	receivedEvtCount := 0
 
-	worker := func(sub *subscription, expectedBlockCount uint8) {
+	worker := func(sub *subscription) {
 		defer wg.Done()
 
-		startTime := time.Now().UTC()
-		timeout := 5 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
 		for {
-			evt := sub.GetEvent()
-			if evt != nil {
-				receivedEvtCount++
-			} else {
-				return
-			}
-
-			// Check for timeout
-			if time.Since(startTime) >= timeout {
+			select {
+			case <-ctx.Done():
 				t.Errorf("subscription did not caught all events")
 
 				return
+			default:
+				evt := sub.GetEvent()
+				if evt != nil {
+					receivedEvtCount++
+				} else {
+					return
+				}
 			}
 		}
 	}
 
-	go worker(sub, 2)
+	go worker(sub)
 
 	// Send the events to the channels
 	for i := 0; i < 2; i++ {
@@ -199,9 +200,11 @@ func TestSubscription_NilEventAfterClosingSubscription(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
+	// Wait for the events to be parsed before unsubscribe
+	<-time.After(time.Second)
 	e.unsubscribe(sub)
 
-	// Wait for the event to be parsed
+	// Wait for the worker to complete
 	wg.Wait()
 
 	assert.Equal(t, 2, receivedEvtCount)

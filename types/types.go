@@ -16,6 +16,15 @@ const (
 	AddressLength = 20
 
 	SignatureSize = 4
+
+	MaxTxsRlpSize = 5 << 20 // 5 MB
+	MaxHdrRlpSize = 1 << 19 // 0.5 MB
+
+	MaxBlockRlpSize = MaxTxsRlpSize + MaxHdrRlpSize
+
+	SignaturesBufferZone = 1 << 19 // 0.5 MB; additional buffer for signatures
+
+	MaxGrpcMsgSize = MaxBlockRlpSize + SignaturesBufferZone
 )
 
 var (

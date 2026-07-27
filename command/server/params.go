@@ -51,7 +51,6 @@ const (
 	blockCacheTTLFlag       = "block-cache-ttl"
 	blockCacheCapacityFlag  = "block-cache-capacity"
 	MaxRequestBodySizeFlag  = "max-request-body-size"
-	MaxGrpcMsgSizeFlag      = "max-grpc-msg-size"
 	JSONRPCTimeoutFlag      = "json-rpc-timeout"
 
 	relayerFlag               = "relayer"
@@ -73,6 +72,7 @@ const (
 
 	settlementMetricsFlag = "settlement-metrics"
 	withTrieCachingFlag   = "with-trie-caching"
+	withBaseFeeFixedFlag  = "with-base-fee-fixed"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -244,13 +244,12 @@ func (p *serverParams) generateConfig() *server.Config {
 		BlockCacheTTL:           p.rawConfig.BlockCacheTTL,
 		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
 		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
-		MaxGrpcMsgSize:          p.rawConfig.MaxGrpcMsgSize,
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 		WithTrieCaching:         p.rawConfig.WithTrieCaching,
 		EnableBlockAccessList:   p.rawConfig.EnableBlockAccessList,
-
-		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
+		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
+		JumpdestCacheSize:       p.rawConfig.JumpdestCacheSize,
 	}
 }

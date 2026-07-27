@@ -496,6 +496,7 @@ func (i *backendIBFT) writeTransactions(
 	}()
 
 	i.txpool.Prepare()
+	i.buildBlockTxsRlpSize = 0
 
 write:
 	for {
@@ -547,7 +548,7 @@ func (i *backendIBFT) writeTransaction(
 		return nil, false
 	}
 
-	if tx.Gas > gasLimit {
+	if tx.Gas > gasLimit || tx.Size()+i.buildBlockTxsRlpSize > types.MaxTxsRlpSize {
 		i.txpool.Drop(tx)
 
 		// continue processing
@@ -570,6 +571,7 @@ func (i *backendIBFT) writeTransaction(
 	}
 
 	i.txpool.Pop(tx)
+	i.buildBlockTxsRlpSize += tx.Size()
 
 	return &txExeResult{tx, success}, true
 }

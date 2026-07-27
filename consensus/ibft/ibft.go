@@ -97,6 +97,9 @@ type backendIBFT struct {
 	// sealTimes tracks per-proposal build start times across the
 	// BuildProposal -> InsertProposal callbacks for the seal_total metric
 	sealTimes *sealTimeStore
+
+	// buildBlockTxsRlpSize tracks the total RLP size of transactions in the block being built
+	buildBlockTxsRlpSize uint64
 }
 
 // Factory implements the base consensus Factory method

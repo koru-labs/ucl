@@ -327,13 +327,6 @@ func setFlags(cmd *cobra.Command) {
 		"the maximum size of the JSON-RPC HTTP request body in bytes (default 5MB)",
 	)
 
-	cmd.Flags().IntVar(
-		&params.rawConfig.MaxGrpcMsgSize,
-		MaxGrpcMsgSizeFlag,
-		defaultConfig.MaxGrpcMsgSize,
-		"the maximum size of the GRPC message exchanged through GRPC between nodes in bytes (default 5MB)",
-	)
-
 	cmd.Flags().DurationVar(
 		&params.rawConfig.JSONRPCTimeout,
 		JSONRPCTimeoutFlag,
@@ -368,6 +361,13 @@ func setFlags(cmd *cobra.Command) {
 		withTrieCachingFlag,
 		defaultConfig.WithTrieCaching,
 		"enable caching of tries in the state; this can improve performance but will increase memory usage",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.WithBaseFeeFixed,
+		withBaseFeeFixedFlag,
+		defaultConfig.WithBaseFeeFixed,
+		"keep base fee constant through the blocks",
 	)
 
 	cmd.Flags().BoolVar(

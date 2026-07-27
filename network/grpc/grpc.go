@@ -10,6 +10,7 @@ import (
 
 	manet "github.com/multiformats/go-multiaddr/net"
 
+	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validate"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -24,13 +25,13 @@ type GrpcStream struct {
 	grpcServer *grpc.Server
 }
 
-func NewGrpcStream(maxMsgSize int) *GrpcStream {
+func NewGrpcStream() *GrpcStream {
 	return &GrpcStream{
 		ctx:      context.Background(),
 		streamCh: make(chan network.Stream),
 		grpcServer: grpc.NewServer(grpc.UnaryInterceptor(interceptor),
-			grpc.MaxRecvMsgSize(maxMsgSize),
-			grpc.MaxSendMsgSize(maxMsgSize)),
+			grpc.MaxRecvMsgSize(types.MaxGrpcMsgSize),
+			grpc.MaxSendMsgSize(types.MaxGrpcMsgSize)),
 	}
 }
 
@@ -76,8 +77,8 @@ func interceptor(
 	)
 }
 
-func (g *GrpcStream) Client(stream network.Stream, maxGrpcMsgSize int) (*grpc.ClientConn, error) {
-	return WrapClient(stream, maxGrpcMsgSize)
+func (g *GrpcStream) Client(stream network.Stream) (*grpc.ClientConn, error) {
+	return WrapClient(stream)
 }
 
 func (g *GrpcStream) Serve() {
@@ -126,11 +127,11 @@ func (g *GrpcStream) Close() error {
 
 // --- conn ---
 
-func WrapClient(s network.Stream, maxGrpcMsgSize int) (*grpc.ClientConn, error) {
+func WrapClient(s network.Stream) (*grpc.ClientConn, error) {
 	// Increase max size limits
 	maxSizeOption := grpc.WithDefaultCallOptions(
-		grpc.MaxCallRecvMsgSize(maxGrpcMsgSize), // Max receive size
-		grpc.MaxCallSendMsgSize(maxGrpcMsgSize), // Max send size
+		grpc.MaxCallRecvMsgSize(types.MaxGrpcMsgSize), // Max receive size
+		grpc.MaxCallSendMsgSize(types.MaxGrpcMsgSize), // Max send size
 	)
 
 	opts := grpc.WithContextDialer(func(ctx context.Context, peerIdStr string) (net.Conn, error) {
