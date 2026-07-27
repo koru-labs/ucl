@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	goruntime "runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -72,12 +73,14 @@ func (e *Executor) WriteGenesis(
 		ChainID: e.config.ChainID,
 	}
 
+	gasLimit := uint64(env.GasLimit)
+
 	transition := &Transition{
 		logger:      e.logger,
 		ctx:         env,
 		state:       txn,
 		auxState:    e.state,
-		gasPool:     uint64(env.GasLimit),
+		gasPool:     &gasLimit,
 		config:      config,
 		precompiles: precompiled.NewPrecompiled(),
 	}
@@ -218,7 +221,10 @@ func (e *Executor) BeginTxn(
 	header *types.Header,
 	coinbaseReceiver types.Address,
 ) (*Transition, error) {
-	return e.BeginTxnWithCustomTxn(parentRoot, header, coinbaseReceiver, func(s Snapshot) ITransitionTxn {
+	gasLimit := new(uint64)
+	*gasLimit = header.GasLimit
+
+	return e.BeginTxnWithCustomTxn(parentRoot, header, coinbaseReceiver, gasLimit, func(s Snapshot) ITransitionTxn {
 		return newTxnWithTxAccessTracker(s, TxAccessTrackerFactory(true))
 	})
 }
@@ -227,6 +233,7 @@ func (e *Executor) BeginTxnWithCustomTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
+	gasLimit *uint64,
 	txnFactory func(Snapshot) ITransitionTxn,
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
@@ -250,7 +257,7 @@ func (e *Executor) BeginTxnWithCustomTxn(
 		Number:       int64(header.Number),
 		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
 		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
-		GasLimit:     int64(header.GasLimit),
+		GasLimit:     int64(*gasLimit),
 		ChainID:      e.config.ChainID,
 		BurnContract: burnContract,
 	}
@@ -263,7 +270,7 @@ func (e *Executor) BeginTxnWithCustomTxn(
 		getHash:  e.GetHash(header),
 		auxState: e.state,
 		config:   forkConfig,
-		gasPool:  uint64(txCtx.GasLimit),
+		gasPool:  gasLimit,
 
 		totalGas: 0,
 
@@ -341,7 +348,7 @@ type Transition struct {
 	state   ITransitionTxn
 	getHash GetHashByNumber
 	ctx     runtime.TxContext
-	gasPool uint64
+	gasPool *uint64
 
 	// result
 	totalGas uint64
@@ -503,17 +510,22 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 }
 
 func (t *Transition) subGasPool(amount uint64) error {
-	if t.gasPool < amount {
-		return ErrBlockLimitReached
+	for {
+		current := atomic.LoadUint64(t.gasPool)
+		if current < amount {
+			return ErrBlockLimitReached
+		}
+
+		if atomic.CompareAndSwapUint64(t.gasPool, current, current-amount) {
+			return nil
+		}
+
+		// Another goroutine could modified t.gasPool -> in that case do retry
 	}
-
-	t.gasPool -= amount
-
-	return nil
 }
 
 func (t *Transition) addGasPool(amount uint64) {
-	t.gasPool += amount
+	atomic.AddUint64(t.gasPool, amount)
 }
 
 func (t *Transition) Txn() ITransitionTxn {

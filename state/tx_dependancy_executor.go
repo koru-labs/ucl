@@ -40,6 +40,9 @@ func (t *TxDependancyExecutor) Execute(
 	baseRadix := createBlockRadix()
 	baseMutex := &sync.RWMutex{} // all transitions using this mutex for accessing/updating baseRadix
 
+	tranGasLimit := new(uint64)
+	*tranGasLimit = blockHeader.GasLimit
+
 	addError := func(id int, err error) {
 		errs[id] = err
 
@@ -48,7 +51,7 @@ func (t *TxDependancyExecutor) Execute(
 
 	for i := range trans {
 		tran, err := executor.BeginTxnWithCustomTxn(
-			parentRoot, blockHeader, blockCreator, func(s Snapshot) ITransitionTxn {
+			parentRoot, blockHeader, blockCreator, tranGasLimit, func(s Snapshot) ITransitionTxn {
 				return NewTxnVerifier(s, baseMutex, baseRadix)
 			})
 		if err != nil {

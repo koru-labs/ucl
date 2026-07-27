@@ -214,8 +214,11 @@ func (h *parHarness) buildProposer(
 ) (types.Hash, [][]uint64) {
 	tb.Helper()
 
+	gasLimit := new(uint64)
+	*gasLimit = header.GasLimit
+
 	transition, err := h.executor.BeginTxnWithCustomTxn(
-		h.parentHeader.StateRoot, header, h.proposer, func(s state.Snapshot) state.ITransitionTxn {
+		h.parentHeader.StateRoot, header, h.proposer, gasLimit, func(s state.Snapshot) state.ITransitionTxn {
 			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(false))
 		})
 	require.NoError(tb, err)

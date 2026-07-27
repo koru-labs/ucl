@@ -345,8 +345,11 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	execStart := time.Now().UTC()
 
+	tranGasLimit := new(uint64)
+	*tranGasLimit = header.GasLimit
+
 	transition, err := i.executor.BeginTxnWithCustomTxn(
-		parent.StateRoot, header, signer.Address(), func(s state.Snapshot) state.ITransitionTxn {
+		parent.StateRoot, header, signer.Address(), tranGasLimit, func(s state.Snapshot) state.ITransitionTxn {
 			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(!isParallelVerification))
 		})
 	if err != nil {
