@@ -95,7 +95,7 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	}
 
 	if len(elems) < 3 {
-		return fmt.Errorf("incorrect number of elements to decode block, expected 3 but found %d", len(elems))
+		return fmt.Errorf("incorrect number of elements to decode block, expected 3 or 4 but found %d", len(elems))
 	}
 
 	// header
@@ -138,12 +138,14 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 		b.Uncles = append(b.Uncles, bUncle)
 	}
 
-	if len(elems) > 2 {
-		bBal := BlockAccessRecord{}
+	if len(elems) > 3 {
+		bRecord := BlockAccessRecord{}
 
-		if err := bBal.unmarshalRLPFrom(p, elems[3]); err != nil {
+		if err := bRecord.unmarshalRLPFrom(p, elems[3]); err != nil {
 			return err
 		}
+
+		b.BlockAccessRecord = bRecord
 	}
 
 	return nil

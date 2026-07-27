@@ -34,8 +34,8 @@ func BuildBlock(params BuildBlockParams) *types.Block {
 	header.ComputeHash()
 
 	return &types.Block{
-		Header:          header,
-		Transactions:    txs,
-		BlockAccessList: params.BlockAccessList,
+		Header:            header,
+		Transactions:      txs,
+		BlockAccessRecord: params.BlockAccessList,
 	}
 }

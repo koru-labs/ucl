@@ -64,13 +64,13 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(v1)
 	}
 
-	if b.BlockAccessList != nil {
-		if len(b.BlockAccessList) == 0 {
+	if b.BlockAccessRecord != nil {
+		if len(b.BlockAccessRecord) == 0 {
 			vv.Set(ar.NewNullArray())
 		} else {
 			v1 := ar.NewArray()
 
-			v1.Set(b.BlockAccessList.MarshalRLPWith(ar))
+			v1.Set(b.BlockAccessRecord.MarshalRLPWith(ar))
 
 			vv.Set(v1)
 		}
