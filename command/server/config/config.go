@@ -42,7 +42,6 @@ type Config struct {
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
 	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
-	MaxGrpcMsgSize           int           `json:"max_grpc_msg_size" yaml:"max_grpc_msg_size"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -68,6 +67,9 @@ type Config struct {
 	// Used to enable caching of tries in the state.
 	// This can improve performance but will increase memory usage.
 	WithTrieCaching bool `json:"with_trie_caching" yaml:"with_trie_caching"`
+
+	// Used to make base fee value constant through the blocks
+	WithBaseFeeFixed bool `json:"with_base_fee_fixed" yaml:"with_base_fee_fixed"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -93,6 +95,7 @@ type TxPool struct {
 	PriceLimit         uint64 `json:"price_limit" yaml:"price_limit"`
 	MaxSlots           uint64 `json:"max_slots" yaml:"max_slots"`
 	MaxAccountEnqueued uint64 `json:"max_account_enqueued" yaml:"max_account_enqueued"`
+	MaxAccountPromoted uint64 `json:"max_account_promoted" yaml:"max_account_promoted"`
 	TxGossipBatchSize  uint64 `json:"tx_gossip_batch_size" yaml:"tx_gossip_batch_size"`
 	JournalRotateSize  uint64 `json:"journal_rotate_size" yaml:"journal_rotate_size"`
 }
@@ -135,9 +138,6 @@ const (
 
 	// JSON RPC request timeout
 	DefaultJSONRPCTimeout = 30 * time.Second
-
-	// Max grpc message size, applies to all grpc messages, e.g. blocks dispatched through the syncer
-	DefaultMaxGrpcMsgSize = 5 << 20 // 5 MiB
 )
 
 // DefaultConfig returns the default server configuration
@@ -165,6 +165,7 @@ func DefaultConfig() *Config {
 			PriceLimit:         0,
 			MaxSlots:           4096,
 			MaxAccountEnqueued: 128,
+			MaxAccountPromoted: 128,
 			TxGossipBatchSize:  1,
 			JournalRotateSize:  1000,
 		},
@@ -191,8 +192,8 @@ func DefaultConfig() *Config {
 		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
 		EnableTxPoolEndpoints:    false,
 		EnableAllDebugEndpoints:  false,
-		MaxGrpcMsgSize:           DefaultMaxGrpcMsgSize,
 		WithTrieCaching:          true,
+		WithBaseFeeFixed:         false,
 	}
 }
 

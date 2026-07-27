@@ -39,6 +39,7 @@ var (
 	ErrInvalidStateRoot     = errors.New("invalid block state root")
 	ErrInvalidGasUsed       = errors.New("invalid block gas used")
 	ErrInvalidReceiptsRoot  = errors.New("invalid block receipts root")
+	ErrInvalidBlockRlpSize  = errors.New("invalid block rlp size")
 )
 
 // Blockchain is a blockchain reference
@@ -80,6 +81,8 @@ type Blockchain struct {
 	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
 
 	settlementObserver func(delta []float64)
+
+	withBaseFeeFixed bool // is base fee value fixed?
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -200,6 +203,7 @@ func NewBlockchain(
 	consensus Verifier,
 	executor Executor,
 	txSigner TxSigner,
+	withBaseFeeFixed bool,
 ) (*Blockchain, error) {
 	b := &Blockchain{
 		logger:    logger.Named("blockchain"),
@@ -213,6 +217,7 @@ func NewBlockchain(
 			price: big.NewInt(0),
 			count: big.NewInt(0),
 		},
+		withBaseFeeFixed: withBaseFeeFixed,
 	}
 
 	if err := b.initCaches(defaultCacheSize); err != nil {
@@ -651,6 +656,11 @@ func (b *Blockchain) verifyBlock(block *types.Block) ([]*types.Receipt, error) {
 	// Make sure the block is present
 	if block == nil {
 		return nil, ErrNoBlock
+	}
+
+	// Make sure rlp size of the block is within the limit
+	if block.Size() > types.MaxBlockRlpSize {
+		return nil, ErrInvalidBlockRlpSize
 	}
 
 	// Make sure the block is in line with the parent block
@@ -1434,7 +1444,7 @@ func (b *Blockchain) CalculateBaseFee(parent *types.Header) uint64 {
 	parentGasTarget := parent.GasLimit / b.config.Genesis.BaseFeeEM
 
 	// If the parent gasUsed is the same as the target, the baseFee remains unchanged.
-	if parent.GasUsed == parentGasTarget {
+	if parent.GasUsed == parentGasTarget || b.withBaseFeeFixed {
 		return parent.BaseFee
 	}
 

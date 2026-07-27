@@ -31,6 +31,7 @@ const (
 	defaultBaseFee            uint64 = 1
 	defaultMaxSlots           uint64 = 4096
 	defaultMaxAccountEnqueued uint64 = 128
+	defaultMaxAccountPromoted uint64 = 128
 	validGasLimit             uint64 = 4712350
 	accountNumber             uint64 = 25
 )
@@ -92,6 +93,7 @@ func newTestPoolWithSlots(maxSlots uint64, mockStore ...store) (*TxPool, error) 
 			PriceLimit:         defaultPriceLimit,
 			MaxSlots:           maxSlots,
 			MaxAccountEnqueued: defaultMaxAccountEnqueued,
+			MaxAccountPromoted: defaultMaxAccountPromoted,
 			IsGasPriceQueue:    true,
 		},
 	)
@@ -843,8 +845,9 @@ func TestEnqueueHandler(t *testing.T) {
 			assert.NoError(t, err)
 			pool.SetSigner(&mockSigner{})
 
-			//	mock full enqueued
+			//	mock full enqueued & promoted
 			pool.accounts.maxEnqueuedLimit = 1
+			pool.accounts.maxPromotedLimit = 1
 			fillEnqueued(pool, 1)
 
 			assert.Equal(t, uint64(1), pool.accounts.get(addr1).enqueued.length())
@@ -878,8 +881,9 @@ func TestEnqueueHandler(t *testing.T) {
 			assert.NoError(t, err)
 			pool.SetSigner(&mockSigner{})
 
-			// mock full enqueued
+			// mock full enqueued & promoted
 			pool.accounts.maxEnqueuedLimit = 10
+			pool.accounts.maxPromotedLimit = 10
 
 			// add 10 transaction in txpool i.e. max enqueued transactions
 			for i := uint64(1); i <= 10; i++ {

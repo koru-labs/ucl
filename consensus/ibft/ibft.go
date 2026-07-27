@@ -41,6 +41,7 @@ var (
 	ErrInvalidMixHash             = errors.New("invalid mixhash")
 	ErrInvalidSha3Uncles          = errors.New("invalid sha3 uncles")
 	ErrWrongDifficulty            = errors.New("wrong difficulty")
+	ErrWrongBaseFee               = errors.New("wrong base fee")
 )
 
 type txPoolInterface interface {
@@ -96,6 +97,9 @@ type backendIBFT struct {
 	// sealTimes tracks per-proposal build start times across the
 	// BuildProposal -> InsertProposal callbacks for the seal_total metric
 	sealTimes *sealTimeStore
+
+	// buildBlockTxsRlpSize tracks the total RLP size of transactions in the block being built
+	buildBlockTxsRlpSize uint64
 }
 
 // Factory implements the base consensus Factory method
@@ -392,6 +396,12 @@ func (i *backendIBFT) verifyHeaderImpl(
 	// difficulty has to match number
 	if header.Difficulty != header.Number {
 		return ErrWrongDifficulty
+	}
+
+	// BaseFee has to match the expected value based on the parent header
+	expectedBaseFee := i.blockchain.CalculateBaseFee(parent)
+	if header.BaseFee != expectedBaseFee {
+		return ErrWrongBaseFee
 	}
 
 	// ensure the extra data is correctly formatted
