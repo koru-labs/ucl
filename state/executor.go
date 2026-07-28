@@ -164,8 +164,6 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	blockBAL := bal.NewBlockAccessListRecord()
-
 	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
@@ -355,8 +353,6 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
-
-	txAccessRecorder TxAccessRecorder
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -367,6 +363,14 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 	}
+}
+
+func (t *Transition) SetTxAccessRecorder(recorder *TxAccessRecorder) {
+	t.state.recorder = recorder
+}
+
+func (t *Transition) SetBlockAccessRecord(bar types.BlockAccessRecord) {
+	t.state.bar = bar
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -543,24 +547,18 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	t.state.snapshots = []*iradix.Tree{}
 
-	t.txAccessRecorder = &txAccessRecorder{}
-
-	if t.config.EIP7928 {
-		t.txAccessRecorder = NewTxAccessRecorder()
-	}
-
 	s := t.state.Snapshot()
 
-	t.txAccessRecorder.Snapshot()
+	t.state.recorder.Snapshot()
 
 	result, err := t.apply(msg)
 	if err != nil {
-		t.txAccessRecorder.Revert()
+		t.state.recorder.Revert()
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
 	} else {
-		t.txAccessRecorder.Commit()
+		t.state.recorder.Commit()
 	}
 
 	if t.PostHook != nil {
@@ -782,8 +780,6 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		if err = t.state.IncrNonce(msg.From); err != nil {
 			return nil, err
 		}
-
-		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
 
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
@@ -1037,8 +1033,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			Err:     err,
 		}
 	}
-
-	t.balRecorder.NonceChange(c.Caller, t.state.GetNonce(c.Caller))
 
 	// Check if there is a collision and the address already exists
 	if t.hasCodeOrNonce(c.Address) {

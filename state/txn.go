@@ -55,6 +55,10 @@ type Txn struct {
 	sucidedAddrs map[types.Address]struct{}
 	// transientKeys collects transient storage keys since the last CleanRadixObjects
 	transientKeys map[string]struct{}
+
+	recorder *TxAccessRecorder
+
+	bar types.BlockAccessRecord
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -357,13 +361,20 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	}
 
 	// Check if we have enough balance to deduce amount from
-	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
+	balance := txn.GetBalance(addr)
+	if balance.Cmp(amount) < 0 {
 		return runtime.ErrNotEnoughFunds
 	}
 
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Sub(object.Account.Balance, amount)
-	})
+	if txn.recorder == nil || txn.bar == nil {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			object.Account.Balance.Sub(object.Account.Balance, amount)
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordBalanceChange(addr, big.NewInt(0).Sub(balance, amount))
+	}
 
 	return nil
 }
@@ -377,6 +388,16 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	if txn.recorder != nil {
+		if balance, ok := txn.recorder.GetBalance(addr); ok {
+			return balance
+		}
+	}
+
+	if txn.bar != nil {
+		// TODO
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -536,7 +557,23 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 
 // IncrNonce increases the nonce of the address
 func (txn *Txn) IncrNonce(addr types.Address) error {
-	var err error
+	// We work directly with the state in two cases:
+	// 1. when EIP-7928 is off; in this case txn.recorder is nil
+	// 2. when the executor is the block proposer; in this case txn.bar is nil
+	if txn.recorder == nil || txn.bar == nil {
+		if err := txn.incrNonceState(addr); err != nil {
+			return err
+		}
+	}
+
+	return txn.incrNonceNonState(addr)
+}
+
+func (txn *Txn) incrNonceState(addr types.Address) error {
+	var (
+		err   error
+		nonce uint64
+	)
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Account.Nonce+1 < object.Account.Nonce {
@@ -546,9 +583,38 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 		}
 
 		object.Account.Nonce++
+
+		nonce = object.Account.Nonce
 	})
 
+	// If EIP-7928 is enabled, txn.recorder must NOT be nil.
+	if err == nil && txn.recorder != nil {
+		txn.recorder.RecordNonceChange(addr, nonce)
+	}
+
 	return err
+}
+
+func (txn *Txn) incrNonceNonState(addr types.Address) error {
+	nonce, ok := txn.recorder.GetNonce(addr)
+
+	if !ok {
+		// TODO
+	}
+
+	if !ok {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			nonce = object.Account.Nonce
+		})
+	}
+
+	if nonce+1 < nonce {
+		return ErrNonceUintOverflow
+	}
+
+	txn.recorder.RecordNonceChange(addr, nonce+1)
+
+	return nil
 }
 
 // SetNonce reduces the balance
@@ -560,6 +626,16 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	if txn.recorder != nil {
+		if nonce, ok := txn.recorder.GetNonce(addr); ok {
+			return nonce
+		}
+	}
+
+	if txn.bar != nil {
+		// TODO
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0

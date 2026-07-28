@@ -465,8 +465,6 @@ func (i *backendIBFT) writeTransactions(
 		txCounter  = 0
 	)
 
-	bar := state.BlockAccessRecord{}
-
 	defer func() {
 		i.logger.Info(
 			"executed txs",
@@ -479,6 +477,13 @@ func (i *backendIBFT) writeTransactions(
 
 	i.txpool.Prepare()
 	i.buildBlockTxsRlpSize = 0
+
+	var recorder *state.TxAccessRecorder
+
+	if i.config.Params.Forks.At(blockNumber).EIP7928 {
+		recorder = state.NewTxAccessRecorder()
+		transition.SetTxAccessRecorder(recorder)
+	}
 
 write:
 	for {

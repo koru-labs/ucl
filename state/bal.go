@@ -88,7 +88,7 @@ func (r BlockAccessRecord) GetOrCreate(addr types.Address) *AccountAccessRecord 
 }
 
 // Insert inserts all state changes recorded for the given transaction into r.
-func (r BlockAccessRecord) Insert(recorder *txAccessRecorder, txIndex uint64) {
+func (r BlockAccessRecord) Insert(recorder *TxAccessRecorder, txIndex uint64) {
 	if recorder == nil {
 		return
 	}
@@ -195,27 +195,39 @@ func sortedKeys[V any](m map[uint64]V) []uint64 {
 	return keys
 }
 
-// TxAccessRecorder records state changes for a single transaction. For each state field, only
-// the last recorded change is retained. It supports nested calls through a snapshot mechanism.
-// See [TxAccessRecorder.Snapshot], [TxAccessRecorder.Commit], and [TxAccessRecorder.Revert].
-type TxAccessRecorder interface {
-	// RecordStorageChange records a storage slot value change for the given account.
-	RecordStorageChange(addr types.Address, slot types.Hash, value types.Hash)
-	// RecordBalanceChange records a balance change for the given account.
-	RecordBalanceChange(addr types.Address, balance *big.Int)
-	// RecordNonceChange records a nonce change for the given account.
-	RecordNonceChange(addr types.Address, nonce uint64)
-	// RecordCodeChange records a code change for the given account.
-	RecordCodeChange(addr types.Address, code []byte)
-	// Snapshot marks the current state as a restore point. All changes made after this point
-	// can be accepted by [TxAccessRecorder.Commit] or undone by [TxAccessRecorder.Revert].
-	// Snapshots can be nested - each Revert or Commit only affects the last snapshot.
-	Snapshot()
-	// Revert undoes all changes made since the last snapshot.
-	Revert()
-	// Commit accepts all changes made since the last snapshot.
-	Commit()
-}
+// // TxAccessRecorder records state changes for a single transaction. For each state field, only
+// // the last recorded change is retained. It supports nested calls through a snapshot mechanism.
+// // See [TxAccessRecorder.Snapshot], [TxAccessRecorder.Commit], and [TxAccessRecorder.Revert].
+// type TxAccessRecorder interface {
+// 	// RecordStorageChange records a storage slot value change for the given account.
+// 	RecordStorageChange(addr types.Address, slot types.Hash, value types.Hash)
+// 	// RecordBalanceChange records a balance change for the given account.
+// 	RecordBalanceChange(addr types.Address, balance *big.Int)
+// 	// RecordNonceChange records a nonce change for the given account.
+// 	RecordNonceChange(addr types.Address, nonce uint64)
+// 	// RecordCodeChange records a code change for the given account.
+// 	RecordCodeChange(addr types.Address, code []byte)
+// 	// GetStorage returns the current value of the given storage slot if it was modified in the
+// 	// current transaction. Returns false if the slot was not modified.
+// 	GetStorage(addr types.Address, slot types.Hash) (types.Hash, bool)
+// 	// GetBalance returns the current balance of the given account if it was modified in the
+// 	// current transaction. Returns false if the balance was not modified.
+// 	GetBalance(addr types.Address) (*big.Int, bool)
+// 	// GetNonce returns the current nonce of the given account if it was modified in the current
+// 	// transaction. Returns false if the nonce was not modified.
+// 	GetNonce(addr types.Address) (uint64, bool)
+// 	// GetCode returns the current code of the given account if it was modified in the current
+// 	// transaction. Returns false if the code was not modified.
+// 	GetCode(addr types.Address) ([]byte, bool)
+// 	// Snapshot marks the current state as a restore point. All changes made after this point
+// 	// can be accepted by [TxAccessRecorder.Commit] or undone by [TxAccessRecorder.Revert].
+// 	// Snapshots can be nested - each Revert or Commit only affects the last snapshot.
+// 	Snapshot()
+// 	// Revert undoes all changes made since the last snapshot.
+// 	Revert()
+// 	// Commit accepts all changes made since the last snapshot.
+// 	Commit()
+// }
 
 type txAccountAccessRecord struct {
 	Storage map[types.Hash]types.Hash
@@ -229,15 +241,15 @@ type journalEntry struct {
 	prev any
 }
 
-type txAccessRecorder struct {
+type TxAccessRecorder struct {
 	current   map[types.Address]*txAccountAccessRecord
 	journal   []journalEntry
 	snapshots []int
 }
 
 // NewAccountAccessRecord returns a new empty [txAccessRecorder].
-func NewTxAccessRecorder() *txAccessRecorder {
-	return &txAccessRecorder{
+func NewTxAccessRecorder() *TxAccessRecorder {
+	return &TxAccessRecorder{
 		current: make(map[types.Address]*txAccountAccessRecord),
 	}
 }
@@ -245,7 +257,7 @@ func NewTxAccessRecorder() *txAccessRecorder {
 // Snapshot marks the current state as a restore point. All changes made after this point can
 // be accepted by [txAccessRecorder.Commit] or undone by [txAccessRecorder.Revert]. Snapshots
 // can be nested - each Revert or Commit only affects the last snapshot.
-func (r *txAccessRecorder) Snapshot() {
+func (r *TxAccessRecorder) Snapshot() {
 	if r.current == nil {
 		return
 	}
@@ -254,7 +266,7 @@ func (r *txAccessRecorder) Snapshot() {
 }
 
 // Commit accepts all changes made since the last snapshot.
-func (r *txAccessRecorder) Commit() {
+func (r *TxAccessRecorder) Commit() {
 	if r.current == nil || len(r.snapshots) == 0 {
 		return
 	}
@@ -265,7 +277,7 @@ func (r *txAccessRecorder) Commit() {
 }
 
 // Revert undoes all changes made since the last snapshot.
-func (r *txAccessRecorder) Revert() {
+func (r *TxAccessRecorder) Revert() {
 	if r.current == nil || len(r.snapshots) == 0 {
 		return
 	}
@@ -301,7 +313,7 @@ func (r *txAccessRecorder) Revert() {
 	r.journal = r.journal[:snapshotId]
 }
 
-func (r *txAccessRecorder) getOrCreate(addr types.Address) *txAccountAccessRecord {
+func (r *TxAccessRecorder) getOrCreate(addr types.Address) *txAccountAccessRecord {
 	acc, ok := r.current[addr]
 	if !ok {
 		acc = &txAccountAccessRecord{
@@ -316,7 +328,7 @@ func (r *txAccessRecorder) getOrCreate(addr types.Address) *txAccountAccessRecor
 }
 
 // RecordStorageChange records a storage slot value change for the given account.
-func (r *txAccessRecorder) RecordStorageChange(
+func (r *TxAccessRecorder) RecordStorageChange(
 	addr types.Address,
 	slot types.Hash,
 	value types.Hash) {
@@ -341,34 +353,72 @@ func (r *txAccessRecorder) RecordStorageChange(
 }
 
 // RecordBalanceChange records a balance change for the given account.
-func (r *txAccessRecorder) RecordBalanceChange(addr types.Address, balance *big.Int) {
-	if r.current == nil {
-		return
-	}
-
+func (r *TxAccessRecorder) RecordBalanceChange(addr types.Address, balance *big.Int) {
 	acc := r.getOrCreate(addr)
 	r.journal = append(r.journal, journalEntry{addr: addr, prev: acc.Balance})
 	acc.Balance = new(big.Int).Set(balance)
 }
 
 // RecordNonceChange records a nonce change for the given account.
-func (r *txAccessRecorder) RecordNonceChange(addr types.Address, nonce uint64) {
-	if r.current == nil {
-		return
-	}
-
+func (r *TxAccessRecorder) RecordNonceChange(addr types.Address, nonce uint64) {
 	acc := r.getOrCreate(addr)
 	r.journal = append(r.journal, journalEntry{addr: addr, prev: acc.Nonce})
 	acc.Nonce = &nonce
 }
 
 // RecordCodeChange records a code change for the given account.
-func (r *txAccessRecorder) RecordCodeChange(addr types.Address, code []byte) {
-	if r.current == nil {
-		return
-	}
-
+func (r *TxAccessRecorder) RecordCodeChange(addr types.Address, code []byte) {
 	acc := r.getOrCreate(addr)
 	r.journal = append(r.journal, journalEntry{addr: addr, prev: acc.Code})
 	acc.Code = bytes.Clone(code)
+}
+
+// GetStorage returns the current value of the given storage slot if it was modified in the
+// current transaction. Returns false if the slot was not modified.
+func (r *TxAccessRecorder) GetStorage(addr types.Address, slot types.Hash) (types.Hash, bool) {
+	acc, ok := r.current[addr]
+	if !ok {
+		return types.Hash{}, false
+	}
+
+	val, ok := acc.Storage[slot]
+
+	return val, ok
+}
+
+// GetBalance returns the current balance of the given account if it was modified in the current
+// transaction. Returns false if the balance was not modified.
+func (r *TxAccessRecorder) GetBalance(addr types.Address) (*big.Int, bool) {
+	acc, ok := r.current[addr]
+	if !ok {
+		return nil, false
+	}
+
+	return acc.Balance, acc.Balance != nil
+}
+
+// GetNonce returns the current nonce of the given account if it was modified in the current
+// transaction. Returns false if the nonce was not modified.
+func (r *TxAccessRecorder) GetNonce(addr types.Address) (uint64, bool) {
+	acc, ok := r.current[addr]
+	if !ok {
+		return 0, false
+	}
+
+	if acc.Nonce == nil {
+		return 0, false
+	}
+
+	return *acc.Nonce, true
+}
+
+// GetCode returns the current code of the given account if it was modified in the current
+// transaction. Returns false if the code was not modified.
+func (r *TxAccessRecorder) GetCode(addr types.Address) ([]byte, bool) {
+	acc, ok := r.current[addr]
+	if !ok {
+		return nil, false
+	}
+
+	return acc.Code, acc.Code != nil
 }
