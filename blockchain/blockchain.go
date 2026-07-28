@@ -1583,10 +1583,6 @@ func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
 func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.BlockAccessList) error {
 	computedHash := computedBAL.Hash()
 
-	b.logger.Debug("computed BAL for verification", "block", block.Number(), "content", "\n"+computedBAL.PrettyPrint())
-
-	b.logger.Error("COMPUTED HASH IS:", computedHash, "BLOCK HASH IS:", block.Header.BlockAccessListHash)
-
 	if computedHash != block.Header.BlockAccessListHash {
 		return fmt.Errorf("BAL hash is not equal")
 	}
