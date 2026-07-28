@@ -88,7 +88,7 @@ func (r BlockAccessRecord) GetOrCreate(addr types.Address) *AccountAccessRecord 
 }
 
 // Insert inserts all state changes recorded for the given transaction into r.
-func (r BlockAccessRecord) Insert(recorder *txAccessRecorder) {
+func (r BlockAccessRecord) Insert(recorder *txAccessRecorder, txIndex uint64) {
 	if recorder == nil {
 		return
 	}
@@ -97,19 +97,19 @@ func (r BlockAccessRecord) Insert(recorder *txAccessRecorder) {
 		acc := r.GetOrCreate(addr)
 
 		if record.Balance != nil {
-			acc.RecordBalanceChange(recorder.txIndex, record.Balance)
+			acc.RecordBalanceChange(txIndex, record.Balance)
 		}
 
 		if record.Nonce != nil {
-			acc.RecordNonceChange(recorder.txIndex, *record.Nonce)
+			acc.RecordNonceChange(txIndex, *record.Nonce)
 		}
 
 		if record.Code != nil {
-			acc.RecordCodeChange(recorder.txIndex, record.Code)
+			acc.RecordCodeChange(txIndex, record.Code)
 		}
 
 		for slot, value := range record.Storage {
-			acc.RecordStorageChange(recorder.txIndex, slot, value)
+			acc.RecordStorageChange(txIndex, slot, value)
 		}
 	}
 }
@@ -230,16 +230,14 @@ type journalEntry struct {
 }
 
 type txAccessRecorder struct {
-	txIndex   uint64
 	current   map[types.Address]*txAccountAccessRecord
 	journal   []journalEntry
 	snapshots []int
 }
 
 // NewAccountAccessRecord returns a new empty [txAccessRecorder].
-func NewTxAccessRecorder(txIndex uint64) *txAccessRecorder {
+func NewTxAccessRecorder() *txAccessRecorder {
 	return &txAccessRecorder{
-		txIndex: txIndex,
 		current: make(map[types.Address]*txAccountAccessRecord),
 	}
 }
@@ -248,7 +246,7 @@ func NewTxAccessRecorder(txIndex uint64) *txAccessRecorder {
 // be accepted by [txAccessRecorder.Commit] or undone by [txAccessRecorder.Revert]. Snapshots
 // can be nested - each Revert or Commit only affects the last snapshot.
 func (r *txAccessRecorder) Snapshot() {
-	if r == nil {
+	if r.current == nil {
 		return
 	}
 
@@ -257,7 +255,7 @@ func (r *txAccessRecorder) Snapshot() {
 
 // Commit accepts all changes made since the last snapshot.
 func (r *txAccessRecorder) Commit() {
-	if r == nil || len(r.snapshots) == 0 {
+	if r.current == nil || len(r.snapshots) == 0 {
 		return
 	}
 
@@ -268,7 +266,7 @@ func (r *txAccessRecorder) Commit() {
 
 // Revert undoes all changes made since the last snapshot.
 func (r *txAccessRecorder) Revert() {
-	if r == nil || len(r.snapshots) == 0 {
+	if r.current == nil || len(r.snapshots) == 0 {
 		return
 	}
 
@@ -322,7 +320,7 @@ func (r *txAccessRecorder) RecordStorageChange(
 	addr types.Address,
 	slot types.Hash,
 	value types.Hash) {
-	if r == nil {
+	if r.current == nil {
 		return
 	}
 
@@ -344,7 +342,7 @@ func (r *txAccessRecorder) RecordStorageChange(
 
 // RecordBalanceChange records a balance change for the given account.
 func (r *txAccessRecorder) RecordBalanceChange(addr types.Address, balance *big.Int) {
-	if r == nil {
+	if r.current == nil {
 		return
 	}
 
@@ -355,7 +353,7 @@ func (r *txAccessRecorder) RecordBalanceChange(addr types.Address, balance *big.
 
 // RecordNonceChange records a nonce change for the given account.
 func (r *txAccessRecorder) RecordNonceChange(addr types.Address, nonce uint64) {
-	if r == nil {
+	if r.current == nil {
 		return
 	}
 
@@ -366,7 +364,7 @@ func (r *txAccessRecorder) RecordNonceChange(addr types.Address, nonce uint64) {
 
 // RecordCodeChange records a code change for the given account.
 func (r *txAccessRecorder) RecordCodeChange(addr types.Address, code []byte) {
-	if r == nil {
+	if r.current == nil {
 		return
 	}
 

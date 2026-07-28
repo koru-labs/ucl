@@ -14,7 +14,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
-	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-metrics"
 	"go.opentelemetry.io/otel/attribute"
@@ -314,8 +313,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
-	// finalBal is used to store the final block access list for the block, which will be returned to the caller.
-	var finalBAL types.BlockAccessRecord
+	var bar types.BlockAccessRecord
 
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
@@ -447,14 +445,6 @@ type txExeResult struct {
 	status status
 }
 
-type transitionInterface interface {
-	Write(txn *types.Transaction) error
-	SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder)
-	BlockAccessListRecorder() runtime.BlockAccessListRecorder
-	SetBlockAccessList(b bal.BlockAccessListEncoded)
-	BlockAccessList() bal.BlockAccessListEncoded
-}
-
 func (i *backendIBFT) writeTransactions(
 	writeCtx context.Context,
 	gasLimit,
@@ -472,10 +462,10 @@ func (i *backendIBFT) writeTransactions(
 		successful = 0
 		failed     = 0
 		skipped    = 0
-		balCounter = 1
+		txCounter  = 0
 	)
 
-	blockBAL := bal.NewBlockAccessListRecord()
+	bar := state.BlockAccessRecord{}
 
 	defer func() {
 		i.logger.Info(
@@ -485,12 +475,6 @@ func (i *backendIBFT) writeTransactions(
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
 		)
-
-		transition.SetBlockAccessList(blockBAL.Encode())
-
-		encoded := blockBAL.Encode()
-		transition.SetBlockAccessList(encoded)
-
 	}()
 
 	i.txpool.Prepare()
@@ -501,8 +485,6 @@ write:
 		case <-writeCtx.Done():
 			return
 		default:
-			transition.BalIndex = uint(balCounter)
-
 			// execute transactions one by one
 			result, ok := i.writeTransaction(
 				i.txpool.Peek(),
@@ -519,14 +501,13 @@ write:
 			switch result.status {
 			case success:
 				executed = append(executed, tx)
-				blockBAL.Merge(transition.BlockAccessListRecorder().GetBlockAccessListRecord())
 			case fail:
 				failed++
 			case skip:
 				skipped++
 			}
 
-			balCounter++
+			txCounter++
 		}
 	}
 

@@ -245,8 +245,6 @@ func (e *Executor) BeginTxn(
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 		PostHook:    e.PostHook,
-
-		balRecorder: runtime.NoopBALRecorder{},
 	}
 
 	// enable contract deployment allow list (if any)
@@ -358,15 +356,7 @@ type Transition struct {
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
 
-	// balRecorder is used to record the block access list for the current transaction
-	// one per transaction
-	balRecorder runtime.BlockAccessListRecorder
-
-	// marshalable block access list for the block, which is used to generate the final block access list after the block execution
-	// one per block
-	blockBAL bal.BlockAccessListEncoded
-
-	BalIndex uint
+	txAccessRecorder TxAccessRecorder
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -376,7 +366,6 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		snap:        snap,
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
-		balRecorder: runtime.NoopBALRecorder{},
 	}
 }
 
@@ -554,13 +543,24 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	t.state.snapshots = []*iradix.Tree{}
 
+	t.txAccessRecorder = &txAccessRecorder{}
+
+	if t.config.EIP7928 {
+		t.txAccessRecorder = NewTxAccessRecorder()
+	}
+
 	s := t.state.Snapshot()
+
+	t.txAccessRecorder.Snapshot()
 
 	result, err := t.apply(msg)
 	if err != nil {
+		t.txAccessRecorder.Revert()
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
+	} else {
+		t.txAccessRecorder.Commit()
 	}
 
 	if t.PostHook != nil {
@@ -721,12 +721,6 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 
 func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
 	start := time.Now().UTC()
-
-	t.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
-
-	if t.config.EIP7928 {
-		t.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), uint32(t.BalIndex)))
-	}
 
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
@@ -1587,20 +1581,4 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
-}
-
-func (t *Transition) BlockAccessListRecorder() types.BlockAccessListRecorder {
-	return t.balRecorder
-}
-
-func (t *Transition) BlockAccessList() types.BlockAccessRecord {
-	return t.blockBAL
-}
-
-func (t *Transition) SetBlockAccessListRecorder(recorder types.BlockAccessListRecorder) {
-	t.balRecorder = recorder
-}
-
-func (t *Transition) SetBlockAccessList(b types.BlockAccessRecord) {
-	t.blockBAL = b
 }
