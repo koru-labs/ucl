@@ -393,8 +393,6 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 			balHash := finalBAL.Hash()
 			header.BlockAccessListHash = balHash
 		}
-
-		i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
 	}
 
 	// build the block
