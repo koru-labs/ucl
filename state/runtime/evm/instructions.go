@@ -399,8 +399,6 @@ func opSload(c *state) {
 	slot := uint256ToHash(loc)
 	val := c.host.GetStorage(c.msg.Address, slot)
 	loc.SetBytes(val.Bytes())
-
-	c.host.BlockAccessListRecorder().StorageRead(c.msg.Address, slot)
 }
 
 func opSStore(c *state) {

@@ -816,23 +816,15 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
-	if coinbaseFee.Sign() > 0 {
-		t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
-	}
-
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
-
-		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
 	}
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
-
-	t.balRecorder.BalanceChange(msg.From, t.state.GetBalance(msg.From))
 
 	return result, nil
 }
@@ -946,37 +938,17 @@ func (t *Transition) applyCall(
 	}
 
 	snapshot := t.state.Snapshot()
+	t.state.recorder.Snapshot()
+
 	t.state.TouchAccount(c.Address)
-
-	t.balRecorder.AccountRead(c.Address)
-	balIndex := t.balRecorder.GetIndex()
-
-	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
-
-	oldBalRecorder := t.balRecorder
-
-	if t.config.EIP7928 {
-		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
-
-		callBalRecorder.AccountRead(c.Address)
-
-		t.balRecorder = callBalRecorder
-	}
 
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
-			t.balRecorder = oldBalRecorder
-
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
-		}
-
-		if c.Value != nil && c.Value.Sign() != 0 {
-			t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
-			t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 		}
 	}
 
@@ -985,17 +957,18 @@ func (t *Transition) applyCall(
 	t.captureCallStart(c, callType)
 
 	result = t.run(c, host)
-	t.balRecorder = oldBalRecorder
 	if result.Failed() {
+		t.state.recorder.Revert()
+
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
 		}
-	} else {
-		t.balRecorder.Merge(callBalRecorder)
 	}
+
+	t.state.recorder.Commit()
 
 	t.captureCallEnd(c, result)
 
@@ -1183,6 +1156,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			return result
 		}
 
+		// TODO: check for this
 		t.state.recorder.Commit()
 
 		return result

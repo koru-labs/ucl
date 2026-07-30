@@ -277,9 +277,7 @@ func (r *TxAccessRecorder) Commit() {
 		return
 	}
 
-	snapshotId := r.snapshots[len(r.snapshots)-1]
 	r.snapshots = r.snapshots[:len(r.snapshots)-1]
-	r.journal = r.journal[:snapshotId]
 }
 
 // Revert undoes all changes made since the last snapshot.

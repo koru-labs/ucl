@@ -536,21 +536,37 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		if object.Txn == nil {
-			object.Txn = iradix.New().Txn()
-		}
+	if txn.recorder == nil || txn.bar == nil {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			if object.Txn == nil {
+				object.Txn = iradix.New().Txn()
+			}
 
-		if value == types.ZeroHash {
-			object.Txn.Insert(key.Bytes(), nil)
-		} else {
-			object.Txn.Insert(key.Bytes(), value.Bytes())
-		}
-	})
+			if value == types.ZeroHash {
+				object.Txn.Insert(key.Bytes(), nil)
+			} else {
+				object.Txn.Insert(key.Bytes(), value.Bytes())
+			}
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordStorageChange(addr, key, value)
+	}
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
+	if txn.recorder != nil {
+		if value, ok := txn.recorder.GetStorage(addr, key); ok {
+			return value
+		}
+	}
+
+	if txn.bar != nil {
+		// TODO:
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -671,11 +687,18 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr types.Address, code []byte) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.CodeHash = crypto.Keccak256(code)
-		object.DirtyCode = true
-		object.Code = code
-	})
+	if txn.recorder == nil || txn.bar == nil {
+		// TODO: dirty code handle
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			object.Account.CodeHash = crypto.Keccak256(code)
+			object.DirtyCode = true
+			object.Code = code
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordCodeChange(addr, code)
+	}
 }
 
 // GetCode gets the code on a given address.
@@ -691,6 +714,16 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	if txn.recorder != nil {
+		if code, ok := txn.recorder.GetCode(addr); ok {
+			return code
+		}
+	}
+
+	if txn.bar != nil {
+		// TODO:
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -806,6 +839,10 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
+	if txn.bar != nil {
+		// TODO:
+	}
+
 	obj, ok := txn.getStateObject(addr)
 	if !ok {
 		return types.Hash{}
