@@ -1009,6 +1009,17 @@ func (t *Transition) hasCodeOrNonce(addr types.Address) bool {
 
 	codeHash := t.state.GetCodeHash(addr)
 
+	if t.state.recorder != nil {
+		if _, ok := t.state.recorder.current[addr]; ok &&
+			len(t.state.recorder.current[addr].Storage) > 0 {
+			return true
+		}
+	}
+
+	if t.state.bar != nil {
+		// TODO
+	}
+
 	// EIP-7610 change - rejects the contract deployment if the destination has non-empty storage.
 	storageRoot := t.state.GetStorageRoot(addr)
 
@@ -1036,8 +1047,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Check if there is a collision and the address already exists
 	if t.hasCodeOrNonce(c.Address) {
-		t.balRecorder.AccountRead(c.Address)
-
 		return &runtime.ExecutionResult{
 			GasLeft: 0,
 			Err:     runtime.ErrContractAddressCollision,
@@ -1046,6 +1055,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Take snapshot of the current state
 	snapshot := t.state.Snapshot()
+	t.state.recorder.Snapshot()
 
 	if t.config.EIP6780 {
 		t.state.MarkContractCreated(c.Address)
@@ -1058,32 +1068,14 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		if err := t.state.IncrNonce(c.Address); err != nil {
 			return &runtime.ExecutionResult{Err: err}
 		}
-
-		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
-	}
-
-	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
-	oldBalRecorder := t.balRecorder
-
-	if t.config.EIP7928 {
-		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
-
-		t.balRecorder = callBalRecorder
 	}
 
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
-		t.balRecorder = oldBalRecorder
-
 		return &runtime.ExecutionResult{
 			GasLeft: gasLimit,
 			Err:     err,
 		}
-	}
-
-	if t.config.EIP7928 && c.Value != nil && c.Value.Sign() != 0 {
-		t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
-		t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 	}
 
 	var result *runtime.ExecutionResult
@@ -1106,9 +1098,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
-			t.balRecorder = oldBalRecorder
-			t.balRecorder.Merge(callBalRecorder)
-
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1124,9 +1113,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
-			t.balRecorder = oldBalRecorder
-			t.balRecorder.Merge(callBalRecorder)
-
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1135,9 +1121,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	}
 
 	result = t.run(c, host)
-	t.balRecorder = oldBalRecorder
-
 	if result.Failed() {
+		t.state.recorder.Revert()
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1149,6 +1134,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// skip check for max code size for ucl node
 	if t.config.EIP158 && !t.config.Ucl && len(result.ReturnValue) > SpuriousDragonMaxCodeSize {
+		t.state.recorder.Revert()
 		// Contract size exceeds 'SpuriousDragon' size limit
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -1164,6 +1150,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
 	if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
+		t.state.recorder.Revert()
 		if err := t.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1184,6 +1171,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 		// Out of gas creating the contract
 		if t.config.Homestead {
+			t.state.recorder.Revert()
 			if err := t.state.RevertToSnapshot(snapshot); err != nil {
 				return &runtime.ExecutionResult{
 					Err: err,
@@ -1195,18 +1183,16 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			return result
 		}
 
-		t.balRecorder.Merge(callBalRecorder)
+		t.state.recorder.Commit()
 
 		return result
 	}
 
+	t.state.recorder.Commit()
+
 	result.GasLeft -= gasCost
 	result.Address = c.Address
 	t.state.SetCode(c.Address, result.ReturnValue)
-
-	t.balRecorder.Merge(callBalRecorder)
-
-	t.balRecorder.CodeChange(c.Address, result.ReturnValue)
 
 	return result
 }

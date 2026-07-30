@@ -348,9 +348,32 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
+	if txn.recorder == nil || txn.bar == nil {
+		txn.addBalanceState(addr, balance)
+	} else {
+		txn.addBalanceNonState(addr, balance)
+	}
+}
+
+func (txn *Txn) addBalanceState(addr types.Address, balance *big.Int) {
+	var newBalance *big.Int
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Add(object.Account.Balance, balance)
+		newBalance = big.NewInt(0).Add(object.Account.Balance, balance)
+		object.Account.Balance = newBalance
 	})
+
+	if txn.recorder != nil {
+		txn.recorder.RecordBalanceChange(addr, newBalance)
+	}
+}
+
+func (txn *Txn) addBalanceNonState(addr types.Address, balance *big.Int) {
+	oldBalance := txn.GetBalance(addr)
+
+	newBalance := big.NewInt(0).Add(oldBalance, balance)
+
+	txn.recorder.RecordBalanceChange(addr, newBalance)
 }
 
 // SubBalance reduces the balance at address addr by amount
@@ -703,6 +726,16 @@ func (txn *Txn) GetCodeSize(addr types.Address) int {
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	if txn.recorder != nil {
+		if code, ok := txn.recorder.GetCode(addr); ok {
+			return types.BytesToHash(code)
+		}
+	}
+
+	if txn.bar != nil {
+		// TODO
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -836,6 +869,14 @@ func newStateObject() *StateObject {
 }
 
 func (txn *Txn) CreateAccount(addr types.Address) {
+	if txn.recorder == nil || txn.bar == nil {
+		txn.createAccountState(addr)
+	} else {
+		txn.createAccountNonState(addr)
+	}
+}
+
+func (txn *Txn) createAccountState(addr types.Address) {
 	obj := &StateObject{
 		Account: &Account{
 			Balance:  big.NewInt(0),
@@ -850,6 +891,44 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	txn.txn.Insert(addr.Bytes(), obj)
+
+	if txn.recorder != nil {
+		// TODO: check the way it encodes empty map and slice!
+		txn.recorder.current[addr].Storage = map[types.Hash]types.Hash{}
+		txn.recorder.RecordBalanceChange(addr, obj.Account.Balance)
+		txn.recorder.RecordNonceChange(addr, 0)
+		txn.recorder.RecordCodeChange(addr, []byte{})
+	}
+}
+
+func (txn *Txn) createAccountNonState(addr types.Address) {
+	var balance *big.Int
+
+	_, ok := txn.recorder.current[addr]
+
+	if ok {
+		balance = txn.recorder.current[addr].Balance
+	}
+
+	if balance == nil {
+		// TODO
+	}
+
+	if balance == nil {
+		if prev, ok := txn.getStateObject(addr); ok {
+			balance = prev.Account.Balance
+		}
+	}
+
+	if balance == nil {
+		balance = big.NewInt(0)
+	}
+
+	// TODO: check the way it encodes empty map and slice!
+	txn.recorder.current[addr].Storage = map[types.Hash]types.Hash{}
+	txn.recorder.RecordBalanceChange(addr, balance)
+	txn.recorder.RecordNonceChange(addr, 0)
+	txn.recorder.RecordCodeChange(addr, []byte{})
 }
 
 // cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix

@@ -108,6 +108,9 @@ func (r BlockAccessRecord) Insert(recorder *TxAccessRecorder, txIndex uint64) {
 			acc.RecordCodeChange(txIndex, record.Code)
 		}
 
+		// TODO: handle the situation when the storage is nil (EIP-158)
+		// Check (txn *Txn) createAccountState...
+
 		for slot, value := range record.Storage {
 			acc.RecordStorageChange(txIndex, slot, value)
 		}
@@ -146,6 +149,9 @@ func pack(r *AccountAccessRecord, addr types.Address) types.AccountAccessRecord 
 	slices.SortFunc(sortedSlots, func(x, y types.Hash) int {
 		return bytes.Compare(x[:], y[:])
 	})
+
+	// TODO: handle the situation when the map or slice is nil (EIP-158).
+	// Check (txn *Txn) createAccountState...
 
 	for _, slot := range sortedSlots {
 		perSlotChanges := r.StorageChanges[slot]
