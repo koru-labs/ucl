@@ -46,7 +46,7 @@ require (
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/schollz/progressbar/v3 v3.19.1
-	github.com/sethvargo/go-retry v0.3.0
+	github.com/sethvargo/go-retry v0.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
