@@ -212,7 +212,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
-	github.com/pion/dtls/v3 v3.1.2 // indirect
+	github.com/pion/dtls/v3 v3.1.4 // indirect
 	github.com/pion/ice/v4 v4.2.5 // indirect
 	github.com/pion/interceptor v0.1.45 // indirect
 	github.com/pion/logging v0.2.4 // indirect
@@ -223,8 +223,8 @@ require (
 	github.com/pion/sctp v1.9.5 // indirect
 	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.10 // indirect
-	github.com/pion/stun/v3 v3.1.2 // indirect
-	github.com/pion/transport/v4 v4.0.1 // indirect
+	github.com/pion/stun/v3 v3.1.5 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.3 // indirect
 	github.com/pion/webrtc/v4 v4.2.12 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -236,8 +236,8 @@ require (
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.1 // indirect
-	github.com/quic-go/webtransport-go v0.10.0 // indirect
+	github.com/quic-go/quic-go v0.60.0 // indirect
+	github.com/quic-go/webtransport-go v0.11.1 // indirect
 	github.com/richardartoul/molecule v1.0.1-0.20240531184615-7ca0df43c0b3 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
