@@ -38,7 +38,7 @@ require (
 	github.com/miekg/pkcs11 v1.1.2
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.0
+	github.com/moby/moby/client v0.5.1
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/prometheus/client_golang v1.24.1
