@@ -66,6 +66,10 @@ func (w *Writer) PutForks(forks []types.Hash) {
 	w.putRlp(FORK, FORK_KEY, &fs)
 }
 
+func (w *Writer) PutLastSyncedReceipts(bn uint64) {
+	w.putIntoTable(LAST_SYNCED_RECEIPTS, LAST_SYNCED_RECEIPTS_KEY, common.EncodeUint64ToBytes(bn))
+}
+
 func (w *Writer) putRlp(t uint8, k []byte, raw types.RLPMarshaler) {
 	var data []byte
 

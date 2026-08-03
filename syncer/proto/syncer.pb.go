@@ -27,6 +27,7 @@ type GetBlocksRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The height of beginning block to sync
 	From          uint64 `protobuf:"varint,1,opt,name=from,proto3" json:"from,omitempty"`
+	IsValidator   bool   `protobuf:"varint,2,opt,name=is_validator,json=isValidator,proto3" json:"is_validator,omitempty"` // requester is a validator -> server skips receipts and BAL
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -68,6 +69,13 @@ func (x *GetBlocksRequest) GetFrom() uint64 {
 	return 0
 }
 
+func (x *GetBlocksRequest) GetIsValidator() bool {
+	if x != nil {
+		return x.IsValidator
+	}
+	return false
+}
+
 // Block contains a block data
 type Block struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -77,12 +85,8 @@ type Block struct {
 	// the finalized post-execution state directly, without re-executing
 	// transactions through the EVM.
 	BlockAccessList []byte `protobuf:"bytes,2,opt,name=block_access_list,json=blockAccessList,proto3" json:"block_access_list,omitempty"`
-	// RLP Encoded Receipts for the transactions in this block.
-	// Allows sync peers to skip local transaction re-execution and trust
-	// the finalized block's receipts directly (status, logs, gas used).
-	Receipts      []byte `protobuf:"bytes,3,opt,name=receipts,proto3" json:"receipts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Block) Reset() {
@@ -129,11 +133,108 @@ func (x *Block) GetBlockAccessList() []byte {
 	return nil
 }
 
-func (x *Block) GetReceipts() []byte {
+type GetReceiptsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BlockNumber   uint64                 `protobuf:"varint,1,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetReceiptsRequest) Reset() {
+	*x = GetReceiptsRequest{}
+	mi := &file_syncer_proto_syncer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReceiptsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReceiptsRequest) ProtoMessage() {}
+
+func (x *GetReceiptsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_syncer_proto_syncer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReceiptsRequest.ProtoReflect.Descriptor instead.
+func (*GetReceiptsRequest) Descriptor() ([]byte, []int) {
+	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetReceiptsRequest) GetBlockNumber() uint64 {
+	if x != nil {
+		return x.BlockNumber
+	}
+	return 0
+}
+
+type Receipts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BlockNumber   uint64                 `protobuf:"varint,1,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"`
+	Receipts      []byte                 `protobuf:"bytes,2,opt,name=receipts,proto3" json:"receipts,omitempty"`
+	Received      bool                   `protobuf:"varint,3,opt,name=received,proto3" json:"received,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Receipts) Reset() {
+	*x = Receipts{}
+	mi := &file_syncer_proto_syncer_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Receipts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Receipts) ProtoMessage() {}
+
+func (x *Receipts) ProtoReflect() protoreflect.Message {
+	mi := &file_syncer_proto_syncer_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Receipts.ProtoReflect.Descriptor instead.
+func (*Receipts) Descriptor() ([]byte, []int) {
+	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Receipts) GetBlockNumber() uint64 {
+	if x != nil {
+		return x.BlockNumber
+	}
+	return 0
+}
+
+func (x *Receipts) GetReceipts() []byte {
 	if x != nil {
 		return x.Receipts
 	}
 	return nil
+}
+
+func (x *Receipts) GetReceived() bool {
+	if x != nil {
+		return x.Received
+	}
+	return false
 }
 
 // SyncPeerStatus contains peer status
@@ -147,7 +248,7 @@ type SyncPeerStatus struct {
 
 func (x *SyncPeerStatus) Reset() {
 	*x = SyncPeerStatus{}
-	mi := &file_syncer_proto_syncer_proto_msgTypes[2]
+	mi := &file_syncer_proto_syncer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -159,7 +260,7 @@ func (x *SyncPeerStatus) String() string {
 func (*SyncPeerStatus) ProtoMessage() {}
 
 func (x *SyncPeerStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_syncer_proto_syncer_proto_msgTypes[2]
+	mi := &file_syncer_proto_syncer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -172,7 +273,7 @@ func (x *SyncPeerStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncPeerStatus.ProtoReflect.Descriptor instead.
 func (*SyncPeerStatus) Descriptor() ([]byte, []int) {
-	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{2}
+	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SyncPeerStatus) GetNumber() uint64 {
@@ -193,7 +294,7 @@ type Transactions struct {
 
 func (x *Transactions) Reset() {
 	*x = Transactions{}
-	mi := &file_syncer_proto_syncer_proto_msgTypes[3]
+	mi := &file_syncer_proto_syncer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -205,7 +306,7 @@ func (x *Transactions) String() string {
 func (*Transactions) ProtoMessage() {}
 
 func (x *Transactions) ProtoReflect() protoreflect.Message {
-	mi := &file_syncer_proto_syncer_proto_msgTypes[3]
+	mi := &file_syncer_proto_syncer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -218,7 +319,7 @@ func (x *Transactions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transactions.ProtoReflect.Descriptor instead.
 func (*Transactions) Descriptor() ([]byte, []int) {
-	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{3}
+	return file_syncer_proto_syncer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Transactions) GetTxs() []byte {
@@ -232,21 +333,28 @@ var File_syncer_proto_syncer_proto protoreflect.FileDescriptor
 
 const file_syncer_proto_syncer_proto_rawDesc = "" +
 	"\n" +
-	"\x19syncer/proto/syncer.proto\x12\x02v1\x1a\x1bgoogle/protobuf/empty.proto\"&\n" +
+	"\x19syncer/proto/syncer.proto\x12\x02v1\x1a\x1bgoogle/protobuf/empty.proto\"I\n" +
 	"\x10GetBlocksRequest\x12\x12\n" +
-	"\x04from\x18\x01 \x01(\x04R\x04from\"e\n" +
+	"\x04from\x18\x01 \x01(\x04R\x04from\x12!\n" +
+	"\fis_validator\x18\x02 \x01(\bR\visValidator\"I\n" +
 	"\x05Block\x12\x14\n" +
 	"\x05block\x18\x01 \x01(\fR\x05block\x12*\n" +
-	"\x11block_access_list\x18\x02 \x01(\fR\x0fblockAccessList\x12\x1a\n" +
-	"\breceipts\x18\x03 \x01(\fR\breceipts\"(\n" +
+	"\x11block_access_list\x18\x02 \x01(\fR\x0fblockAccessList\"7\n" +
+	"\x12GetReceiptsRequest\x12!\n" +
+	"\fblock_number\x18\x01 \x01(\x04R\vblockNumber\"e\n" +
+	"\bReceipts\x12!\n" +
+	"\fblock_number\x18\x01 \x01(\x04R\vblockNumber\x12\x1a\n" +
+	"\breceipts\x18\x02 \x01(\fR\breceipts\x12\x1a\n" +
+	"\breceived\x18\x03 \x01(\bR\breceived\"(\n" +
 	"\x0eSyncPeerStatus\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\x04R\x06number\" \n" +
 	"\fTransactions\x12\x10\n" +
-	"\x03txs\x18\x01 \x01(\fR\x03txs2\xac\x01\n" +
+	"\x03txs\x18\x01 \x01(\fR\x03txs2\xe1\x01\n" +
 	"\bSyncPeer\x12.\n" +
 	"\tGetBlocks\x12\x14.v1.GetBlocksRequest\x1a\t.v1.Block0\x01\x127\n" +
 	"\tGetStatus\x12\x16.google.protobuf.Empty\x1a\x12.v1.SyncPeerStatus\x127\n" +
-	"\tGetTxPool\x12\x16.google.protobuf.Empty\x1a\x10.v1.Transactions0\x01B\x0fZ\r/syncer/protob\x06proto3"
+	"\tGetTxPool\x12\x16.google.protobuf.Empty\x1a\x10.v1.Transactions0\x01\x123\n" +
+	"\vGetReceipts\x12\x16.v1.GetReceiptsRequest\x1a\f.v1.ReceiptsB\x0fZ\r/syncer/protob\x06proto3"
 
 var (
 	file_syncer_proto_syncer_proto_rawDescOnce sync.Once
@@ -260,23 +368,27 @@ func file_syncer_proto_syncer_proto_rawDescGZIP() []byte {
 	return file_syncer_proto_syncer_proto_rawDescData
 }
 
-var file_syncer_proto_syncer_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_syncer_proto_syncer_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_syncer_proto_syncer_proto_goTypes = []any{
-	(*GetBlocksRequest)(nil), // 0: v1.GetBlocksRequest
-	(*Block)(nil),            // 1: v1.Block
-	(*SyncPeerStatus)(nil),   // 2: v1.SyncPeerStatus
-	(*Transactions)(nil),     // 3: v1.Transactions
-	(*emptypb.Empty)(nil),    // 4: google.protobuf.Empty
+	(*GetBlocksRequest)(nil),   // 0: v1.GetBlocksRequest
+	(*Block)(nil),              // 1: v1.Block
+	(*GetReceiptsRequest)(nil), // 2: v1.GetReceiptsRequest
+	(*Receipts)(nil),           // 3: v1.Receipts
+	(*SyncPeerStatus)(nil),     // 4: v1.SyncPeerStatus
+	(*Transactions)(nil),       // 5: v1.Transactions
+	(*emptypb.Empty)(nil),      // 6: google.protobuf.Empty
 }
 var file_syncer_proto_syncer_proto_depIdxs = []int32{
 	0, // 0: v1.SyncPeer.GetBlocks:input_type -> v1.GetBlocksRequest
-	4, // 1: v1.SyncPeer.GetStatus:input_type -> google.protobuf.Empty
-	4, // 2: v1.SyncPeer.GetTxPool:input_type -> google.protobuf.Empty
-	1, // 3: v1.SyncPeer.GetBlocks:output_type -> v1.Block
-	2, // 4: v1.SyncPeer.GetStatus:output_type -> v1.SyncPeerStatus
-	3, // 5: v1.SyncPeer.GetTxPool:output_type -> v1.Transactions
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	6, // 1: v1.SyncPeer.GetStatus:input_type -> google.protobuf.Empty
+	6, // 2: v1.SyncPeer.GetTxPool:input_type -> google.protobuf.Empty
+	2, // 3: v1.SyncPeer.GetReceipts:input_type -> v1.GetReceiptsRequest
+	1, // 4: v1.SyncPeer.GetBlocks:output_type -> v1.Block
+	4, // 5: v1.SyncPeer.GetStatus:output_type -> v1.SyncPeerStatus
+	5, // 6: v1.SyncPeer.GetTxPool:output_type -> v1.Transactions
+	3, // 7: v1.SyncPeer.GetReceipts:output_type -> v1.Receipts
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -293,7 +405,7 @@ func file_syncer_proto_syncer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_syncer_proto_syncer_proto_rawDesc), len(file_syncer_proto_syncer_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -134,6 +134,7 @@ func (m *mockSyncPeerClient) GetBlocks(
 	id peer.ID,
 	start uint64,
 	timeoutPerBlock time.Duration,
+	isValidator bool,
 ) (<-chan *SyncBlock, error) {
 	return m.getBlocksHandler(id, start, timeoutPerBlock)
 }

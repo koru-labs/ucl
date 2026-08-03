@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/network/event"
+	syncProto "github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -39,7 +40,11 @@ type Blockchain interface {
 	// GetBlockAccessList returns the EIP-7928 BLockAccessList for the given block
 	GetBlockAccessList(uint64) (bal.BlockAccessList, error)
 	// ApplyFInalizedBlockFromBAL applies a finalized block's state directrly
-	ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessList) (*types.FullBlock, error)
+	ApplyFinalizedBlockFromBAL(block *types.Block, accessList bal.BlockAccessList, syncer blockchain.Syncer) (*types.FullBlock, error)
+	// VerifyAndApplyReceipts
+	VerifyAndApplyReceipts(header *types.Header, receipts types.Receipts) error
+	// GetLastReceiptsSyncBlock
+	GetLastSyncReceiptsBlock() uint64
 }
 
 type Network interface {
@@ -115,7 +120,13 @@ type SyncPeerClient interface {
 	// GetConnectedPeerStatuses fetches the statuses of all connecting peers
 	GetConnectedPeerStatuses() []*NoForkPeer
 	// GetBlocks returns a stream of blocks from given height to peer's latest
-	GetBlocks(peer.ID, uint64, time.Duration) (<-chan *SyncBlock, error)
+	GetBlocks(peer.ID, uint64, time.Duration, bool) (<-chan *SyncBlock, syncProto.SyncPeerClient, error)
+	GetReceipts(
+		ctx context.Context,
+		clt syncProto.SyncPeerClient,
+		peerID peer.ID,
+		blockNumber uint64,
+	) (*ReceiptsMsg, error)
 	// SyncTxPool syncs tx pool with the peer
 	SyncTxPool(peer.ID) error
 	// GetPeerStatusUpdateCh returns a channel of peer's status update

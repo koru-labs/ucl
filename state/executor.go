@@ -324,7 +324,9 @@ func (e *Executor) ApplyBlockAccessList(
 		return types.Hash{}, err
 	}
 
-	return types.BytesToHash(root), nil
+	bts := types.BytesToHash(root)
+
+	return bts, nil
 }
 
 type Transition struct {

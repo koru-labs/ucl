@@ -20,9 +20,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SyncPeer_GetBlocks_FullMethodName = "/v1.SyncPeer/GetBlocks"
-	SyncPeer_GetStatus_FullMethodName = "/v1.SyncPeer/GetStatus"
-	SyncPeer_GetTxPool_FullMethodName = "/v1.SyncPeer/GetTxPool"
+	SyncPeer_GetBlocks_FullMethodName   = "/v1.SyncPeer/GetBlocks"
+	SyncPeer_GetStatus_FullMethodName   = "/v1.SyncPeer/GetStatus"
+	SyncPeer_GetTxPool_FullMethodName   = "/v1.SyncPeer/GetTxPool"
+	SyncPeer_GetReceipts_FullMethodName = "/v1.SyncPeer/GetReceipts"
 )
 
 // SyncPeerClient is the client API for SyncPeer service.
@@ -35,6 +36,8 @@ type SyncPeerClient interface {
 	GetStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SyncPeerStatus, error)
 	// Returns stream of transactions from the tx pool
 	GetTxPool(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Transactions], error)
+	// Returns stream of receipts
+	GetReceipts(ctx context.Context, in *GetReceiptsRequest, opts ...grpc.CallOption) (*Receipts, error)
 }
 
 type syncPeerClient struct {
@@ -93,6 +96,16 @@ func (c *syncPeerClient) GetTxPool(ctx context.Context, in *emptypb.Empty, opts 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SyncPeer_GetTxPoolClient = grpc.ServerStreamingClient[Transactions]
 
+func (c *syncPeerClient) GetReceipts(ctx context.Context, in *GetReceiptsRequest, opts ...grpc.CallOption) (*Receipts, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Receipts)
+	err := c.cc.Invoke(ctx, SyncPeer_GetReceipts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SyncPeerServer is the server API for SyncPeer service.
 // All implementations must embed UnimplementedSyncPeerServer
 // for forward compatibility.
@@ -103,6 +116,8 @@ type SyncPeerServer interface {
 	GetStatus(context.Context, *emptypb.Empty) (*SyncPeerStatus, error)
 	// Returns stream of transactions from the tx pool
 	GetTxPool(*emptypb.Empty, grpc.ServerStreamingServer[Transactions]) error
+	// Returns stream of receipts
+	GetReceipts(context.Context, *GetReceiptsRequest) (*Receipts, error)
 	mustEmbedUnimplementedSyncPeerServer()
 }
 
@@ -121,6 +136,9 @@ func (UnimplementedSyncPeerServer) GetStatus(context.Context, *emptypb.Empty) (*
 }
 func (UnimplementedSyncPeerServer) GetTxPool(*emptypb.Empty, grpc.ServerStreamingServer[Transactions]) error {
 	return status.Error(codes.Unimplemented, "method GetTxPool not implemented")
+}
+func (UnimplementedSyncPeerServer) GetReceipts(context.Context, *GetReceiptsRequest) (*Receipts, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetReceipts not implemented")
 }
 func (UnimplementedSyncPeerServer) mustEmbedUnimplementedSyncPeerServer() {}
 func (UnimplementedSyncPeerServer) testEmbeddedByValue()                  {}
@@ -183,6 +201,24 @@ func _SyncPeer_GetTxPool_Handler(srv interface{}, stream grpc.ServerStream) erro
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SyncPeer_GetTxPoolServer = grpc.ServerStreamingServer[Transactions]
 
+func _SyncPeer_GetReceipts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReceiptsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SyncPeerServer).GetReceipts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SyncPeer_GetReceipts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SyncPeerServer).GetReceipts(ctx, req.(*GetReceiptsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SyncPeer_ServiceDesc is the grpc.ServiceDesc for SyncPeer service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -193,6 +229,10 @@ var SyncPeer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStatus",
 			Handler:    _SyncPeer_GetStatus_Handler,
+		},
+		{
+			MethodName: "GetReceipts",
+			Handler:    _SyncPeer_GetReceipts_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -110,6 +110,18 @@ func (s *Storage) ReadReceipts(bn uint64, bh types.Hash) ([]*types.Receipt, erro
 	return *receipts, err
 }
 
+// LAST_SYNCED_RECEIPTS //
+
+func (s *Storage) ReadLastSyncedReceipts() (uint64, bool) {
+	data, ok := s.get(LAST_SYNCED_RECEIPTS, LAST_SYNCED_RECEIPTS_KEY)
+
+	if !ok {
+		return 0, false
+	}
+
+	return common.EncodeBytesToUint64(data), true
+}
+
 // BLOCK ACCESS LIST //
 
 // ReadBlockAccessList reads the EIP-7928 block access list for the given block.

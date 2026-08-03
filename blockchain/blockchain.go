@@ -1602,13 +1602,19 @@ func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList
 	return b.db.ReadBlockAccessList(blockNumber)
 }
 
+type Syncer interface {
+	AddBlock(header *types.Header)
+}
+
 func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	block *types.Block,
-	receipts []*types.Receipt,
 	accessList bal.BlockAccessList,
+	syncer Syncer,
 ) (*types.FullBlock, error) {
 	if !b.config.Params.Forks.At(block.Number()).EIP7928 {
-		return b.VerifyFinalizedBlock(block)
+		fullBlock, err := b.VerifyFinalizedBlock(block)
+
+		return fullBlock, err
 	}
 
 	if err := b.consensus.VerifyHeader(block.Header); err != nil {
@@ -1636,18 +1642,19 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		return nil, ErrInvalidTxRoot
 	}
 
+	syncer.AddBlock(block.Header)
+
 	if block.Header.BlockAccessListHash == EmptyBALHash {
-		if len(block.Transactions) != 0 || len(receipts) != 0 {
+		if len(block.Transactions) != 0 {
 			return nil, fmt.Errorf(
 				"block claims empty block access list but has %d transactions and %d receipts",
 				len(block.Transactions),
-				len(receipts),
 			)
 		}
 
 		b.AddBlockAccessListToCache(block.Header.Hash, accessList)
 
-		return &types.FullBlock{Block: block, Receipts: receipts}, nil
+		return &types.FullBlock{Block: block}, nil
 	}
 
 	if len(accessList) == 0 {
@@ -1661,20 +1668,6 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	blockAccessListHash := accessList.Hash()
 	if blockAccessListHash != block.Header.BlockAccessListHash {
 		return nil, errors.New("supplied block access list does not match header hash")
-	}
-
-	// receipts checks
-	if len(receipts) == 0 {
-		return nil, ErrReceiptsMissingForTrustMode
-	}
-
-	if len(receipts) != len(block.Transactions) {
-		return nil, ErrInvalidReceiptsSize
-	}
-
-	receiptsRoot := buildroot.CalculateReceiptsRoot(receipts)
-	if receiptsRoot != block.Header.ReceiptsRoot {
-		return nil, ErrInvalidReceiptsRoot
 	}
 
 	parent, ok := b.readHeader(block.Header.ParentHash)
@@ -1696,7 +1689,31 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 
 	b.AddBlockAccessListToCache(block.Header.Hash, accessList)
 
-	b.AddReceiptsToCache(block.Header.Hash, receipts)
+	return &types.FullBlock{Block: block, Receipts: nil}, nil
+}
 
-	return &types.FullBlock{Block: block, Receipts: receipts}, nil
+func (b *Blockchain) VerifyAndApplyReceipts(header *types.Header, receipts types.Receipts) error {
+	receiptsRoot := buildroot.CalculateReceiptsRoot(receipts)
+	if receiptsRoot != header.ReceiptsRoot {
+		return ErrInvalidReceiptsRoot
+	}
+
+	b.AddReceiptsToCache(header.Hash, receipts)
+
+	batchWriter := b.db.NewWriter()
+
+	batchWriter.PutReceipts(header.Number, header.Hash, receipts)
+
+	batchWriter.PutLastSyncedReceipts(header.Number)
+
+	return nil
+}
+
+func (b *Blockchain) GetLastSyncReceiptsBlock() uint64 {
+	lastSyncBlock, ok := b.db.ReadLastSyncedReceipts()
+	if !ok {
+		return 0
+	}
+
+	return lastSyncBlock
 }
