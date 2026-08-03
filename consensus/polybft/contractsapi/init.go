@@ -13,7 +13,7 @@ const (
 )
 
 var (
-	// core-contracts smart contracts
+	// edge-contracts smart contracts
 	CheckpointManager               *artifact.Artifact
 	ExitHelper                      *artifact.Artifact
 	StateSender                     *artifact.Artifact

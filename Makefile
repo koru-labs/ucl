@@ -86,9 +86,9 @@ test-property-polybft: check-go
 	env EDGE_BINARY=${PWD}/artifacts/polygon-edge E2E_TESTS=true E2E_LOGS=true go test -v -timeout=30m ./e2e-polybft/property/... \
 	-rapid.checks=10
 
-.PHONY: compile-core-contracts
-compile-core-contracts: check-npm
-	cd core-contracts && npm install && npm run compile
+.PHONY: compile-edge-contracts
+compile-edge-contracts: check-npm
+	cd edge-contracts && npm install && npm run compile
 	$(MAKE) generate-smart-contract-bindings
 
 .PHONY: generate-smart-contract-bindings
@@ -122,7 +122,7 @@ help:
 	@printf "  %-35s - %s\n" "test-e2e" "Run end-to-end tests"
 	@printf "  %-35s - %s\n" "test-e2e-polybft" "Run end-to-end tests for PolyBFT"
 	@printf "  %-35s - %s\n" "test-property-polybft" "Run property tests for PolyBFT"
-	@printf "  %-35s - %s\n" "compile-core-contracts" "Compile core contracts"
+	@printf "  %-35s - %s\n" "compile-edge-contracts" "Compile edge contracts"
 	@printf "  %-35s - %s\n" "generate-smart-contract-bindings" "Generate smart contract bindings"
 	@printf "  %-35s - %s\n" "run-docker" "Run Docker cluster for PolyBFT"
 	@printf "  %-35s - %s\n" "stop-docker" "Stop Docker cluster for PolyBFT"

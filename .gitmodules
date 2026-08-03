@@ -2,9 +2,9 @@
 	path = tests/tests
 	url = https://github.com/ethereum/tests.git
 	shallow = true
-[submodule "core-contracts"]
-	path = core-contracts
-	url = https://github.com/0xPolygon/core-contracts
+[submodule "edge-contracts"]
+	path = edge-contracts
+	url = https://github.com/0xPolygon/edge-contracts
 [submodule "tests/evm-benchmarks"]
 	path = tests/evm-benchmarks
 	url = https://github.com/ipsilon/evm-benchmarks
