@@ -472,8 +472,13 @@ func (b *Blockchain) GetTD(hash types.Hash) (*big.Int, bool) {
 
 // GetReceiptsByHash returns the receipts by their hash
 func (b *Blockchain) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
-	if receipts, ok := b.receiptsCache.Get(hash); ok {
-		return receipts.([]*types.Receipt), nil
+	if cached, ok := b.receiptsCache.Get(hash); ok {
+		receipts, ok := cached.([]*types.Receipt)
+		if !ok {
+			return nil, fmt.Errorf("receipts cache: unexpected type %T for hash %s", cached, hash)
+		}
+
+		return receipts, nil
 	}
 
 	return b.db.ReadReceipts(bn, hash)
@@ -1595,8 +1600,12 @@ func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList
 		return bal.BlockAccessList{}, nil
 	}
 
-	if blockAccessList, ok := b.blockAccessListCache.Get(blockNumber); ok {
-		return blockAccessList.(bal.BlockAccessList), nil
+	if cached, ok := b.blockAccessListCache.Get(blockNumber); ok {
+		blockAccessList, ok := cached.(bal.BlockAccessList)
+		if !ok {
+			return bal.BlockAccessList{}, fmt.Errorf("block access list cache: unexpected type %T for block %d", cached, blockNumber)
+		}
+		return blockAccessList, nil
 	}
 
 	return b.db.ReadBlockAccessList(blockNumber)

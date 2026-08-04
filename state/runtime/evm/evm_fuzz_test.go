@@ -149,7 +149,7 @@ func (m *mockHostF) GetTransientState(addr types.Address, key types.Hash) types.
 func (m *mockHostF) SetTransientState(addr types.Address, key types.Hash, value types.Hash) {}
 
 func (m *mockHostF) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
-	return nil
+	return runtime.NoopBALRecorder{}
 }
 
 func FuzzTestEVM(f *testing.F) {

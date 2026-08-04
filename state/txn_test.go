@@ -87,6 +87,7 @@ func newStateWithCode(preState map[types.Address]*PreState, code map[types.Addre
 		acc.CodeHash = h
 		codes[types.BytesToHash(h)] = c
 	}
+
 	return &mockSnapshot{state: preState, codes: codes}
 }
 

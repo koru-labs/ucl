@@ -420,6 +420,7 @@ func (m *syncPeerClient) GetReceipts(
 	if len(resp.Receipts) > 0 {
 		if err := receipts.UnmarshalRLP(resp.Receipts); err != nil {
 			metrics.IncrCounter([]string{syncerMetrics, "bad_receipts"}, 1)
+
 			return nil, fmt.Errorf("failed to decode receipts for block %d: %w",
 				blockNumber, err)
 		}
