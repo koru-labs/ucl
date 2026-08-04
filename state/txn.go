@@ -418,7 +418,9 @@ func (txn *Txn) GetBalance(addr types.Address) *big.Int {
 	}
 
 	if txn.bar != nil {
-		// TODO
+		if balance, ok := txn.bar.BalanceBefore(addr, txn.recorder.txIndex); ok {
+			return balance
+		}
 	}
 
 	object, exists := txn.getStateObject(addr)
@@ -564,7 +566,9 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 	}
 
 	if txn.bar != nil {
-		// TODO:
+		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
+			return value
+		}
 	}
 
 	object, exists := txn.getStateObject(addr)
@@ -672,7 +676,9 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 	}
 
 	if txn.bar != nil {
-		// TODO
+		if nonce, ok := txn.bar.NonceBefore(addr, txn.recorder.txIndex); ok {
+			return nonce
+		}
 	}
 
 	object, exists := txn.getStateObject(addr)
@@ -721,7 +727,9 @@ func (txn *Txn) GetCode(addr types.Address) []byte {
 	}
 
 	if txn.bar != nil {
-		// TODO:
+		if code, ok := txn.bar.CodeBefore(addr, txn.recorder.txIndex); ok {
+			return code
+		}
 	}
 
 	object, exists := txn.getStateObject(addr)
@@ -766,7 +774,9 @@ func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
 	}
 
 	if txn.bar != nil {
-		// TODO
+		if code, ok := txn.bar.CodeBefore(addr, txn.recorder.txIndex); ok {
+			return types.BytesToHash(code)
+		}
 	}
 
 	object, exists := txn.getStateObject(addr)
@@ -839,8 +849,11 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
+	// TODO:
 	if txn.bar != nil {
-		// TODO:
+		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
+			return value
+		}
 	}
 
 	obj, ok := txn.getStateObject(addr)

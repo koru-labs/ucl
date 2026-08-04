@@ -1269,14 +1269,6 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 	if t.config.EIP6780 && !t.state.IsContractCreatedInTx(addr) {
 		balance := t.state.GetBalance(addr)
 
-		// nothing moves when the contract targets itself, or when it holds no balance
-		if addr == beneficiary || balance.Sign() == 0 {
-			t.balRecorder.AccountRead(addr)
-			t.balRecorder.AccountRead(beneficiary)
-
-			return
-		}
-
 		if err := t.state.SubBalance(addr, balance); err != nil {
 			t.logger.Error("failed to subtract balance on selfdestruct", "address", addr, "err", err)
 
@@ -1284,9 +1276,6 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 		}
 
 		t.state.AddBalance(beneficiary, balance)
-
-		t.balRecorder.BalanceChange(addr, t.state.GetBalance(addr))
-		t.balRecorder.BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
 
 		return
 	}
@@ -1299,14 +1288,6 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 
 	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
-
-	if balance.Sign() != 0 {
-		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
-		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
-	} else {
-		t.BlockAccessListRecorder().AccountRead(addr)
-		t.BlockAccessListRecorder().AccountRead(beneficiary)
-	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {

@@ -88,10 +88,12 @@ func (r BlockAccessRecord) GetOrCreate(addr types.Address) *AccountAccessRecord 
 }
 
 // Insert inserts all state changes recorded for the given transaction into r.
-func (r BlockAccessRecord) Insert(recorder *TxAccessRecorder, txIndex uint64) {
+func (r BlockAccessRecord) Insert(recorder *TxAccessRecorder) {
 	if recorder == nil {
 		return
 	}
+
+	txIndex := recorder.txIndex
 
 	for addr, record := range recorder.current {
 		acc := r.GetOrCreate(addr)
@@ -251,12 +253,14 @@ type TxAccessRecorder struct {
 	current   map[types.Address]*txAccountAccessRecord
 	journal   []journalEntry
 	snapshots []int
+	txIndex   uint64
 }
 
 // NewAccountAccessRecord returns a new empty [txAccessRecorder].
-func NewTxAccessRecorder() *TxAccessRecorder {
+func NewTxAccessRecorder(txIndex uint64) *TxAccessRecorder {
 	return &TxAccessRecorder{
 		current: make(map[types.Address]*txAccountAccessRecord),
+		txIndex: txIndex,
 	}
 }
 

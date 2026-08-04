@@ -458,12 +458,6 @@ func opSStore(c *state) {
 	if !c.consumeGas(cost) {
 		return
 	}
-
-	if status == runtime.StorageUnchanged {
-		c.host.BlockAccessListRecorder().StorageRead(c.msg.Address, key)
-	} else {
-		c.host.BlockAccessListRecorder().StorageWrite(c.msg.Address, key, val)
-	}
 }
 
 const sha3WordGas uint64 = 6
@@ -530,8 +524,6 @@ func opBalance(c *state) {
 	}
 
 	c.push(*uintBalance)
-
-	c.host.BlockAccessListRecorder().AccountRead(addr)
 }
 
 func opSelfBalance(c *state) {
@@ -628,8 +620,6 @@ func opExtCodeSize(c *state) {
 
 	x := uint256.NewInt(uint64(c.host.GetCodeSize(addr)))
 	c.push(*x)
-
-	c.host.BlockAccessListRecorder().AccountRead(addr)
 }
 
 func opGasPrice(c *state) {
@@ -673,8 +663,6 @@ func opExtCodeHash(c *state) {
 	}
 
 	c.push(v)
-
-	c.host.BlockAccessListRecorder().AccountRead(address)
 }
 
 func opPC(c *state) {
@@ -747,8 +735,6 @@ func opExtCodeCopy(c *state) {
 	if size != 0 {
 		c.setBytes(c.memory[memOffset.Uint64():], code, size, codeOffset)
 	}
-
-	c.host.BlockAccessListRecorder().AccountRead(address)
 }
 
 func opCallDataCopy(c *state) {

@@ -478,11 +478,11 @@ func (i *backendIBFT) writeTransactions(
 	i.txpool.Prepare()
 	i.buildBlockTxsRlpSize = 0
 
-	var recorder *state.TxAccessRecorder
+	var txRecorder *state.TxAccessRecorder
+	var bar state.BlockAccessRecord
 
 	if i.config.Params.Forks.At(blockNumber).EIP7928 {
-		recorder = state.NewTxAccessRecorder()
-		transition.SetTxAccessRecorder(recorder)
+		bar = state.NewBlockAccessRecord()
 	}
 
 write:
@@ -491,6 +491,11 @@ write:
 		case <-writeCtx.Done():
 			return
 		default:
+			if i.config.Params.Forks.At(blockNumber).EIP7928 {
+				txRecorder = state.NewTxAccessRecorder(uint64(len(executed)))
+				transition.SetTxAccessRecorder(txRecorder)
+			}
+
 			// execute transactions one by one
 			result, ok := i.writeTransaction(
 				i.txpool.Peek(),
@@ -511,6 +516,10 @@ write:
 				failed++
 			case skip:
 				skipped++
+			}
+
+			if i.config.Params.Forks.At(blockNumber).EIP7928 {
+				bar.Insert(txRecorder)
 			}
 
 			txCounter++

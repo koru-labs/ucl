@@ -2,6 +2,7 @@ package types
 
 import (
 	"math/big"
+	"sort"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -60,4 +61,89 @@ func (r BlockAccessRecord) Hash() Hash {
 	}
 
 	return BytesToHash(keccak256(r.MarshalRLPTo(nil)))
+}
+
+// account returns a pointer to the AccountAccessRecord for addr, or nil if absent.
+func (r BlockAccessRecord) account(addr Address) *AccountAccessRecord {
+	for i := range r {
+		if r[i].Address == addr {
+			return &r[i]
+		}
+	}
+	return nil
+}
+
+// BalanceBefore returns the account balance after the most recent tx with
+// TxIndex < txIndex. Returns false if the account is absent or has no earlier change.
+func (r BlockAccessRecord) BalanceBefore(addr Address, txIndex uint64) (*big.Int, bool) {
+	a := r.account(addr)
+	if a == nil {
+		return nil, false
+	}
+	i := sort.Search(len(a.BalanceChanges), func(i int) bool {
+		return a.BalanceChanges[i].TxIndex >= txIndex
+	})
+	if i == 0 {
+		return nil, false
+	}
+	return a.BalanceChanges[i-1].Balance, true
+}
+
+// NonceBefore returns the account nonce after the most recent tx with
+// TxIndex < txIndex. Returns false if the account is absent or has no earlier change.
+func (r BlockAccessRecord) NonceBefore(addr Address, txIndex uint64) (uint64, bool) {
+	a := r.account(addr)
+	if a == nil {
+		return 0, false
+	}
+	i := sort.Search(len(a.NonceChanges), func(i int) bool {
+		return a.NonceChanges[i].TxIndex >= txIndex
+	})
+	if i == 0 {
+		return 0, false
+	}
+	return a.NonceChanges[i-1].Nonce, true
+}
+
+// CodeBefore returns the account code after the most recent tx with
+// TxIndex < txIndex. Returns false if the account is absent or has no earlier change.
+func (r BlockAccessRecord) CodeBefore(addr Address, txIndex uint64) ([]byte, bool) {
+	a := r.account(addr)
+	if a == nil {
+		return nil, false
+	}
+	i := sort.Search(len(a.CodeChanges), func(i int) bool {
+		return a.CodeChanges[i].TxIndex >= txIndex
+	})
+	if i == 0 {
+		return nil, false
+	}
+	return a.CodeChanges[i-1].Code, true
+}
+
+// SlotBefore returns the storage slot value after the most recent tx with
+// TxIndex < txIndex. Returns false if the account, the slot, or an earlier
+// change is absent.
+func (r BlockAccessRecord) SlotBefore(addr Address, slot Hash, txIndex uint64) (Hash, bool) {
+	a := r.account(addr)
+	if a == nil {
+		return Hash{}, false
+	}
+	var sc *StorageChange
+	for i := range a.StorageChanges {
+		if a.StorageChanges[i].Slot == slot {
+			sc = &a.StorageChanges[i]
+			break
+		}
+	}
+	if sc == nil {
+		return Hash{}, false
+	}
+	i := sort.Search(len(sc.SlotChanges), func(i int) bool {
+		return sc.SlotChanges[i].TxIndex >= txIndex
+	})
+	if i == 0 {
+		return Hash{}, false
+	}
+	return sc.SlotChanges[i-1].Value, true
 }
