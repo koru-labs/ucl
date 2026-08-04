@@ -849,16 +849,39 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
-	// TODO:
 	if txn.bar != nil {
 		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
 			return value
 		}
 	}
 
-	obj, ok := txn.getStateObject(addr)
-	if !ok {
+	if txn.bar == nil {
+		val, exists := txn.snapshots[0].Get(addr.Bytes())
+		if exists {
+			object := val.(*StateObject) //nolint:forcetypeassert
+			if object.Deleted || object.Suicide {
+				return types.Hash{}
+			}
+
+			if object.Txn != nil {
+				if val, ok := object.Txn.Get(key.Bytes()); ok {
+					if val == nil {
+						return types.Hash{}
+					}
+					//nolint:forcetypeassert
+					return types.BytesToHash(val.([]byte))
+				}
+			}
+		}
+	}
+
+	account, err := txn.snapshot.GetAccount(addr)
+	if account == nil || err != nil {
 		return types.Hash{}
+	}
+
+	obj := &StateObject{
+		Account: account.Copy(),
 	}
 
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
