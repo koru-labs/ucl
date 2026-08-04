@@ -315,12 +315,12 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 	if getReceipts {
 		go func() {
 			for {
-				header := &types.Header{}
+				var header *types.Header
+
 				if s.currentReceiptsBlockNumber <= localLatest {
 					currentBlock, _ := s.blockchain.GetBlockByNumber(s.currentReceiptsBlockNumber, false)
 
 					header = currentBlock.Header
-
 				} else {
 					header = s.getBlock()
 				}

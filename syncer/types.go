@@ -40,7 +40,12 @@ type Blockchain interface {
 	// GetBlockAccessList returns the EIP-7928 BLockAccessList for the given block
 	GetBlockAccessList(uint64) (bal.BlockAccessList, error)
 	// ApplyFInalizedBlockFromBAL applies a finalized block's state directrly
-	ApplyFinalizedBlockFromBAL(block *types.Block, accessList bal.BlockAccessList, syncer blockchain.Syncer) (*types.FullBlock, error)
+	ApplyFinalizedBlockFromBAL(
+		block *types.Block,
+		accessList bal.BlockAccessList,
+		syncer blockchain.Syncer) (
+		*types.FullBlock,
+		error)
 	// VerifyAndApplyReceipts
 	VerifyAndApplyReceipts(header *types.Header, receipts types.Receipts) error
 	// GetLastReceiptsSyncBlock

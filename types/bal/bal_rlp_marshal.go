@@ -19,6 +19,7 @@ func (b BlockAccessList) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	}
 
 	vv := ar.NewArray()
+
 	for i := range b {
 		vv.Set(b[i].MarshalRLPWith(ar))
 	}
@@ -43,9 +44,11 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		scArr := ar.NewArray()
+
 		for i := range aa.StorageChanges {
 			scArr.Set(aa.StorageChanges[i].MarshalRLPWith(ar))
 		}
+
 		vv.Set(scArr)
 	}
 
@@ -53,9 +56,11 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		srArr := ar.NewArray()
+
 		for i := range aa.StorageReads {
 			srArr.Set(ar.NewCopyBytes(aa.StorageReads[i].Bytes()))
 		}
+
 		vv.Set(srArr)
 	}
 
@@ -63,9 +68,11 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		bcArr := ar.NewArray()
+
 		for i := range aa.BalanceChanges {
 			bcArr.Set(aa.BalanceChanges[i].MarshalRLPWith(ar))
 		}
+
 		vv.Set(bcArr)
 	}
 
@@ -73,9 +80,11 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		ncArr := ar.NewArray()
+
 		for i := range aa.NonceChanges {
 			ncArr.Set(aa.NonceChanges[i].MarshalRLPWith(ar))
 		}
+
 		vv.Set(ncArr)
 	}
 
@@ -83,9 +92,11 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(ar.NewNullArray())
 	} else {
 		ccArr := ar.NewArray()
+
 		for i := range aa.CodeChanges {
 			ccArr.Set(aa.CodeChanges[i].MarshalRLPWith(ar))
 		}
+
 		vv.Set(ccArr)
 	}
 
@@ -97,9 +108,11 @@ func (sc *SlotChanges) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv.Set(ar.NewCopyBytes(sc.Slot.Bytes()))
 
 	writes := ar.NewArray()
+
 	for i := range sc.SlotChanges {
 		writes.Set(sc.SlotChanges[i].MarshalRLPWith(ar))
 	}
+
 	vv.Set(writes)
 
 	return vv

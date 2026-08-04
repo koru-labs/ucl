@@ -259,6 +259,7 @@ func (a *AccountAccessRecord) RecordStorageRead(slot types.Hash) {
 	if _, written := a.StorageWrites[slot]; written {
 		return
 	}
+
 	a.StorageReads[slot] = struct{}{}
 }
 
@@ -266,6 +267,7 @@ func (a *AccountAccessRecord) RecordStorageWrite(idx uint32, slot, val types.Has
 	if _, ok := a.StorageWrites[slot]; !ok {
 		a.StorageWrites[slot] = make(map[uint32]types.Hash)
 	}
+
 	a.StorageWrites[slot][idx] = val
 	delete(a.StorageReads, slot)
 }

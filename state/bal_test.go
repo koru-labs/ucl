@@ -58,6 +58,7 @@ func balTestConfig(eip7928 bool) chain.ForksInTime {
 
 func newBALTransition(t *testing.T, config chain.ForksInTime, snap Snapshot, balIndex uint) *Transition {
 	t.Helper()
+
 	return &Transition{
 		logger:      hclog.NewNullLogger(),
 		state:       newTxn(snap),
@@ -77,6 +78,7 @@ func newBALTestTransition(t *testing.T,
 	codes map[types.Hash][]byte,
 	balIndex uint) *Transition {
 	t.Helper()
+
 	if preState == nil {
 		preState = map[types.Address]*PreState{}
 	}
@@ -492,6 +494,7 @@ func Test_BAL_MultipleStorageReadAndWrite(t *testing.T) {
 	slot3 := types.BytesToHash([]byte{0x03})
 	slot7 := types.BytesToHash([]byte{0x07})
 	slot99 := types.BytesToHash([]byte{0x63})
+
 	require.Contains(t, acc.StorageWrites, slot3)
 	require.Contains(t, acc.StorageWrites, slot7)
 	require.NotContains(t, acc.StorageReads, slot3,
@@ -917,13 +920,14 @@ func TestApply_BAL_IndexPropagation(t *testing.T) {
 }
 
 func callerCallingCallee() []byte {
-	code := []byte{
+	code := make([]byte, 0, 34)
+	code = append(code,
 		0x60, 0x00, // retSize
 		0x60, 0x00, // retOffset
 		0x60, 0x00, // inSize
 		0x60, 0x00, // inOffset
 		0x60, 0x00, // value
-	}
+	)
 	code = append(code, push20(from)...)  // addr
 	code = append(code, 0x5A, 0xF1, 0x00) // GAS, CALL, STOP
 
@@ -1052,13 +1056,14 @@ func TestApply_BAL_ExtCodeCopy_AccountRead(t *testing.T) {
 
 	const idx uint32 = 1
 
+	code := make([]byte, 0, 29)
 	// EXTCODECOPY pops in this order: addr (top), destOff, codeOff, size.
 	// Push them so `addr` ends up on top.
-	code := []byte{
+	code = append(code,
 		0x60, 0x00, // size
 		0x60, 0x00, // codeOffset
 		0x60, 0x00, // destOffset
-	}
+	)
 	code = append(code, push20(to)...) // addr on top
 	code = append(code, 0x3C, 0x00)    // EXTCODECOPY, STOP
 
@@ -1143,14 +1148,16 @@ func TestApply_BAL_Call_WithValue_RecordsBothBalances(t *testing.T) {
 
 	const idx uint32 = 1
 
+	caller := make([]byte, 0, 34)
+
 	// caller runtime: CALL(gas=GAS, calleeAddr, value=1, in=0/0, ret=0/0), STOP
-	caller := []byte{
+	caller = append(caller,
 		0x60, 0x00, // retSize
 		0x60, 0x00, // retOffset
 		0x60, 0x00, // inSize
 		0x60, 0x00, // inOffset
 		0x60, 0x01, // value = 1
-	}
+	)
 	caller = append(caller, push20(from)...)
 	caller = append(caller, 0x5A, 0xF1, 0x00) // GAS, CALL, STOP
 
@@ -1195,14 +1202,15 @@ func TestApply_BAL_DelegateCall_StorageBelongsToCaller(t *testing.T) {
 
 	const idx uint32 = 1
 
+	caller := make([]byte, 0, 32)
 	// caller: DELEGATECALL(gas=GAS, calleeAddr, in=0/0, ret=0/0)  STOP
 	// DELEGATECALL pops: gas, addr, inOff, inSize, retOff, retSize  (no value)
-	caller := []byte{
+	caller = append(caller,
 		0x60, 0x00, // retSize
 		0x60, 0x00, // retOffset
 		0x60, 0x00, // inSize
 		0x60, 0x00, // inOffset
-	}
+	)
 	caller = append(caller, push20(from)...)
 	caller = append(caller, 0x5A, 0xF4, 0x00) // GAS, DELEGATECALL, STOP
 
@@ -1250,14 +1258,15 @@ func TestApply_BAL_StaticCall_WriteProtection_NoRecording(t *testing.T) {
 
 	const idx uint32 = 1
 
+	caller := make([]byte, 0, 32)
 	// caller: STATICCALL(gas=GAS, calleeAddr, in=0/0, ret=0/0)  STOP
 	// STATICCALL pops: gas, addr, inOff, inSize, retOff, retSize
-	caller := []byte{
+	caller = append(caller,
 		0x60, 0x00, // retSize
 		0x60, 0x00, // retOffset
 		0x60, 0x00, // inSize
 		0x60, 0x00, // inOffset
-	}
+	)
 	caller = append(caller, push20(from)...)
 	caller = append(caller, 0x5A, 0xFA, 0x00) // GAS, STATICCALL, STOP
 
@@ -1289,10 +1298,12 @@ func TestApply_BAL_StaticCall_WriteProtection_NoRecording(t *testing.T) {
 	rec := getRecord(t, tr)
 
 	slot0 := types.Hash{}
+
 	if calleeAcc := getAccount(t, rec, from); calleeAcc != nil {
 		require.NotContains(t, calleeAcc.StorageWrites, slot0,
 			"STATICCALL must reject SSTORE; no write may reach the BAL")
 	}
+
 	if callerAcc := getAccount(t, rec, contractAddr); callerAcc != nil {
 		require.NotContains(t, callerAcc.StorageWrites, slot0,
 			"STATICCALL: no write may leak into the caller's slot either")

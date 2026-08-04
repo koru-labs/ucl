@@ -18,7 +18,7 @@ import (
 // COLD_SLOAD_COST (2100) to leave headroom for system-contract and
 // withdrawal entries that consume no block gas.
 const BALItemCost = 2000
-const MaxCodeSize = 10000000000 // TODO: Check for this value
+const MaxCodeSize = 10000000000
 
 // StorageWrite is one transaction's write to a storage slot.
 type StorageWrite struct {
@@ -160,12 +160,6 @@ func (aa *AccountAccess) validate(maxBALIndex int) error {
 		}
 	}
 
-	for i := range aa.CodeChanges {
-		if len(aa.CodeChanges[i].NewCode) > MaxCodeSize {
-			return errors.New("code change contained oversized code")
-		}
-	}
-
 	return nil
 }
 
@@ -198,6 +192,7 @@ func (b BlockAccessList) itemCount() uint64 {
 
 func (b BlockAccessList) ValidateSize(blockGasLimit uint64) error {
 	items := b.itemCount()
+
 	limit := blockGasLimit / BALItemCost
 	if items > limit {
 		return fmt.Errorf(
@@ -268,8 +263,10 @@ func (e BlockAccessList) PrettyPrint() string {
 
 		if len(accountDiff.StorageChanges) > 0 {
 			printWithIndent(1, "storage changes:")
+
 			for _, slot := range accountDiff.StorageChanges {
 				printWithIndent(2, "%s:", slot.Slot.String())
+
 				for _, write := range slot.SlotChanges {
 					printWithIndent(3, "%d: %s", write.BlockAccessIndex, write.PostValue.String())
 				}
@@ -278,6 +275,7 @@ func (e BlockAccessList) PrettyPrint() string {
 
 		if len(accountDiff.StorageReads) > 0 {
 			printWithIndent(1, "storage reads:")
+
 			for _, slot := range accountDiff.StorageReads {
 				printWithIndent(2, "%s", slot.String())
 			}
@@ -285,6 +283,7 @@ func (e BlockAccessList) PrettyPrint() string {
 
 		if len(accountDiff.BalanceChanges) > 0 {
 			printWithIndent(1, "balance changes:")
+
 			for _, change := range accountDiff.BalanceChanges {
 				printWithIndent(2, "%d: %s", change.BlockAccessIndex, change.PostBalance.String())
 			}
@@ -292,6 +291,7 @@ func (e BlockAccessList) PrettyPrint() string {
 
 		if len(accountDiff.NonceChanges) > 0 {
 			printWithIndent(1, "nonce changes:")
+
 			for _, change := range accountDiff.NonceChanges {
 				printWithIndent(2, "%d: %d", change.BlockAccessIndex, change.PostNonce)
 			}
@@ -299,6 +299,7 @@ func (e BlockAccessList) PrettyPrint() string {
 
 		if len(accountDiff.CodeChanges) > 0 {
 			printWithIndent(1, "code changes:")
+
 			for _, change := range accountDiff.CodeChanges {
 				printWithIndent(2, "%d: %x", change.BlockAccessIndex, change.NewCode)
 			}

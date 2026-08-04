@@ -154,6 +154,7 @@ func (sw *StorageWrite) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) er
 	if err != nil {
 		return err
 	}
+
 	sw.BlockAccessIndex = uint32(idx)
 
 	return elems[1].GetHash(sw.PostValue[:])
@@ -173,6 +174,7 @@ func (bc *BalanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) e
 	if err != nil {
 		return err
 	}
+
 	bc.BlockAccessIndex = uint32(idx)
 
 	bc.PostBalance = new(big.Int)
@@ -194,6 +196,7 @@ func (nc *NonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) err
 	if err != nil {
 		return err
 	}
+
 	nc.BlockAccessIndex = uint32(idx)
 
 	nc.PostNonce, err = elems[1].GetUint64()
@@ -215,6 +218,7 @@ func (cc *CodeChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	if err != nil {
 		return err
 	}
+
 	cc.BlockAccessIndex = uint32(idx)
 
 	cc.NewCode, err = elems[1].GetBytes(cc.NewCode[:0])

@@ -364,7 +364,8 @@ type Transition struct {
 	// one per transaction
 	balRecorder runtime.BlockAccessListRecorder
 
-	// marshalable block access list for the block, which is used to generate the final block access list after the block execution
+	// marshalable block access list for the block,
+	// which is used to generate the final block access list after the block execution
 	// one per block
 	blockBAL bal.BlockAccessList
 
@@ -998,6 +999,7 @@ func (t *Transition) applyCall(
 
 	result = t.run(c, host)
 	t.balRecorder = oldBalRecorder
+
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{

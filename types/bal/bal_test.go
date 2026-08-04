@@ -62,6 +62,7 @@ func TestBlockRecord_Merge_DisjointAndOverlap(t *testing.T) {
 	other := NewBlockAccessListRecord()
 	otherA := other.GetOrCreate(addrA)
 	otherA.RecordStorageWrite(2, slotX, valV)
+
 	otherB := other.GetOrCreate(addrB) // disjoint account
 	otherB.RecordNonceChange(1, 3)
 
@@ -205,9 +206,11 @@ func TestBlockAccessList_EmptyRLPRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	var empty BlockAccessList
+
 	data := empty.MarshalRLP()
 
 	var got BlockAccessList
+
 	require.NoError(t, got.UnmarshalRLP(data))
 	require.Len(t, got, 0)
 }

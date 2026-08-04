@@ -1647,7 +1647,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	if block.Header.BlockAccessListHash == EmptyBALHash {
 		if len(block.Transactions) != 0 {
 			return nil, fmt.Errorf(
-				"block claims empty block access list but has %d transactions and %d receipts",
+				"block claims empty block access list but has %d transactions",
 				len(block.Transactions),
 			)
 		}

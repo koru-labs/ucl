@@ -48,6 +48,7 @@ func TestE2E_BAL_CrossNodeAgreement(t *testing.T) {
 			// BalanceChange entry take effect on every node.
 			recipientKey, err := wallet.GenerateKey()
 			require.NoError(t, err)
+
 			recipient := types.Address(recipientKey.Address())
 
 			transferAmount := ethgo.Gwei(10_000)
@@ -94,7 +95,7 @@ func TestE2E_BAL_CrossNodeAgreement(t *testing.T) {
 			// Negative check: sender balance parity after all the above.
 			// The sender paid gas + transferAmount; whatever number we end up with,
 			// every node must agree on it.
-			assertBalanceParityAcrossNodes(t, cluster, types.Address(sender.Address()))
+			assertBalanceParityAcrossNodes(t, cluster, sender.Address())
 		})
 	}
 }
@@ -169,7 +170,7 @@ func TestE2E_BAL_NestedCall_Success(t *testing.T) {
 
 			// caller.callSet(calleeAddr, 42)
 			callSet := contractsapi.TestBalCaller.Abi.GetMethod("callSet")
-			input, err := callSet.Encode([]interface{}{ethgo.Address(calleeAddr), big.NewInt(42)})
+			input, err := callSet.Encode([]interface{}{calleeAddr, big.NewInt(42)})
 			require.NoError(t, err)
 
 			txn := cluster.SendTxn(t, sender, &types.Transaction{
@@ -211,7 +212,7 @@ func TestE2E_BAL_NestedCall_RevertingCallee(t *testing.T) {
 			callerAddr := types.Address(callerTxn.Receipt().ContractAddress)
 
 			callSet := contractsapi.TestBalCaller.Abi.GetMethod("callSet")
-			input, err := callSet.Encode([]interface{}{ethgo.Address(calleeAddr), big.NewInt(42)})
+			input, err := callSet.Encode([]interface{}{calleeAddr, big.NewInt(42)})
 			require.NoError(t, err)
 
 			txn := cluster.SendTxn(t, sender, &types.Transaction{
@@ -267,13 +268,15 @@ func TestE2E_BAL_NestedCall_MixedBatch(t *testing.T) {
 					return cluster.Transfer(t, sender, recipient.Address(), big.NewInt(1000))
 				}},
 				{"nested -> TestSimple.setValue(7)", func() *frameworkV2.TestTxn {
-					in, err := callSet.Encode([]interface{}{ethgo.Address(simpleAddr), big.NewInt(7)})
+					in, err := callSet.Encode([]interface{}{simpleAddr, big.NewInt(7)})
 					require.NoError(t, err)
+
 					return cluster.SendTxn(t, sender, &types.Transaction{Input: in, To: &callerAddr})
 				}},
 				{"nested -> reverting callee", func() *frameworkV2.TestTxn {
-					in, err := callSet.Encode([]interface{}{ethgo.Address(revertingAddr), big.NewInt(99)})
+					in, err := callSet.Encode([]interface{}{revertingAddr, big.NewInt(99)})
 					require.NoError(t, err)
+
 					return cluster.SendTxn(t, sender, &types.Transaction{Input: in, To: &callerAddr})
 				}},
 				{"transfer 2000", func() *frameworkV2.TestTxn {
@@ -282,9 +285,11 @@ func TestE2E_BAL_NestedCall_MixedBatch(t *testing.T) {
 			}
 
 			var lastBlock uint64
+
 			for _, tx := range txns {
 				r := tx.exec()
 				require.True(t, r.Succeed(), tx.desc)
+
 				if r.Receipt().BlockNumber > lastBlock {
 					lastBlock = r.Receipt().BlockNumber
 				}
@@ -320,6 +325,7 @@ func newBALTestCluster(
 	if withBAL {
 		opts = append(opts, frameworkV2.WithBALNonValidators())
 	}
+
 	opts = append(opts, extra...)
 
 	return frameworkV2.NewTestCluster(t, validators, opts...)
@@ -353,9 +359,12 @@ func assertBalanceParityAcrossNodes(t *testing.T, cluster *frameworkV2.TestClust
 	t.Helper()
 
 	var reference *big.Int
+
 	for i, s := range cluster.Servers {
 		bal, err := s.JSONRPC().GetBalance(addr, jsonrpc.LatestBlockNumberOrHash)
+
 		require.NoErrorf(t, err, "node %d GetBalance(%s)", i, addr)
+
 		if i == 0 {
 			reference = bal
 
@@ -374,6 +383,7 @@ func assertCodeParity(t *testing.T, cluster *frameworkV2.TestCluster, addr types
 	t.Helper()
 
 	var reference []byte
+
 	for i, s := range cluster.Servers {
 		code, err := s.JSONRPC().GetCode(addr, jsonrpc.LatestBlockNumberOrHash)
 		require.NoErrorf(t, err, "node %d GetCode(%s)", i, addr)
