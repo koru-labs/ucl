@@ -853,9 +853,7 @@ func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash
 		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
 			return value
 		}
-	}
-
-	if txn.bar == nil {
+	} else {
 		val, exists := txn.snapshots[0].Get(addr.Bytes())
 		if exists {
 			object := val.(*StateObject) //nolint:forcetypeassert
