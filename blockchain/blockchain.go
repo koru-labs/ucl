@@ -1603,8 +1603,10 @@ func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList
 	if cached, ok := b.blockAccessListCache.Get(blockNumber); ok {
 		blockAccessList, ok := cached.(bal.BlockAccessList)
 		if !ok {
-			return bal.BlockAccessList{}, fmt.Errorf("block access list cache: unexpected type %T for block %d", cached, blockNumber)
+			return bal.BlockAccessList{},
+				fmt.Errorf("block access list cache: unexpected type %T for block %d", cached, blockNumber)
 		}
+
 		return blockAccessList, nil
 	}
 
