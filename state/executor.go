@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -164,7 +166,7 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	for i, t := range block.Transactions {
+	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
 		}
@@ -175,18 +177,148 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		txn.BalIndex = uint(i + 1)
-
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
-
-		blockBAL.Merge(txn.balRecorder.GetBlockAccessListRecord())
 	}
 
-	txn.blockBAL = blockBAL.Encode()
-
 	return txn, nil
+}
+
+func (e *Executor) ParallelProcessBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+) (BlockAccessRecord, types.Receipts, uint64, error) {
+	var count atomic.Int64
+	count.Store(0)
+
+	receipts := make([]*types.Receipt, 0, len(block.Transactions))
+	txns := make([]*Transition, 0, len(block.Transactions))
+
+	stop := sync.Once{}
+	stopCh := make(chan struct{})
+
+	executed := sync.Map{}
+
+	executedCh := make(chan struct{}, 1)
+
+	wg := sync.WaitGroup{}
+
+	stopFn := func() {
+		stop.Do(func() {
+			close(stopCh)
+		})
+	}
+
+	bar := NewBlockAccessRecord()
+
+	gasUsed := block.Header.GasLimit
+
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
+				txIndex := count.Add(1)
+
+				if txIndex >= int64(len(block.Transactions)) {
+					return
+				}
+
+				tx := block.Transactions[txIndex-1]
+
+				txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
+				if err != nil {
+					stopFn()
+
+					return
+				}
+
+				txn.SetBlockAccessRecord(block.BlockAccessRecord)
+				txn.SetTxAccessRecorder(NewTxAccessRecorder(uint64(txIndex)))
+
+				if tx.Gas > block.Header.GasLimit {
+					stopFn()
+
+					return
+				}
+
+				if tx.From == emptyFrom && tx.Type != types.StateTx {
+					if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
+						tx.From = poolTx.From
+					}
+				}
+
+				if err = txn.Write(tx); err != nil {
+					stopFn()
+
+					return
+				}
+
+				txns[txIndex] = txn
+				executed.Store(txIndex, struct{}{})
+
+				select {
+				case executedCh <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		current := 0
+
+		for {
+
+			select {
+			case <-executedCh:
+				for i := current; i < len(block.Transactions); i++ {
+					select {
+					case <-stopCh:
+						return
+					default:
+					}
+
+					if _, ok := executed.Load(i); !ok {
+						break
+					}
+
+					tx := block.Transactions[i]
+					receipt := txns[i].receipts[0]
+					receipts[i] = receipt
+
+					if gasUsed < tx.Gas {
+						stopFn()
+
+						return
+					}
+
+					gasUsed -= receipt.GasUsed
+					receipt.CumulativeGasUsed = block.Header.GasLimit - gasUsed
+
+					bar.Insert(txns[i].GetTxAccessRecorder())
+					current++
+				}
+			case <-stopCh:
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	return bar, receipts, gasUsed, nil
 }
 
 // GetForksInTime returns the active forks at the given block height
@@ -369,8 +501,16 @@ func (t *Transition) SetTxAccessRecorder(recorder *TxAccessRecorder) {
 	t.state.recorder = recorder
 }
 
+func (t *Transition) GetTxAccessRecorder() *TxAccessRecorder {
+	return t.state.recorder
+}
+
 func (t *Transition) SetBlockAccessRecord(bar types.BlockAccessRecord) {
 	t.state.bar = bar
+}
+
+func (t *Transition) GetBlockAccessRecord() types.BlockAccessRecord {
+	return t.state.bar
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -745,9 +885,11 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		return nil, err
 	}
 
-	// the amount of gas required is available in the block
-	if err = t.subGasPool(msg.Gas); err != nil {
-		return nil, NewGasLimitReachedTransitionApplicationError(err)
+	if !t.config.EIP7928 {
+		// the amount of gas required is available in the block
+		if err = t.subGasPool(msg.Gas); err != nil {
+			return nil, NewGasLimitReachedTransitionApplicationError(err)
+		}
 	}
 
 	if t.ctx.Tracer != nil {
@@ -823,8 +965,10 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
 	}
 
-	// return gas to the pool
-	t.addGasPool(result.GasLeft)
+	if !t.config.EIP7928 {
+		// return gas to the pool
+		t.addGasPool(result.GasLeft)
+	}
 
 	return result, nil
 }

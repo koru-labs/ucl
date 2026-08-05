@@ -107,7 +107,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
-	block, receipts, blockAccessList, err := i.buildBlock(ctx, latestHeader)
+	block, receipts, bar, err := i.buildBlock(ctx, latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
 
@@ -121,7 +121,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
 	if i.config.Params.Forks.At(view.Height).EIP7928 {
-		i.blockchain.AddBlockAccessListToCache(block.Hash(), blockAccessList)
+		i.blockchain.AddBlockAccessListToCache(block.Hash(), bar)
 	}
 
 	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
@@ -391,10 +391,9 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	}
 
 	if i.config.Params.Forks.At(header.Number).EIP7928 {
-		finalBAL = transition.BlockAccessList()
-		header.BlockAccessListHash = finalBAL.Hash()
-		buildBlockParams.BlockAccessList = finalBAL
-		i.logger.Error("BAL for block", "number", header.Number, "content", "\n"+finalBAL.PrettyPrint())
+		bar = transition.GetBlockAccessRecord()
+		header.BlockAccessRecordHash = bar.Hash()
+		buildBlockParams.BlockAccessList = bar
 	}
 
 	// build the block
@@ -414,7 +413,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, transition.Receipts(), finalBAL, nil
+	return block, transition.Receipts(), bar, nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based
@@ -462,7 +461,6 @@ func (i *backendIBFT) writeTransactions(
 		successful = 0
 		failed     = 0
 		skipped    = 0
-		txCounter  = 0
 	)
 
 	defer func() {
@@ -518,16 +516,16 @@ write:
 				skipped++
 			}
 
-			if i.config.Params.Forks.At(blockNumber).EIP7928 {
-				bar.Insert(txRecorder)
-			}
-
-			txCounter++
+			bar.Insert(txRecorder)
 		}
 	}
 
 	//	wait for the timer to expire
 	<-writeCtx.Done()
+
+	if i.config.Params.Forks.At(blockNumber).EIP7928 {
+		transition.SetBlockAccessRecord(bar.Pack())
+	}
 
 	return
 }

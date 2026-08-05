@@ -1,6 +1,8 @@
 package types
 
 import (
+	"bytes"
+	"fmt"
 	"math/big"
 	"sort"
 
@@ -146,4 +148,57 @@ func (r BlockAccessRecord) SlotBefore(addr Address, slot Hash, txIndex uint64) (
 		return Hash{}, false
 	}
 	return sc.SlotChanges[i-1].Value, true
+}
+
+func (r BlockAccessRecord) Validate() error {
+	for i := 1; i < len(r); i++ {
+		if bytes.Compare(r[i-1].Address[:], r[i].Address[:]) >= 0 {
+			return fmt.Errorf("accounts not strictly sorted at %d: %s >= %s",
+				i, r[i-1].Address, r[i].Address)
+		}
+	}
+
+	for i := range r {
+		if err := r[i].validate(); err != nil {
+			return fmt.Errorf("account %s: %w", r[i].Address, err)
+		}
+	}
+
+	return nil
+}
+
+func (a AccountAccessRecord) validate() error {
+	for i := 1; i < len(a.StorageChanges); i++ {
+		if bytes.Compare(a.StorageChanges[i-1].Slot[:], a.StorageChanges[i].Slot[:]) >= 0 {
+			return fmt.Errorf("storage slots not strictly sorted at %d", i)
+		}
+	}
+
+	for _, sc := range a.StorageChanges {
+		for i := 1; i < len(sc.SlotChanges); i++ {
+			if sc.SlotChanges[i-1].TxIndex >= sc.SlotChanges[i].TxIndex {
+				return fmt.Errorf("slot %s: SlotChanges not strictly ascending at %d", sc.Slot, i)
+			}
+		}
+	}
+
+	for i := 1; i < len(a.BalanceChanges); i++ {
+		if a.BalanceChanges[i-1].TxIndex >= a.BalanceChanges[i].TxIndex {
+			return fmt.Errorf("BalanceChanges not strictly ascending at %d", i)
+		}
+	}
+
+	for i := 1; i < len(a.NonceChanges); i++ {
+		if a.NonceChanges[i-1].TxIndex >= a.NonceChanges[i].TxIndex {
+			return fmt.Errorf("NonceChanges not strictly ascending at %d", i)
+		}
+	}
+
+	for i := 1; i < len(a.CodeChanges); i++ {
+		if a.CodeChanges[i-1].TxIndex >= a.CodeChanges[i].TxIndex {
+			return fmt.Errorf("CodeChanges not strictly ascending at %d", i)
+		}
+	}
+
+	return nil
 }
