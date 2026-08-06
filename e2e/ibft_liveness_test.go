@@ -20,16 +20,29 @@ const (
 	ibftSixValidators   = 6
 	ibftSevenValidators = 7
 
-	// settleAfterStop gives any block that was already mid-commit time to finalize (or fail)
-	// before we sample the "stalled" reference height. Sampling immediately after stopping a
-	// peer is racy: an in-flight block can seal in the gap and make a strict height comparison
-	// flap.
+	// livenessEnvVar gates the long-running IBFT liveness/recovery tests below. They boot real
+	// multi-node clusters and deliberately wait through partition windows, so a full run takes
+	// many minutes and does not fit the standard `make test-e2e` budget. They are skipped unless
+	// this variable is set (see the `test-e2e-liveness` Makefile target / nightly CI job).
+	livenessEnvVar = "E2E_LIVENESS_TESTS"
+
+	// settleAfterStop lets an in-flight block finalize before we sample the "stalled" reference
+	// height, so a strict height comparison doesn't flap on the stop boundary.
 	settleAfterStop = 5 * time.Second
 
-	// settleAfterRestart lets libp2p and IBFT reconnect after a process restart before we start
-	// polling for recovery.
+	// settleAfterRestart lets libp2p/IBFT reconnect after a restart before we poll for recovery.
 	settleAfterRestart = 3 * time.Second
 )
+
+// requireLivenessEnabled skips the calling test unless the liveness env var is set to "true".
+func requireLivenessEnabled(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv(livenessEnvVar) != "true" {
+		t.Skipf("skipping long-running IBFT liveness test; set %s=true (or run `make test-e2e-liveness`) to enable",
+			livenessEnvVar)
+	}
+}
 
 // bootIBFTCluster creates and starts an n-validator IBFT cluster of the given validator type and
 // returns the started servers. It fails the test if startup does not complete within startTimeout.
@@ -45,6 +58,7 @@ func bootIBFTCluster(
 	ibftManager := framework.NewIBFTServersManager(t, count, dirPrefix,
 		func(_ int, config *framework.TestServerConfig) {
 			config.SetValidatorType(validatorType)
+			config.SetBlockTime(1) // 1s blocks (default 2s) to keep runtime down
 		})
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), startTimeout)
@@ -60,11 +74,10 @@ func bootIBFTCluster(
 	return servers
 }
 
-// assertChainStalled samples the committed head twice — once after a short settle window and again
-// after observe — and asserts the two samples are equal, i.e. the chain is not advancing. It
-// returns the stalled height. Both samples are taken after the peer(s) have already been stopped so
-// there is no stop-boundary race. This only inspects the committed head; internal IBFT round state
-// is not exposed through the operator API and is therefore not asserted here.
+// assertChainStalled samples the committed head after a settle window and again after observe, and
+// asserts they are equal (the chain is not advancing), returning the stalled height. Both samples
+// are taken after the peer(s) are stopped, so there is no stop-boundary race. It inspects only the
+// committed head; internal IBFT round state is not exposed by the API.
 func assertChainStalled(t *testing.T, live *framework.TestServer, observe time.Duration, msg string) uint64 {
 	t.Helper()
 
@@ -136,7 +149,7 @@ func runTwoValidatorStallThenRecover(t *testing.T, validatorType validators.Vali
 	t.Helper()
 
 	const (
-		initialSealHeight uint64 = 12
+		initialSealHeight uint64 = 8
 		startTimeout             = 2 * time.Minute
 		recoverBlocks     uint64 = 4
 	)
@@ -165,16 +178,20 @@ func runTwoValidatorStallThenRecover(t *testing.T, validatorType validators.Vali
 	waitAllReach(t, servers, target, c.recoverWait, "recovery after single-validator restart")
 }
 
-// TestIBFT_TwoValidators_OneDownStallsChain covers a 2-validator IBFT set (quorum is 2).
+// TestIBFTLiveness_TwoValidators_OneDownStallsChain covers a 2-validator IBFT set (quorum is 2).
 // With one validator gracefully stopped, the remaining node may still run and serve RPC, but the
 // committed head must not advance. If blocks keep sealing, that matches the faulty behaviour
 // observed in production (apparent liveness without quorum). After restart the chain must recover.
-func TestIBFT_TwoValidators_OneDownStallsChain(t *testing.T) {
+func TestIBFTLiveness_TwoValidators_OneDownStallsChain(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	run := func(t *testing.T, validatorType validators.ValidatorType) {
+		t.Helper()
+
 		runTwoValidatorStallThenRecover(t, validatorType, twoValStallCase{
 			dirPrefix:        "e2e-ibft-2val-",
 			stop:             func(s *framework.TestServer) { s.Stop() },
-			stallObservation: 45 * time.Second,
+			stallObservation: 30 * time.Second,
 			recoverWait:      3 * time.Minute,
 		})
 	}
@@ -188,16 +205,20 @@ func TestIBFT_TwoValidators_OneDownStallsChain(t *testing.T) {
 	})
 }
 
-// TestIBFT_TwoValidators_OneDownKill9StallsChainThenRecovers matches
-// TestIBFT_TwoValidators_OneDownStallsChain, but the stopped validator is terminated with
+// TestIBFTLiveness_TwoValidators_OneDownKill9Recovers matches
+// TestIBFTLiveness_TwoValidators_OneDownStallsChain, but the stopped validator is terminated with
 // `kill -9 <pid>` (framework.TestServer.StopViaKill9) — an unclean crash rather than a graceful
 // shutdown — then started again. Recovery behaviour should match the graceful-stop test.
-func TestIBFT_TwoValidators_OneDownKill9StallsChainThenRecovers(t *testing.T) {
+func TestIBFTLiveness_TwoValidators_OneDownKill9Recovers(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	run := func(t *testing.T, validatorType validators.ValidatorType) {
+		t.Helper()
+
 		runTwoValidatorStallThenRecover(t, validatorType, twoValStallCase{
 			dirPrefix:        "e2e-ibft-2val-kill9-",
 			stop:             func(s *framework.TestServer) { s.StopViaKill9() },
-			stallObservation: 45 * time.Second,
+			stallObservation: 30 * time.Second,
 			recoverWait:      3 * time.Minute,
 		})
 	}
@@ -211,13 +232,18 @@ func TestIBFT_TwoValidators_OneDownKill9StallsChainThenRecovers(t *testing.T) {
 	})
 }
 
-// TestIBFT_TwoValidators_LongPartitionThenRecovers extends TestIBFT_TwoValidators_OneDownStallsChain
-// by keeping one validator down for much longer, so the surviving peer spends an extended period
-// unable to finalize the pending height. After restart, both validators must seal further blocks
-// without requiring a simultaneous restart of the whole cluster — if they do not, IBFT recovery
-// after a prolonged partition is broken for the minimal 2-validator configuration.
-func TestIBFT_TwoValidators_LongPartitionThenRecovers(t *testing.T) {
+// TestIBFTLiveness_TwoValidators_LongPartitionRecovers extends
+// TestIBFTLiveness_TwoValidators_OneDownStallsChain by keeping one validator down for much longer,
+// so the surviving peer spends an extended period unable to finalize the pending height. After
+// restart, both validators must seal further blocks without requiring a simultaneous restart of the
+// whole cluster — if they do not, IBFT recovery after a prolonged partition is broken for the
+// minimal 2-validator configuration.
+func TestIBFTLiveness_TwoValidators_LongPartitionRecovers(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	run := func(t *testing.T, validatorType validators.ValidatorType) {
+		t.Helper()
+
 		runTwoValidatorStallThenRecover(t, validatorType, twoValStallCase{
 			dirPrefix:        "e2e-ibft-2val-longpart-",
 			stop:             func(s *framework.TestServer) { s.Stop() },
@@ -235,18 +261,20 @@ func TestIBFT_TwoValidators_LongPartitionThenRecovers(t *testing.T) {
 	})
 }
 
-// TestIBFT_MinorityValidatorRestartLiveness stops one of four validators (quorum remains),
+// TestIBFTLiveness_MinorityValidatorRestart stops one of four validators (quorum remains),
 // lets the other three advance the chain for several blocks plus a wall-clock window, then restarts
 // the stopped node and asserts all four eventually reach the same height again.
 //
 // If the restarted node fails to rejoin consensus, this test fails: the live subset keeps growing
 // while the restarted node never reaches the common target.
-func TestIBFT_MinorityValidatorRestartLiveness(t *testing.T) {
+func TestIBFTLiveness_MinorityValidatorRestart(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	const (
-		initialSealHeight  uint64 = 15
-		blocksWhileDown    uint64 = 8
-		blocksAfterRestart uint64 = 5
-		partitionWallTime         = 35 * time.Second
+		initialSealHeight  uint64 = 10
+		blocksWhileDown    uint64 = 6
+		blocksAfterRestart uint64 = 4
+		partitionWallTime         = 20 * time.Second
 		startTimeout              = 2 * time.Minute
 		recoverWait               = 3 * time.Minute
 	)
@@ -296,13 +324,15 @@ func TestIBFT_MinorityValidatorRestartLiveness(t *testing.T) {
 	})
 }
 
-// TestIBFT_SixValidators_OneDownMajorityStillSeals checks that with six validators (quorum 4),
+// TestIBFTLiveness_SixValidators_OneDownMajoritySeals checks that with six validators (quorum 4),
 // stopping a single validator leaves a five-node majority that can still finalize new blocks.
 // This is not an edge case: one fault is within IBFT fault tolerance f=floor((n-1)/3)=1 for n=6.
-func TestIBFT_SixValidators_OneDownMajorityStillSeals(t *testing.T) {
+func TestIBFTLiveness_SixValidators_OneDownMajoritySeals(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	const (
-		initialSealHeight uint64 = 14
-		blocksWithOneDown uint64 = 12
+		initialSealHeight uint64 = 10
+		blocksWithOneDown uint64 = 8
 		startTimeout             = 3 * time.Minute
 	)
 
@@ -321,6 +351,7 @@ func TestIBFT_SixValidators_OneDownMajorityStillSeals(t *testing.T) {
 		servers[0].Stop()
 
 		live := servers[1:]
+
 		target := heightBefore + blocksWithOneDown
 		if errs := framework.WaitForServersToSeal(live, target); len(errs) != 0 {
 			t.Fatalf("with 6 validators and 1 stopped, remaining 5 should still seal (quorum=4): %v", errs)
@@ -336,19 +367,21 @@ func TestIBFT_SixValidators_OneDownMajorityStillSeals(t *testing.T) {
 	})
 }
 
-// TestIBFT_SuperminorityPartition_RecoversAfterQuorumRestored stops more than n/3 validators so the
-// remainder lacks quorum: the committed head must not move while the partition holds. After a
-// wall-clock window the stopped validators are restarted, full quorum returns, and this test
-// asserts every validator observes further sealed blocks (allowing several minutes for the first
-// post-partition block).
+// TestIBFTLiveness_SuperminorityPartitionRecovers stops more than n/3 validators so the remainder
+// lacks quorum: the committed head must not move while the partition holds. After a wall-clock
+// window the stopped validators are restarted, full quorum returns, and this test asserts every
+// validator observes further sealed blocks (allowing several minutes for the first post-partition
+// block).
 //
 // Layout: 7 validators ⇒ quorum = floor(2n/3)+1 = 5. Stopping 3 leaves 4 (< quorum); 3/7 > 1/3.
-func TestIBFT_SuperminorityPartition_RecoversAfterQuorumRestored(t *testing.T) {
+func TestIBFTLiveness_SuperminorityPartitionRecovers(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	const (
-		initialSealHeight     uint64 = 14
-		blocksAfterQuorumBack uint64 = 5
+		initialSealHeight     uint64 = 10
+		blocksAfterQuorumBack uint64 = 4
 		stopCount                    = 3
-		partitionWallTime            = 40 * time.Second
+		partitionWallTime            = 30 * time.Second
 		startTimeout                 = 4 * time.Minute
 		recoverWait                  = 4 * time.Minute
 	)
@@ -393,37 +426,16 @@ func TestIBFT_SuperminorityPartition_RecoversAfterQuorumRestored(t *testing.T) {
 	})
 }
 
-// TestIBFT_DuplicateValidatorKey_ChainRemainsHealthy starts a 5-validator IBFT cluster in which
-// validator[4]'s signing key is replaced with validator[0]'s key before any node is started.
-//
-// # Background — Double Signing
-//
-// "Double signing" occurs when two (or more) independent nodes submit IBFT consensus messages
-// (PREPARE / COMMIT) for the same sequence using the same validator identity (address / key
-// pair). In a correctly-implemented BFT protocol this is treated as Byzantine behaviour: every
-// other validator that receives a second message from the same address for the same sequence
-// MUST discard it (only one vote per validator per round is valid). The malicious / misconfigured
-// node can therefore do no useful work and its extra votes are simply ignored.
-//
-// # Why the chain should stay healthy
-//
-// With n=5 validators the quorum threshold is floor(2*5/3)+1 = 4. After the key copy:
-//
-//   - genesis validator set: [addr0, addr1, addr2, addr3, addr4_original]
-//   - nodes 0 and 4 both sign as addr0
-//   - nobody signs as addr4_original
-//
-// Four unique validator addresses (addr0, addr1, addr2, addr3) provide valid, distinct votes.
-// That is exactly the quorum required, so every round can be completed and the chain must keep
-// producing blocks. The redundant messages from node[4] are silently dropped by peers.
-//
-// The test asserts:
-//  1. The chain continues to seal blocks (no halt due to double-signing).
-//  2. No validator node process crashes or becomes unreachable.
-func TestIBFT_DuplicateValidatorKey_ChainRemainsHealthy(t *testing.T) {
+// TestIBFTLiveness_DuplicateValidatorKeyHealthy replaces validator[4]'s signing key with
+// validator[0]'s before startup, so nodes 0 and 4 both sign as addr0 (double signing). Peers
+// discard the redundant votes, leaving four unique signers (addr0..addr3) — exactly quorum for
+// n=5 (floor(2*5/3)+1 = 4) — so the chain must keep sealing and no node should crash.
+func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
+	requireLivenessEnabled(t)
+
 	const (
-		initialSealHeight uint64 = 12
-		blocksAfterDup    uint64 = 10
+		initialSealHeight uint64 = 8
+		blocksAfterDup    uint64 = 6
 		startTimeout             = 3 * time.Minute
 		recoverWait              = 3 * time.Minute
 	)
@@ -437,13 +449,11 @@ func TestIBFT_DuplicateValidatorKey_ChainRemainsHealthy(t *testing.T) {
 			"e2e-ibft-5val-dupkey-",
 			func(_ int, config *framework.TestServerConfig) {
 				config.SetValidatorType(validatorType)
+				config.SetBlockTime(1) // 1s blocks (default 2s) to keep runtime down
 			},
 		)
 
-		// ── Inject duplicate key ──────────────────────────────────────────────────────────
-		// After NewIBFTServersManager has initialised all secrets and written genesis.json,
-		// overwrite node[4]'s validator signing key(s) with node[0]'s.  Both nodes will
-		// subsequently sign IBFT messages as addr0 — a double-signing scenario.
+		// Overwrite node[4]'s signing key(s) with node[0]'s so both sign as addr0.
 		node0DataDir := ibftManager.GetServer(0).Config.DataDir()
 		node4DataDir := ibftManager.GetServer(4).Config.DataDir()
 
@@ -462,13 +472,12 @@ func TestIBFT_DuplicateValidatorKey_ChainRemainsHealthy(t *testing.T) {
 			require.NoError(t, os.WriteFile(dst, data, 0440), "overwrite node-4 key file %s", filename)
 		}
 
-		copyKey(secrets.ValidatorKeyLocal) // always copy ECDSA key
+		copyKey(secrets.ValidatorKeyLocal)
 
 		if validatorType == validators.BLSValidatorType {
-			copyKey(secrets.ValidatorBLSKeyLocal) // also copy BLS key for BLS validators
+			copyKey(secrets.ValidatorBLSKeyLocal)
 		}
 
-		// ── Start all five nodes ──────────────────────────────────────────────────────────
 		startCtx, startCancel := context.WithTimeout(context.Background(), startTimeout)
 		defer startCancel()
 
@@ -479,25 +488,18 @@ func TestIBFT_DuplicateValidatorKey_ChainRemainsHealthy(t *testing.T) {
 			servers[i] = ibftManager.GetServer(i)
 		}
 
-		// ── Assert chain liveness ────────────────────────────────────────────────────────
-		// The four unique signers (addr0, addr1, addr2, addr3) meet quorum=4, so the chain
-		// must keep producing blocks. We check the first four (the ones with valid, distinct
-		// signing identities in the genesis validator set).
+		// The four unique signers (addr0..addr3) meet quorum=4, so the chain must keep sealing.
 		legitServers := servers[:4]
 
 		if errs := framework.WaitForServersToSeal(legitServers, initialSealHeight); len(errs) != 0 {
 			t.Fatalf("chain should seal despite duplicate signing key (4 unique signers meet quorum=4): %v", errs)
 		}
 
-		// Continue sealing past the initial height to confirm the chain is not just lucky on
-		// the first few blocks.
 		target := initialSealHeight + blocksAfterDup
 		waitAllReach(t, legitServers, target, recoverWait,
 			"validators should keep sealing with a duplicate-key node present")
 
-		// Node[4] (the double-signer) should still be reachable via JSON-RPC: it must not
-		// have crashed. We only check that its best block is at least the initial seal height
-		// (it may lag slightly because its signing key is redundant, but it should sync).
+		// Node[4] (the double-signer) must not have crashed and should sync via propagation.
 		node4Height, err := servers[4].GetLatestBlockHeight()
 		require.NoError(t, err, "node-4 (double-signer) JSON-RPC must remain responsive")
 		require.GreaterOrEqual(t, node4Height, initialSealHeight,

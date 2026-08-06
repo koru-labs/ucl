@@ -74,6 +74,19 @@ test-e2e: check-go
 	go build -race -o artifacts/polygon-edge .
 	env EDGE_BINARY=${PWD}/artifacts/polygon-edge go test -v -timeout=40m ./e2e
 
+# E2E_LIVENESS_RUN selects which liveness tests to run; override it (e.g. from a CI matrix) to run a
+# single scenario on its own runner. Defaults to all of them.
+E2E_LIVENESS_RUN ?= ^TestIBFTLiveness_
+
+# NB: the node binary is intentionally built WITHOUT -race here. These tests orchestrate separate
+# polygon-edge processes; the race detector would only slow those nodes down (race coverage is
+# already provided by the unit-test suite and the standard `test-e2e` job).
+.PHONY: test-e2e-liveness
+test-e2e-liveness: check-go
+	go build -o artifacts/polygon-edge .
+	env EDGE_BINARY=${PWD}/artifacts/polygon-edge E2E_LIVENESS_TESTS=true E2E_LOGS=true \
+	go test -v -timeout=90m -run '$(E2E_LIVENESS_RUN)' ./e2e
+
 .PHONY: test-e2e-polybft
 test-e2e-polybft: check-go
 	go build -o artifacts/polygon-edge .
@@ -120,6 +133,7 @@ help:
 	@printf "  %-35s - %s\n" "test" "Run unit tests"
 	@printf "  %-35s - %s\n" "fuzz-test" "Run fuzz tests"
 	@printf "  %-35s - %s\n" "test-e2e" "Run end-to-end tests"
+	@printf "  %-35s - %s\n" "test-e2e-liveness" "Run long-running IBFT liveness/recovery e2e tests"
 	@printf "  %-35s - %s\n" "test-e2e-polybft" "Run end-to-end tests for PolyBFT"
 	@printf "  %-35s - %s\n" "test-property-polybft" "Run property tests for PolyBFT"
 	@printf "  %-35s - %s\n" "compile-core-contracts" "Compile core contracts"

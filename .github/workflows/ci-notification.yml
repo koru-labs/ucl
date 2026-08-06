@@ -24,6 +24,10 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Tests output
         type: string
         required: true
+      e2e_ibft_liveness_test_output:
+        description: E2E IBFT Liveness Tests output
+        type: string
+        required: true
       benchmark_test_output:
         description: Benchmark Tests output
         type: string
@@ -69,7 +73,7 @@ jobs:
                         "type": "plain_text",
                         "text": "Workflow Run"
                       },
-                      "style": "${{ inputs.build_output == '' && inputs.lint_output == '' && inputs.unit_test_output == '' && inputs.fuzz_test_output == '' && inputs.e2e_ibft_test_output == '' && inputs.benchmark_test_output == '' && env.succeed_bnt || env.failed_bnt }}",
+                      "style": "${{ inputs.build_output == '' && inputs.lint_output == '' && inputs.unit_test_output == '' && inputs.fuzz_test_output == '' && inputs.e2e_ibft_test_output == '' && inputs.e2e_ibft_liveness_test_output == '' && inputs.benchmark_test_output == '' && env.succeed_bnt || env.failed_bnt }}",
                       "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                     }
                   ]
@@ -108,6 +112,10 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "text": "${{ inputs.e2e_ibft_test_output == '' && env.succeed_job || env.failed_job }} *E2E IBFT Tests*"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "${{ inputs.e2e_ibft_liveness_test_output == '' && env.succeed_job || env.failed_job }} *E2E IBFT Liveness Tests*"
                     },
                     {
                       "type": "mrkdwn",
