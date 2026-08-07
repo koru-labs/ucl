@@ -15,8 +15,10 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Liveness Tests output
         value: ${{ jobs.result.outputs.output_failure }}
 
+# Static prefix (not github.workflow, which resolves to the caller) so this group can't collide
+# with ci.yml's and cancel the parent run when invoked via workflow_call.
 concurrency:
-  group: ${{ github.event_name }}-${{ github.workflow }}-${{ github.ref }}
+  group: e2e-ibft-liveness-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

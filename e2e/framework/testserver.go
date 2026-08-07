@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -189,9 +188,9 @@ func (t *TestServer) Stop() {
 	}
 }
 
-// StopViaKill9 terminates the validator like manual cluster debugging: `kill -9 <pid>`.
-// On Unix it runs `kill -9` against the child PID; on Windows it uses [os.Process.Kill]
-// (unclean termination). Reaps the process and clears server state like [TestServer.Stop].
+// StopViaKill9 terminates the validator uncleanly via os.Process.Kill (SIGKILL on Unix,
+// TerminateProcess on Windows), simulating a crash rather than a graceful shutdown. It reaps the
+// process and clears server state like [TestServer.Stop].
 func (t *TestServer) StopViaKill9() {
 	if t.cmd == nil {
 		t.ReleaseReservedPorts()
@@ -206,24 +205,10 @@ func (t *TestServer) StopViaKill9() {
 		return
 	}
 
-	pid := t.cmd.Process.Pid
-	t.t.Logf("StopViaKill9: kill -9 %d (GOOS=%s)", pid, runtime.GOOS)
+	t.t.Logf("StopViaKill9: killing pid %d", t.cmd.Process.Pid)
 
-	var killErr error
-	if runtime.GOOS == "windows" {
-		killErr = t.cmd.Process.Kill()
-	} else {
-		out, err := exec.Command("kill", "-9", strconv.Itoa(pid)).CombinedOutput()
-		if err != nil {
-			killErr = fmt.Errorf("%w: %s", err, string(out))
-		}
-	}
-
-	if killErr != nil {
-		t.t.Logf("StopViaKill9: kill -9 failed (%v), falling back to Process.Kill", killErr)
-		if err := t.cmd.Process.Kill(); err != nil {
-			t.t.Errorf("StopViaKill9: %v", err)
-		}
+	if err := t.cmd.Process.Kill(); err != nil {
+		t.t.Errorf("StopViaKill9: %v", err)
 	}
 
 	done := make(chan struct{})
@@ -235,7 +220,7 @@ func (t *TestServer) StopViaKill9() {
 	select {
 	case <-done:
 	case <-time.After(15 * time.Second):
-		t.t.Log("timeout waiting for server process to exit after kill -9")
+		t.t.Log("timeout waiting for server process to exit after kill")
 	}
 
 	t.cmd = nil

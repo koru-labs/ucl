@@ -20,10 +20,8 @@ const (
 	ibftSixValidators   = 6
 	ibftSevenValidators = 7
 
-	// livenessEnvVar gates the long-running IBFT liveness/recovery tests below. They boot real
-	// multi-node clusters and deliberately wait through partition windows, so a full run takes
-	// many minutes and does not fit the standard `make test-e2e` budget. They are skipped unless
-	// this variable is set (see the `test-e2e-liveness` Makefile target / nightly CI job).
+	// livenessEnvVar gates the long-running IBFT liveness/recovery tests below; they are skipped
+	// unless it is "true" (set by the `test-e2e-liveness` Makefile target / nightly CI job).
 	livenessEnvVar = "E2E_LIVENESS_TESTS"
 
 	// settleAfterStop lets an in-flight block finalize before we sample the "stalled" reference
@@ -75,8 +73,7 @@ func bootIBFTCluster(
 }
 
 // assertChainStalled samples the committed head after a settle window and again after observe, and
-// asserts they are equal (the chain is not advancing), returning the stalled height. Both samples
-// are taken after the peer(s) are stopped, so there is no stop-boundary race. It inspects only the
+// asserts they are equal (chain not advancing), returning the stalled height. It checks only the
 // committed head; internal IBFT round state is not exposed by the API.
 func assertChainStalled(t *testing.T, live *framework.TestServer, observe time.Duration, msg string) uint64 {
 	t.Helper()
@@ -140,11 +137,9 @@ type twoValStallCase struct {
 	recoverWait      time.Duration
 }
 
-// runTwoValidatorStallThenRecover boots a 2-validator IBFT cluster (quorum = 2), stops one peer via
-// the case's stop function, asserts the committed head does not advance for the observation window,
-// then restarts the peer and asserts both nodes seal further blocks. With only two validators, a
-// single fault removes quorum, so the chain MUST halt while one node is down and MUST resume once
-// both are back.
+// runTwoValidatorStallThenRecover boots a 2-validator cluster (quorum 2), stops one peer, asserts
+// the head does not advance for the observation window, then restarts it and asserts both seal
+// again. With two validators a single fault removes quorum, so the chain must halt then resume.
 func runTwoValidatorStallThenRecover(t *testing.T, validatorType validators.ValidatorType, c twoValStallCase) {
 	t.Helper()
 
@@ -178,10 +173,9 @@ func runTwoValidatorStallThenRecover(t *testing.T, validatorType validators.Vali
 	waitAllReach(t, servers, target, c.recoverWait, "recovery after single-validator restart")
 }
 
-// TestIBFTLiveness_TwoValidators_OneDownStallsChain covers a 2-validator IBFT set (quorum is 2).
-// With one validator gracefully stopped, the remaining node may still run and serve RPC, but the
-// committed head must not advance. If blocks keep sealing, that matches the faulty behaviour
-// observed in production (apparent liveness without quorum). After restart the chain must recover.
+// TestIBFTLiveness_TwoValidators_OneDownStallsChain: with a 2-validator set (quorum 2), gracefully
+// stopping one validator must freeze the committed head (sealing without quorum is the faulty
+// behaviour we guard against); the chain must recover after restart.
 func TestIBFTLiveness_TwoValidators_OneDownStallsChain(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -205,10 +199,8 @@ func TestIBFTLiveness_TwoValidators_OneDownStallsChain(t *testing.T) {
 	})
 }
 
-// TestIBFTLiveness_TwoValidators_OneDownKill9Recovers matches
-// TestIBFTLiveness_TwoValidators_OneDownStallsChain, but the stopped validator is terminated with
-// `kill -9 <pid>` (framework.TestServer.StopViaKill9) — an unclean crash rather than a graceful
-// shutdown — then started again. Recovery behaviour should match the graceful-stop test.
+// TestIBFTLiveness_TwoValidators_OneDownKill9Recovers is like the graceful-stop variant, but the
+// validator is killed with `kill -9` (StopViaKill9) to simulate an unclean crash before restart.
 func TestIBFTLiveness_TwoValidators_OneDownKill9Recovers(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -232,12 +224,9 @@ func TestIBFTLiveness_TwoValidators_OneDownKill9Recovers(t *testing.T) {
 	})
 }
 
-// TestIBFTLiveness_TwoValidators_LongPartitionRecovers extends
-// TestIBFTLiveness_TwoValidators_OneDownStallsChain by keeping one validator down for much longer,
-// so the surviving peer spends an extended period unable to finalize the pending height. After
-// restart, both validators must seal further blocks without requiring a simultaneous restart of the
-// whole cluster — if they do not, IBFT recovery after a prolonged partition is broken for the
-// minimal 2-validator configuration.
+// TestIBFTLiveness_TwoValidators_LongPartitionRecovers is the graceful-stop variant with a much
+// longer down period, checking IBFT still recovers after a prolonged partition without a
+// whole-cluster restart.
 func TestIBFTLiveness_TwoValidators_LongPartitionRecovers(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -261,12 +250,9 @@ func TestIBFTLiveness_TwoValidators_LongPartitionRecovers(t *testing.T) {
 	})
 }
 
-// TestIBFTLiveness_MinorityValidatorRestart stops one of four validators (quorum remains),
-// lets the other three advance the chain for several blocks plus a wall-clock window, then restarts
-// the stopped node and asserts all four eventually reach the same height again.
-//
-// If the restarted node fails to rejoin consensus, this test fails: the live subset keeps growing
-// while the restarted node never reaches the common target.
+// TestIBFTLiveness_MinorityValidatorRestart stops one of four validators (quorum retained), lets
+// the rest advance, then restarts the node and asserts all four converge on a common height —
+// failing if the restarted node never rejoins consensus.
 func TestIBFTLiveness_MinorityValidatorRestart(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -324,9 +310,9 @@ func TestIBFTLiveness_MinorityValidatorRestart(t *testing.T) {
 	})
 }
 
-// TestIBFTLiveness_SixValidators_OneDownMajoritySeals checks that with six validators (quorum 4),
-// stopping a single validator leaves a five-node majority that can still finalize new blocks.
-// This is not an edge case: one fault is within IBFT fault tolerance f=floor((n-1)/3)=1 for n=6.
+// TestIBFTLiveness_SixValidators_OneDownMajoritySeals: with six validators (quorum = (2*6)/3+1 = 5),
+// stopping one leaves exactly quorum (5), which must still seal. One fault is the most IBFT tolerates
+// here (f = floor((n-1)/3) = 1 for n=6), so this is the boundary case, not a margin.
 func TestIBFTLiveness_SixValidators_OneDownMajoritySeals(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -354,7 +340,7 @@ func TestIBFTLiveness_SixValidators_OneDownMajoritySeals(t *testing.T) {
 
 		target := heightBefore + blocksWithOneDown
 		if errs := framework.WaitForServersToSeal(live, target); len(errs) != 0 {
-			t.Fatalf("with 6 validators and 1 stopped, remaining 5 should still seal (quorum=4): %v", errs)
+			t.Fatalf("with 6 validators and 1 stopped, remaining 5 should still seal (quorum=5): %v", errs)
 		}
 	}
 
@@ -368,12 +354,8 @@ func TestIBFTLiveness_SixValidators_OneDownMajoritySeals(t *testing.T) {
 }
 
 // TestIBFTLiveness_SuperminorityPartitionRecovers stops more than n/3 validators so the remainder
-// lacks quorum: the committed head must not move while the partition holds. After a wall-clock
-// window the stopped validators are restarted, full quorum returns, and this test asserts every
-// validator observes further sealed blocks (allowing several minutes for the first post-partition
-// block).
-//
-// Layout: 7 validators ⇒ quorum = floor(2n/3)+1 = 5. Stopping 3 leaves 4 (< quorum); 3/7 > 1/3.
+// lacks quorum and the head must freeze; after restart, quorum returns and every validator must
+// seal further blocks. Layout: 7 validators ⇒ quorum 5; stopping 3 leaves 4 (< quorum), 3/7 > 1/3.
 func TestIBFTLiveness_SuperminorityPartitionRecovers(t *testing.T) {
 	requireLivenessEnabled(t)
 
