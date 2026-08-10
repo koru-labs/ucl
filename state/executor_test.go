@@ -12,7 +12,10 @@ import (
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
+)
+
+var (
+	contractAddr = types.StringToAddress("dd")
 )
 
 func TestOverride(t *testing.T) {
@@ -194,7 +197,6 @@ func newSelfdestructTransition(
 	snap := newStateWithCode(preState, map[types.Address][]byte{contractAddr: contractCode})
 
 	transition := NewTransition(forks, snap, newTxn(snap))
-	transition.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
 
 	return transition
 }
@@ -321,53 +323,6 @@ func TestSelfdestruct_EIP6780(t *testing.T) {
 	})
 }
 
-func TestSelfdestruct_EIP6780_BALRecording(t *testing.T) {
-	t.Parallel()
-
-	forks := chain.ForksInTime{EIP150: true, EIP158: true, EIP6780: true, EIP7928: true}
-
-	t.Run("transfer-only path records post-state balances", func(t *testing.T) {
-		t.Parallel()
-
-		tr := newSelfdestructTransition(t, forks, 100, 5)
-		tr.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), 0))
-
-		tr.Selfdestruct(contractAddr, beneficiaryAddr)
-
-		record := tr.BlockAccessListRecorder().GetBlockAccessListRecord()
-
-		contractRec, ok := record.Accounts[contractAddr]
-		require.True(t, ok)
-		require.Equal(t, big.NewInt(0), contractRec.BalanceChanges[0])
-
-		beneficiaryRec, ok := record.Accounts[beneficiaryAddr]
-		require.True(t, ok)
-		require.Equal(t, big.NewInt(105), beneficiaryRec.BalanceChanges[0])
-
-		// nothing is deleted, so no code or nonce changes may be recorded
-		require.Empty(t, contractRec.CodeChanges)
-		require.Empty(t, contractRec.NonceChanges)
-	})
-
-	t.Run("self beneficiary records no balance change", func(t *testing.T) {
-		t.Parallel()
-
-		tr := newSelfdestructTransition(t, forks, 100, 0)
-		tr.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), 0))
-
-		tr.Selfdestruct(contractAddr, contractAddr)
-
-		record := tr.BlockAccessListRecorder().GetBlockAccessListRecord()
-
-		contractRec, ok := record.Accounts[contractAddr]
-		require.True(t, ok)
-
-		// the balance did not change, so recording a balance change would make the BAL
-		// hash diverge from a node that skips the no-op transfer
-		require.Empty(t, contractRec.BalanceChanges)
-	})
-}
-
 func TestCreatedContractMarkers(t *testing.T) {
 	t.Parallel()
 
@@ -456,7 +411,6 @@ func TestSelfdestruct_EIP6780_InConstructor(t *testing.T) {
 		snap,
 		newTxn(snap),
 	)
-	tr.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
 
 	// init code: PUSH20 <beneficiary> ; SELFDESTRUCT
 	initCode := append([]byte{0x73}, beneficiaryAddr.Bytes()...)

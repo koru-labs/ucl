@@ -121,7 +121,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
 	if i.config.Params.Forks.At(view.Height).EIP7928 {
-		i.blockchain.AddBlockAccessListToCache(block.Hash(), bar)
+		i.blockchain.AddBlockAccessRecordToCache(block.Hash(), bar)
 	}
 
 	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
@@ -393,7 +393,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	if i.config.Params.Forks.At(header.Number).EIP7928 {
 		bar = transition.GetBlockAccessRecord()
 		header.BlockAccessRecordHash = bar.Hash()
-		buildBlockParams.BlockAccessList = bar
+		buildBlockParams.BlockAccessRecord = bar
 	}
 
 	// build the block

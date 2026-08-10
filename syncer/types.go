@@ -12,7 +12,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 )
@@ -37,9 +36,9 @@ type Blockchain interface {
 	// GetReceiptsByHash returns the receipts for the given block, if retained
 	GetReceiptsByHash(uint64, types.Hash) ([]*types.Receipt, error)
 	// GetBlockAccessList returns the EIP-7928 BLockAccessList for the given block
-	GetBlockAccessList(uint64) (bal.BlockAccessListEncoded, error)
+	GetBlockAccessRecord(uint64) (types.BlockAccessRecord, error)
 	// ApplyFInalizedBlockFromBAL applies a finalized block's state directrly
-	ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessListEncoded) (*types.FullBlock, error)
+	ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt) (*types.FullBlock, error)
 }
 
 type Network interface {

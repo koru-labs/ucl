@@ -7,377 +7,472 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_BlockAccessRuntime_Merge(t *testing.T) {
-	t.Run("merge into empty block access record", func(t *testing.T) {
-		dst := NewBlockAccessRecord()
-		src := NewBlockAccessRecord()
+func TestValidate_DuplicateAccount(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		addr := Address{1}
+	bal := BlockAccessRecord{
+		{Address: addr},
+		{Address: addr},
+	}
 
-		src[addr] = NewAccountAccessRecord()
-		src[addr].BalanceChanges[0] = big.NewInt(100)
-
-		dst.Merge(src)
-
-		require.Equal(t, big.NewInt(100), dst[addr].BalanceChanges[0])
-	})
-
-	t.Run("merge nil block access record", func(t *testing.T) {
-		dst := NewBlockAccessRecord()
-
-		addr := BytesToAddress([]byte{1})
-
-		dst[addr] = NewAccountAccessRecord()
-		dst[addr].BalanceChanges[0] = big.NewInt(100)
-
-		dst.Merge(nil)
-
-		require.Equal(t, big.NewInt(100), dst[addr].BalanceChanges[0])
-	})
-
-	t.Run("merge when there are no merge conflict", func(t *testing.T) {
-		dst := NewBlockAccessRecord()
-		src := NewBlockAccessRecord()
-
-		addr := BytesToAddress([]byte{1})
-
-		dst[addr] = NewAccountAccessRecord()
-		dst[addr].BalanceChanges[0] = big.NewInt(100)
-		dst[addr].NonceChanges[0] = 1
-		dst[addr].CodeChanges[0] = []byte{1}
-		dst[addr].StorageChanges[Hash{}] = map[uint64]Hash{0: BytesToHash([]byte{1})}
-
-		src[addr] = NewAccountAccessRecord()
-		src[addr].BalanceChanges[1] = big.NewInt(200)
-		src[addr].NonceChanges[1] = 2
-		src[addr].CodeChanges[1] = []byte{2}
-		src[addr].StorageChanges[Hash{}] = map[uint64]Hash{1: BytesToHash([]byte{2})}
-
-		dst.Merge(src)
-
-		require.Equal(t, big.NewInt(100), dst[addr].BalanceChanges[0])
-		require.Equal(t, big.NewInt(200), dst[addr].BalanceChanges[1])
-
-		require.Equal(t, uint64(1), dst[addr].NonceChanges[0])
-		require.Equal(t, uint64(2), dst[addr].NonceChanges[1])
-
-		require.Equal(t, []byte{1}, dst[addr].CodeChanges[0])
-		require.Equal(t, []byte{2}, dst[addr].CodeChanges[1])
-
-		require.Equal(t, BytesToHash([]byte{1}), dst[addr].StorageChanges[Hash{}][0])
-		require.Equal(t, BytesToHash([]byte{2}), dst[addr].StorageChanges[Hash{}][1])
-	})
-
-	t.Run("merge when there are merge conflict", func(t *testing.T) {
-		dst := NewBlockAccessRecord()
-		src := NewBlockAccessRecord()
-
-		addr := BytesToAddress([]byte{1})
-
-		dst[addr] = NewAccountAccessRecord()
-		dst[addr].BalanceChanges[0] = big.NewInt(100)
-		dst[addr].NonceChanges[0] = 1
-		dst[addr].CodeChanges[0] = []byte{1}
-		dst[addr].StorageChanges[Hash{}] = map[uint64]Hash{0: BytesToHash([]byte{1})}
-
-		src[addr] = NewAccountAccessRecord()
-		src[addr].BalanceChanges[0] = big.NewInt(200)
-		src[addr].NonceChanges[0] = 2
-		src[addr].CodeChanges[0] = []byte{2}
-		src[addr].StorageChanges[Hash{}] = map[uint64]Hash{0: BytesToHash([]byte{2})}
-
-		dst.Merge(src)
-
-		require.Equal(t, big.NewInt(200), dst[addr].BalanceChanges[0])
-		require.Equal(t, uint64(2), dst[addr].NonceChanges[0])
-		require.Equal(t, []byte{2}, dst[addr].CodeChanges[0])
-		require.Equal(t, BytesToHash([]byte{2}), dst[addr].StorageChanges[Hash{}][0])
-	})
-
-	t.Run("merge when there are a new account in other (src)", func(t *testing.T) {
-		dst := NewBlockAccessRecord()
-		src := NewBlockAccessRecord()
-
-		addr1 := BytesToAddress([]byte{1})
-		addr2 := BytesToAddress([]byte{2})
-
-		dst[addr1] = NewAccountAccessRecord()
-		dst[addr1].BalanceChanges[0] = big.NewInt(100)
-
-		src[addr2] = NewAccountAccessRecord()
-		src[addr2].BalanceChanges[0] = big.NewInt(200)
-
-		dst.Merge(src)
-
-		require.Equal(t, big.NewInt(100), dst[addr1].BalanceChanges[0])
-		require.Equal(t, big.NewInt(200), dst[addr2].BalanceChanges[0])
-	})
+	require.Error(t, bal.Validate())
 }
 
-func Test_BlockAccessRuntime_Pack(t *testing.T) {
-	// TODO: check this
-	t.Run("empty runtime", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		record := r.Pack()
+func TestValidate_DuplicateStorageSlot(t *testing.T) {
+	addr := StringToAddress("0x1")
+	slot := StringToHash("0x1")
 
-		require.Empty(t, record)
-	})
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			StorageChanges: []StorageChange{
+				{Slot: slot},
+				{Slot: slot},
+			},
+		},
+	}
 
-	t.Run("single account single change per type", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
-		slot := Hash{1}
+	require.Error(t, bal.Validate())
+}
 
-		r.GetOrCreate(addr).RecordBalanceChange(0, big.NewInt(100))
-		r.GetOrCreate(addr).RecordNonceChange(0, 5)
-		r.GetOrCreate(addr).RecordCodeChange(0, []byte{1, 2, 3})
-		r.GetOrCreate(addr).RecordStorageChange(0, slot, Hash{9})
+func TestValidate_DuplicateSlotTxIndex(t *testing.T) {
+	addr := StringToAddress("0x1")
+	slot := StringToHash("0x1")
 
-		record := r.Pack()
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			StorageChanges: []StorageChange{
+				{
+					Slot: slot,
+					SlotChanges: []SlotChange{
+						{TxIndex: 5},
+						{TxIndex: 5},
+					},
+				},
+			},
+		},
+	}
 
-		require.Len(t, record, 1)
-		require.Equal(t, addr, record[0].Address)
+	require.Error(t, bal.Validate())
+}
 
-		require.Len(t, record[0].BalanceChanges, 1)
-		require.Equal(t, uint64(0), record[0].BalanceChanges[0].TxIndex)
-		require.Equal(t, big.NewInt(100), record[0].BalanceChanges[0].Balance)
+func TestValidate_DuplicateBalanceTxIndex(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		require.Len(t, record[0].NonceChanges, 1)
-		require.Equal(t, uint64(0), record[0].NonceChanges[0].TxIndex)
-		require.Equal(t, uint64(5), record[0].NonceChanges[0].Nonce)
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			BalanceChanges: []BalanceChange{
+				{TxIndex: 1},
+				{TxIndex: 1},
+			},
+		},
+	}
 
-		require.Len(t, record[0].CodeChanges, 1)
-		require.Equal(t, uint64(0), record[0].CodeChanges[0].TxIndex)
-		require.Equal(t, []byte{1, 2, 3}, record[0].CodeChanges[0].Code)
+	require.Error(t, bal.Validate())
+}
 
-		require.Len(t, record[0].StorageChanges, 1)
-		require.Equal(t, slot, record[0].StorageChanges[0].Slot)
-		require.Len(t, record[0].StorageChanges[0].SlotChanges, 1)
-		require.Equal(t, uint64(0), record[0].StorageChanges[0].SlotChanges[0].TxIndex)
-		require.Equal(t, Hash{9}, record[0].StorageChanges[0].SlotChanges[0].Value)
-	})
+func TestSlotBefore_MissingSlot(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-	t.Run("account with no changes", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+		},
+	}
 
-		r[addr] = NewAccountAccessRecord()
+	_, ok := bal.SlotBefore(addr, StringToHash("0x123"), 10)
+	require.False(t, ok)
+}
 
-		record := r.Pack()
+func TestBalanceBefore_NoBalanceChanges(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		require.Len(t, record, 1)
-		require.Equal(t, addr, record[0].Address)
-		require.Empty(t, record[0].BalanceChanges)
-		require.Empty(t, record[0].NonceChanges)
-		require.Empty(t, record[0].CodeChanges)
-		require.Empty(t, record[0].StorageChanges)
-	})
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+		},
+	}
 
-	t.Run("accounts sorted lexicographically by address", func(t *testing.T) {
-		r := NewBlockAccessRecord()
+	_, ok := bal.BalanceBefore(addr, 100)
+	require.False(t, ok)
+}
 
-		addr1 := Address{3}
-		addr2 := Address{1}
-		addr3 := Address{2}
+func TestHashChanges(t *testing.T) {
+	bal1 := BlockAccessRecord{
+		{
+			Address: StringToAddress("0x1"),
+		},
+	}
 
-		r.GetOrCreate(addr1).RecordBalanceChange(0, big.NewInt(100))
-		r.GetOrCreate(addr2).RecordBalanceChange(0, big.NewInt(200))
-		r.GetOrCreate(addr3).RecordBalanceChange(0, big.NewInt(300))
+	bal2 := BlockAccessRecord{
+		{
+			Address: StringToAddress("0x2"),
+		},
+	}
 
-		record := r.Pack()
+	require.NotEqual(t, bal1.Hash(), bal2.Hash())
+}
 
-		require.Len(t, record, 3)
-		require.Equal(t, addr2, record[0].Address)
-		require.Equal(t, addr3, record[1].Address)
-		require.Equal(t, addr1, record[2].Address)
-	})
+func TestEmptyBlockAccessRecord(t *testing.T) {
+	var bal BlockAccessRecord
 
-	t.Run("balance changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	require.NoError(t, bal.Validate())
 
-		r.GetOrCreate(addr).RecordBalanceChange(2, big.NewInt(300))
-		r.GetOrCreate(addr).RecordBalanceChange(0, big.NewInt(100))
-		r.GetOrCreate(addr).RecordBalanceChange(1, big.NewInt(200))
+	require.Equal(t, bal.Hash(), bal.Hash())
+}
 
-		record := r.Pack()
+func TestBalanceBefore_MultipleAccounts(t *testing.T) {
+	addr1 := StringToAddress("0x1")
+	addr2 := StringToAddress("0x2")
 
-		require.Len(t, record[0].BalanceChanges, 3)
-		require.Equal(t, uint64(0), record[0].BalanceChanges[0].TxIndex)
-		require.Equal(t, big.NewInt(100), record[0].BalanceChanges[0].Balance)
-		require.Equal(t, uint64(1), record[0].BalanceChanges[1].TxIndex)
-		require.Equal(t, big.NewInt(200), record[0].BalanceChanges[1].Balance)
-		require.Equal(t, uint64(2), record[0].BalanceChanges[2].TxIndex)
-		require.Equal(t, big.NewInt(300), record[0].BalanceChanges[2].Balance)
-	})
+	bal := BlockAccessRecord{
+		{
+			Address: addr1,
+			BalanceChanges: []BalanceChange{
+				{TxIndex: 1, Balance: big.NewInt(10)},
+			},
+		},
+		{
+			Address: addr2,
+			BalanceChanges: []BalanceChange{
+				{TxIndex: 2, Balance: big.NewInt(20)},
+			},
+		},
+	}
 
-	t.Run("nonce changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	got, ok := bal.BalanceBefore(addr2, 3)
 
-		r.GetOrCreate(addr).RecordNonceChange(2, 3)
-		r.GetOrCreate(addr).RecordNonceChange(0, 1)
-		r.GetOrCreate(addr).RecordNonceChange(1, 2)
+	require.True(t, ok)
+	require.Equal(t, int64(20), got.Int64())
+}
 
-		record := r.Pack()
+func TestValidate_EmptySlices(t *testing.T) {
+	bal := BlockAccessRecord{
+		{
+			Address: StringToAddress("0x1"),
+		},
+	}
 
-		require.Len(t, record[0].NonceChanges, 3)
-		require.Equal(t, uint64(0), record[0].NonceChanges[0].TxIndex)
-		require.Equal(t, uint64(1), record[0].NonceChanges[0].Nonce)
-		require.Equal(t, uint64(1), record[0].NonceChanges[1].TxIndex)
-		require.Equal(t, uint64(2), record[0].NonceChanges[1].Nonce)
-		require.Equal(t, uint64(2), record[0].NonceChanges[2].TxIndex)
-		require.Equal(t, uint64(3), record[0].NonceChanges[2].Nonce)
-	})
+	require.NoError(t, bal.Validate())
+}
 
-	t.Run("code changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+func TestBlockAccessRecordBalanceBefore(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		r.GetOrCreate(addr).RecordCodeChange(2, []byte{3})
-		r.GetOrCreate(addr).RecordCodeChange(0, []byte{1})
-		r.GetOrCreate(addr).RecordCodeChange(1, []byte{2})
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			BalanceChanges: []BalanceChange{
+				{TxIndex: 2, Balance: big.NewInt(20)},
+				{TxIndex: 5, Balance: big.NewInt(50)},
+				{TxIndex: 9, Balance: big.NewInt(90)},
+			},
+		},
+	}
 
-		record := r.Pack()
+	tests := []struct {
+		name    string
+		tx      uint64
+		found   bool
+		balance int64
+	}{
+		{"before first", 1, false, 0},
+		{"exact first", 2, false, 0},
+		{"between", 3, true, 20},
+		{"exact second", 5, true, 20},
+		{"after last", 100, true, 90},
+	}
 
-		require.Len(t, record[0].CodeChanges, 3)
-		require.Equal(t, uint64(0), record[0].CodeChanges[0].TxIndex)
-		require.Equal(t, []byte{1}, record[0].CodeChanges[0].Code)
-		require.Equal(t, uint64(1), record[0].CodeChanges[1].TxIndex)
-		require.Equal(t, []byte{2}, record[0].CodeChanges[1].Code)
-		require.Equal(t, uint64(2), record[0].CodeChanges[2].TxIndex)
-		require.Equal(t, []byte{3}, record[0].CodeChanges[2].Code)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := bal.BalanceBefore(addr, tt.tx)
+			require.Equal(t, tt.found, ok)
 
-	t.Run("storage slots sorted lexicographically with correct values", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+			if ok {
+				require.Equal(t, tt.balance, got.Int64())
+			}
+		})
+	}
+}
 
-		slot1 := Hash{3}
-		slot2 := Hash{1}
-		slot3 := Hash{2}
+func TestBlockAccessRecordNonceBefore(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		r.GetOrCreate(addr).RecordStorageChange(0, slot1, Hash{10})
-		r.GetOrCreate(addr).RecordStorageChange(0, slot2, Hash{20})
-		r.GetOrCreate(addr).RecordStorageChange(0, slot3, Hash{30})
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			NonceChanges: []NonceChange{
+				{TxIndex: 1, Nonce: 7},
+				{TxIndex: 3, Nonce: 8},
+				{TxIndex: 6, Nonce: 9},
+			},
+		},
+	}
 
-		record := r.Pack()
+	tests := []struct {
+		tx    uint64
+		ok    bool
+		nonce uint64
+	}{
+		{0, false, 0},
+		{1, false, 0},
+		{2, true, 7},
+		{3, true, 7},
+		{10, true, 9},
+	}
 
-		require.Len(t, record[0].StorageChanges, 3)
-		require.Equal(t, slot2, record[0].StorageChanges[0].Slot)
-		require.Equal(t, Hash{20}, record[0].StorageChanges[0].SlotChanges[0].Value)
-		require.Equal(t, slot3, record[0].StorageChanges[1].Slot)
-		require.Equal(t, Hash{30}, record[0].StorageChanges[1].SlotChanges[0].Value)
-		require.Equal(t, slot1, record[0].StorageChanges[2].Slot)
-		require.Equal(t, Hash{10}, record[0].StorageChanges[2].SlotChanges[0].Value)
-	})
+	for _, tt := range tests {
+		got, ok := bal.NonceBefore(addr, tt.tx)
+		require.Equal(t, tt.ok, ok)
 
-	t.Run("storage slot changes sorted by tx index with correct values", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
-		slot := Hash{1}
+		if ok {
+			require.Equal(t, tt.nonce, got)
+		}
+	}
+}
 
-		r.GetOrCreate(addr).RecordStorageChange(2, slot, Hash{3})
-		r.GetOrCreate(addr).RecordStorageChange(0, slot, Hash{1})
-		r.GetOrCreate(addr).RecordStorageChange(1, slot, Hash{2})
+func TestBlockAccessRecordCodeBefore(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		record := r.Pack()
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			CodeChanges: []CodeChange{
+				{TxIndex: 4, Code: []byte{1}},
+				{TxIndex: 7, Code: []byte{2}},
+			},
+		},
+	}
 
-		require.Len(t, record[0].StorageChanges[0].SlotChanges, 3)
-		require.Equal(t, uint64(0), record[0].StorageChanges[0].SlotChanges[0].TxIndex)
-		require.Equal(t, Hash{1}, record[0].StorageChanges[0].SlotChanges[0].Value)
-		require.Equal(t, uint64(1), record[0].StorageChanges[0].SlotChanges[1].TxIndex)
-		require.Equal(t, Hash{2}, record[0].StorageChanges[0].SlotChanges[1].Value)
-		require.Equal(t, uint64(2), record[0].StorageChanges[0].SlotChanges[2].TxIndex)
-		require.Equal(t, Hash{3}, record[0].StorageChanges[0].SlotChanges[2].Value)
-	})
+	code, ok := bal.CodeBefore(addr, 4)
+	require.False(t, ok)
+	require.Nil(t, code)
 
-	t.Run("multiple slots with multiple changes", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	code, ok = bal.CodeBefore(addr, 6)
+	require.True(t, ok)
+	require.Equal(t, []byte{1}, code)
 
-		slot1 := Hash{1}
-		slot2 := Hash{2}
+	code, ok = bal.CodeBefore(addr, 100)
+	require.True(t, ok)
+	require.Equal(t, []byte{2}, code)
+}
 
-		r.GetOrCreate(addr).RecordStorageChange(0, slot1, Hash{10})
-		r.GetOrCreate(addr).RecordStorageChange(1, slot1, Hash{11})
-		r.GetOrCreate(addr).RecordStorageChange(0, slot2, Hash{20})
-		r.GetOrCreate(addr).RecordStorageChange(1, slot2, Hash{21})
+func TestBlockAccessRecordSlotBefore(t *testing.T) {
+	addr := StringToAddress("0x1")
 
-		record := r.Pack()
+	slot := StringToHash("0xaa")
 
-		require.Len(t, record[0].StorageChanges, 2)
+	v1 := StringToHash("0x11")
+	v2 := StringToHash("0x22")
 
-		require.Equal(t, slot1, record[0].StorageChanges[0].Slot)
-		require.Len(t, record[0].StorageChanges[0].SlotChanges, 2)
-		require.Equal(t, uint64(0), record[0].StorageChanges[0].SlotChanges[0].TxIndex)
-		require.Equal(t, Hash{10}, record[0].StorageChanges[0].SlotChanges[0].Value)
-		require.Equal(t, uint64(1), record[0].StorageChanges[0].SlotChanges[1].TxIndex)
-		require.Equal(t, Hash{11}, record[0].StorageChanges[0].SlotChanges[1].Value)
+	bal := BlockAccessRecord{
+		{
+			Address: addr,
+			StorageChanges: []StorageChange{
+				{
+					Slot: slot,
+					SlotChanges: []SlotChange{
+						{TxIndex: 2, Value: v1},
+						{TxIndex: 5, Value: v2},
+					},
+				},
+			},
+		},
+	}
 
-		require.Equal(t, slot2, record[0].StorageChanges[1].Slot)
-		require.Len(t, record[0].StorageChanges[1].SlotChanges, 2)
-		require.Equal(t, uint64(0), record[0].StorageChanges[1].SlotChanges[0].TxIndex)
-		require.Equal(t, Hash{20}, record[0].StorageChanges[1].SlotChanges[0].Value)
-		require.Equal(t, uint64(1), record[0].StorageChanges[1].SlotChanges[1].TxIndex)
-		require.Equal(t, Hash{21}, record[0].StorageChanges[1].SlotChanges[1].Value)
-	})
+	_, ok := bal.SlotBefore(addr, slot, 2)
+	require.False(t, ok)
 
-	t.Run("balance value is copied", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	got, ok := bal.SlotBefore(addr, slot, 4)
+	require.True(t, ok)
+	require.Equal(t, v1, got)
 
-		bal := big.NewInt(100)
-		r.GetOrCreate(addr).RecordBalanceChange(0, bal)
+	got, ok = bal.SlotBefore(addr, slot, 100)
+	require.True(t, ok)
+	require.Equal(t, v2, got)
+}
 
-		record := r.Pack()
+func TestLookupMissingAccount(t *testing.T) {
+	bal := BlockAccessRecord{}
 
-		bal.SetInt64(999)
-		require.Equal(t, big.NewInt(100), record[0].BalanceChanges[0].Balance)
-	})
+	_, ok := bal.BalanceBefore(StringToAddress("0x1"), 1)
+	require.False(t, ok)
 
-	t.Run("code is cloned", func(t *testing.T) {
-		r := NewBlockAccessRecord()
-		addr := Address{1}
+	_, ok = bal.NonceBefore(StringToAddress("0x1"), 1)
+	require.False(t, ok)
 
-		code := []byte{1, 2, 3}
-		r.GetOrCreate(addr).RecordCodeChange(0, code)
+	_, ok = bal.CodeBefore(StringToAddress("0x1"), 1)
+	require.False(t, ok)
 
-		record := r.Pack()
+	_, ok = bal.SlotBefore(StringToAddress("0x1"), StringToHash("0x1"), 1)
+	require.False(t, ok)
+}
 
-		code[0] = 9
-		require.Equal(t, []byte{1, 2, 3}, record[0].CodeChanges[0].Code)
-	})
+func TestHashDeterministic(t *testing.T) {
+	bal := BlockAccessRecord{
+		{
+			Address: StringToAddress("0x1"),
+			BalanceChanges: []BalanceChange{
+				{
+					TxIndex: 1,
+					Balance: big.NewInt(100),
+				},
+			},
+		},
+	}
 
-	t.Run("multiple accounts with different changes", func(t *testing.T) {
-		r := NewBlockAccessRecord()
+	require.Equal(t, bal.Hash(), bal.Hash())
+}
 
-		addr1 := Address{1}
-		addr2 := Address{2}
+func TestValidate(t *testing.T) {
+	addr1 := StringToAddress("0x1")
+	addr2 := StringToAddress("0x2")
 
-		r.GetOrCreate(addr1).RecordBalanceChange(0, big.NewInt(100))
-		r.GetOrCreate(addr1).RecordNonceChange(0, 1)
-		r.GetOrCreate(addr2).RecordBalanceChange(0, big.NewInt(200))
-		r.GetOrCreate(addr2).RecordCodeChange(0, []byte{1, 2, 3})
+	slot1 := StringToHash("0x1")
+	slot2 := StringToHash("0x2")
 
-		record := r.Pack()
+	tests := []struct {
+		name  string
+		build func() BlockAccessRecord
+		ok    bool
+	}{
+		{
+			name: "valid",
+			ok:   true,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						StorageChanges: []StorageChange{
+							{
+								Slot: slot1,
+								SlotChanges: []SlotChange{
+									{TxIndex: 1},
+									{TxIndex: 2},
+								},
+							},
+						},
+						BalanceChanges: []BalanceChange{
+							{TxIndex: 1},
+							{TxIndex: 2},
+						},
+						NonceChanges: []NonceChange{
+							{TxIndex: 1},
+							{TxIndex: 2},
+						},
+						CodeChanges: []CodeChange{
+							{TxIndex: 1},
+							{TxIndex: 2},
+						},
+					},
+					{
+						Address: addr2,
+					},
+				}
+			},
+		},
+		{
+			name: "accounts not sorted",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{Address: addr2},
+					{Address: addr1},
+				}
+			},
+		},
+		{
+			name: "storage slots not sorted",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						StorageChanges: []StorageChange{
+							{Slot: slot2},
+							{Slot: slot1},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "slot changes unordered",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						StorageChanges: []StorageChange{
+							{
+								Slot: slot1,
+								SlotChanges: []SlotChange{
+									{TxIndex: 2},
+									{TxIndex: 1},
+								},
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "balance unordered",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						BalanceChanges: []BalanceChange{
+							{TxIndex: 2},
+							{TxIndex: 1},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "nonce unordered",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						NonceChanges: []NonceChange{
+							{TxIndex: 2},
+							{TxIndex: 1},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "code unordered",
+			ok:   false,
+			build: func() BlockAccessRecord {
+				return BlockAccessRecord{
+					{
+						Address: addr1,
+						CodeChanges: []CodeChange{
+							{TxIndex: 2},
+							{TxIndex: 1},
+						},
+					},
+				}
+			},
+		},
+	}
 
-		require.Len(t, record, 2)
-
-		require.Equal(t, addr1, record[0].Address)
-		require.Len(t, record[0].BalanceChanges, 1)
-		require.Equal(t, big.NewInt(100), record[0].BalanceChanges[0].Balance)
-		require.Len(t, record[0].NonceChanges, 1)
-		require.Equal(t, uint64(1), record[0].NonceChanges[0].Nonce)
-		require.Empty(t, record[0].CodeChanges)
-		require.Empty(t, record[0].StorageChanges)
-
-		require.Equal(t, addr2, record[1].Address)
-		require.Len(t, record[1].BalanceChanges, 1)
-		require.Equal(t, big.NewInt(200), record[1].BalanceChanges[0].Balance)
-		require.Len(t, record[1].CodeChanges, 1)
-		require.Equal(t, []byte{1, 2, 3}, record[1].CodeChanges[0].Code)
-		require.Empty(t, record[1].NonceChanges)
-		require.Empty(t, record[1].StorageChanges)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.build().Validate()
+			if tt.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

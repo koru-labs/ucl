@@ -30,12 +30,12 @@ type Writer struct {
 
 // Tables
 const (
-	BODY              = uint8(0)
-	CANONICAL         = uint8(2)
-	DIFFICULTY        = uint8(4)
-	HEADER            = uint8(6)
-	RECEIPTS          = uint8(8)
-	BLOCK_ACCESS_LIST = uint8(10)
+	BODY                = uint8(0)
+	CANONICAL           = uint8(2)
+	DIFFICULTY          = uint8(4)
+	HEADER              = uint8(6)
+	RECEIPTS            = uint8(8)
+	BLOCK_ACCESS_RECORD = uint8(10)
 )
 
 // Lookup tables

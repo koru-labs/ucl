@@ -11,7 +11,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/0xPolygon/polygon-edge/types"
@@ -307,12 +306,17 @@ func (m *mockExecutor) ProcessBlock(
 	return nil, nil
 }
 
-func (m *mockExecutor) ApplyBlockAccessList(blockNumber uint64, parentRoot types.Hash, accessList bal.BlockAccessListEncoded) (types.Hash, error) {
+func (m *mockExecutor) ApplyBlockAccessRecord(blockNumber uint64, parentRoot types.Hash, bar types.BlockAccessRecord) (types.Hash, error) {
 	return types.Hash{}, nil
 }
 
 func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
 	m.processBlockFn = fn
+}
+
+func (m *mockExecutor) ParallelProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (
+	state.BlockAccessRecord, types.Receipts, uint64, error) {
+	return nil, nil, 0, nil
 }
 
 type mockSigner struct {

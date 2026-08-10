@@ -13,7 +13,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/progress"
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
@@ -77,11 +76,11 @@ func (m *mockBlockchain) GetReceiptsByHash(bn uint64, bh types.Hash) ([]*types.R
 	return nil, nil
 }
 
-func (m *mockBlockchain) GetBlockAccessList(bn uint64) (bal.BlockAccessListEncoded, error) {
+func (m *mockBlockchain) GetBlockAccessRecord(bn uint64) (types.BlockAccessRecord, error) {
 	return nil, nil
 }
 
-func (m *mockBlockchain) ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt, accessList bal.BlockAccessListEncoded) (*types.FullBlock, error) {
+func (m *mockBlockchain) ApplyFinalizedBlockFromBAL(block *types.Block, receipts []*types.Receipt) (*types.FullBlock, error) {
 	return nil, nil
 }
 

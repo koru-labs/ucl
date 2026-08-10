@@ -22,7 +22,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/precompiled"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 const (
@@ -407,10 +406,10 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
-func (e *Executor) ApplyBlockAccessList(
+func (e *Executor) ApplyBlockAccessRecord(
 	blockNumber uint64,
 	parentRoot types.Hash,
-	accessList bal.BlockAccessListEncoded,
+	accessList types.BlockAccessRecord,
 ) (types.Hash, error) {
 	snap, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
@@ -426,19 +425,19 @@ func (e *Executor) ApplyBlockAccessList(
 			}
 
 			final := slotChanges.SlotChanges[len(slotChanges.SlotChanges)-1]
-			txn.SetState(account.Address, slotChanges.Slot, final.PostValue)
+			txn.SetState(account.Address, slotChanges.Slot, final.Value)
 		}
 
 		if n := len(account.BalanceChanges); n > 0 {
-			txn.SetBalance(account.Address, account.BalanceChanges[n-1].PostBalance)
+			txn.SetBalance(account.Address, account.BalanceChanges[n-1].Balance)
 		}
 
 		if n := len(account.NonceChanges); n > 0 {
-			txn.SetNonce(account.Address, account.NonceChanges[n-1].PostNonce)
+			txn.SetNonce(account.Address, account.NonceChanges[n-1].Nonce)
 		}
 
 		if n := len(account.CodeChanges); n > 0 {
-			txn.SetCode(account.Address, account.CodeChanges[n-1].NewCode)
+			txn.SetCode(account.Address, account.CodeChanges[n-1].Code)
 		}
 	}
 

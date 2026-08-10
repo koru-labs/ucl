@@ -339,7 +339,6 @@ func (s *syncer) applyBlock(syncBlock *SyncBlock) (*types.FullBlock, error) {
 	return s.blockchain.ApplyFinalizedBlockFromBAL(
 		syncBlock.Block,
 		syncBlock.Receipts,
-		syncBlock.BlockAccessList,
 	)
 }
 
