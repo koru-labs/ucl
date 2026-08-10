@@ -188,33 +188,39 @@ func (e *Executor) ParallelProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
 	blockCreator types.Address,
-) (BlockAccessRecord, types.Receipts, uint64, error) {
-	var count atomic.Int64
-	count.Store(0)
+) (BlockAccessRecord, []*types.Receipt, uint64, error) {
+	n := len(block.Transactions)
 
-	receipts := make([]*types.Receipt, 0, len(block.Transactions))
-	txns := make([]*Transition, 0, len(block.Transactions))
+	var (
+		receipts = make([]*types.Receipt, n)
+		txns     = make([]*Transition, n)
+		executed sync.Map
 
-	stop := sync.Once{}
-	stopCh := make(chan struct{})
+		nextIdx  atomic.Int64
+		firstErr atomic.Pointer[error]
 
-	executed := sync.Map{}
+		stopOnce   sync.Once
+		stopCh     = make(chan struct{})
+		executedCh = make(chan struct{}, 1)
 
-	executedCh := make(chan struct{}, 1)
+		wg sync.WaitGroup
+	)
 
-	wg := sync.WaitGroup{}
+	stopWith := func(err error) {
+		stopOnce.Do(func() {
+			if err != nil {
+				firstErr.CompareAndSwap(nil, &err)
+			}
 
-	stopFn := func() {
-		stop.Do(func() {
 			close(stopCh)
 		})
 	}
 
 	bar := NewBlockAccessRecord()
+	gasRemaining := block.Header.GasLimit
 
-	gasUsed := block.Header.GasLimit
-
-	for range 32 {
+	const workerCount = 32
+	for range workerCount {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -224,27 +230,25 @@ func (e *Executor) ParallelProcessBlock(
 					return
 				default:
 				}
-				txIndex := count.Add(1)
 
-				if txIndex >= int64(len(block.Transactions)) {
+				i := int(nextIdx.Add(1) - 1)
+				if i >= n {
 					return
 				}
 
-				tx := block.Transactions[txIndex-1]
+				tx := block.Transactions[i]
 
 				txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 				if err != nil {
-					stopFn()
-
+					stopWith(err)
 					return
 				}
 
 				txn.SetBlockAccessRecord(block.BlockAccessRecord)
-				txn.SetTxAccessRecorder(NewTxAccessRecorder(uint64(txIndex)))
+				txn.SetTxAccessRecorder(NewTxAccessRecorder(uint64(i)))
 
 				if tx.Gas > block.Header.GasLimit {
-					stopFn()
-
+					stopWith(fmt.Errorf("tx %d: gas %d exceeds block gas limit", i, tx.Gas))
 					return
 				}
 
@@ -254,14 +258,13 @@ func (e *Executor) ParallelProcessBlock(
 					}
 				}
 
-				if err = txn.Write(tx); err != nil {
-					stopFn()
-
+				if err := txn.Write(tx); err != nil {
+					stopWith(err)
 					return
 				}
 
-				txns[txIndex] = txn
-				executed.Store(txIndex, struct{}{})
+				txns[i] = txn
+				executed.Store(i, struct{}{})
 
 				select {
 				case executedCh <- struct{}{}:
@@ -272,50 +275,47 @@ func (e *Executor) ParallelProcessBlock(
 	}
 
 	wg.Add(1)
-
 	go func() {
 		defer wg.Done()
 
 		current := 0
-
-		for {
-
+		for current < n {
 			select {
-			case <-executedCh:
-				for i := current; i < len(block.Transactions); i++ {
-					select {
-					case <-stopCh:
-						return
-					default:
-					}
-
-					if _, ok := executed.Load(i); !ok {
-						break
-					}
-
-					tx := block.Transactions[i]
-					receipt := txns[i].receipts[0]
-					receipts[i] = receipt
-
-					if gasUsed < tx.Gas {
-						stopFn()
-
-						return
-					}
-
-					gasUsed -= receipt.GasUsed
-					receipt.CumulativeGasUsed = block.Header.GasLimit - gasUsed
-
-					bar.Insert(txns[i].GetTxAccessRecorder())
-					current++
-				}
 			case <-stopCh:
 				return
+			case <-executedCh:
+			}
+
+			for current < n {
+				if _, ok := executed.Load(current); !ok {
+					break
+				}
+
+				tx := block.Transactions[current]
+				receipt := txns[current].receipts[0]
+
+				if gasRemaining < tx.Gas {
+					stopWith(fmt.Errorf("tx %d: not enough block gas remaining", current))
+					return
+				}
+
+				gasRemaining -= receipt.GasUsed
+				receipt.CumulativeGasUsed = block.Header.GasLimit - gasRemaining
+
+				receipts[current] = receipt
+				bar.Insert(txns[current].GetTxAccessRecorder())
+				current++
 			}
 		}
 	}()
 
 	wg.Wait()
+
+	gasUsed := block.Header.GasLimit - gasRemaining
+
+	if err := firstErr.Load(); err != nil {
+		return bar, receipts, gasUsed, *err
+	}
 
 	return bar, receipts, gasUsed, nil
 }

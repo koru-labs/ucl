@@ -116,7 +116,7 @@ type Executor interface {
 		parentRoot types.Hash,
 		block *types.Block,
 		blockCreator types.Address,
-	) (state.BlockAccessRecord, types.Receipts, uint64, error)
+	) (state.BlockAccessRecord, []*types.Receipt, uint64, error)
 }
 
 type TxSigner interface {

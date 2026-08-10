@@ -39,8 +39,8 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 		return err
 	}
 
-	if len(elems) != 6 {
-		return fmt.Errorf("incorrect number of elements to decode account access, expected 6 but found %d", len(elems))
+	if len(elems) != 5 {
+		return fmt.Errorf("incorrect number of elements to decode account access, expected 5 but found %d", len(elems))
 	}
 
 	if err = elems[0].GetAddr(aa.Address[:]); err != nil {
@@ -59,7 +59,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 		}
 	}
 
-	bcElems, err := elems[3].GetElems()
+	bcElems, err := elems[2].GetElems()
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 		}
 	}
 
-	ncElems, err := elems[4].GetElems()
+	ncElems, err := elems[3].GetElems()
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 		}
 	}
 
-	ccElems, err := elems[5].GetElems()
+	ccElems, err := elems[4].GetElems()
 	if err != nil {
 		return err
 	}

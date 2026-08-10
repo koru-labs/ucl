@@ -604,9 +604,7 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 	// 1. when EIP-7928 is off; in this case txn.recorder is nil
 	// 2. when the executor is the block proposer; in this case txn.bar is nil
 	if txn.recorder == nil || txn.bar == nil {
-		if err := txn.incrNonceState(addr); err != nil {
-			return err
-		}
+		return txn.incrNonceState(addr)
 	}
 
 	return txn.incrNonceNonState(addr)
@@ -965,7 +963,6 @@ func (txn *Txn) createAccountState(addr types.Address) {
 
 	if txn.recorder != nil {
 		// TODO: check the way it encodes empty map and slice!
-		txn.recorder.current[addr].Storage = map[types.Hash]types.Hash{}
 		txn.recorder.RecordBalanceChange(addr, obj.Account.Balance)
 		txn.recorder.RecordNonceChange(addr, 0)
 		txn.recorder.RecordCodeChange(addr, []byte{})
@@ -996,7 +993,6 @@ func (txn *Txn) createAccountNonState(addr types.Address) {
 	}
 
 	// TODO: check the way it encodes empty map and slice!
-	txn.recorder.current[addr].Storage = map[types.Hash]types.Hash{}
 	txn.recorder.RecordBalanceChange(addr, balance)
 	txn.recorder.RecordNonceChange(addr, 0)
 	txn.recorder.RecordCodeChange(addr, []byte{})

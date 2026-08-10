@@ -68,11 +68,7 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		if len(b.BlockAccessRecord) == 0 {
 			vv.Set(ar.NewNullArray())
 		} else {
-			v1 := ar.NewArray()
-
-			v1.Set(b.BlockAccessRecord.MarshalRLPWith(ar))
-
-			vv.Set(v1)
+			vv.Set(b.BlockAccessRecord.MarshalRLPWith(ar))
 		}
 	}
 
