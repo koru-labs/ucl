@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
-	"strings"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -18,7 +17,6 @@ import (
 // COLD_SLOAD_COST (2100) to leave headroom for system-contract and
 // withdrawal entries that consume no block gas.
 const BALItemCost = 2000
-const MaxCodeSize = 10000000000
 
 // StorageWrite is one transaction's write to a storage slot.
 type StorageWrite struct {
@@ -75,9 +73,9 @@ func isStrictlySortedFunc[S ~[]E, E any](x S, cmp func(a, b E) int) bool {
 
 // validate asserts that a SlotChanges entry contains at least one write
 //
-//	and that its writes are strictly asceding and unique by block access index
+//	and that its writes are strictly ascending and unique by block access index
 func (sc *SlotChanges) validate(maxBALIndex int) error {
-	if len(sc.Slot) == 0 {
+	if len(sc.SlotChanges) == 0 {
 		return errors.New("empty slot changes")
 	}
 
@@ -144,7 +142,7 @@ func (aa *AccountAccess) validate(maxBALIndex int) error {
 
 	if n := len(aa.NonceChanges); n > 0 {
 		if last := aa.NonceChanges[n-1].BlockAccessIndex; int(last) > maxBALIndex {
-			return fmt.Errorf("nonce change index exceeds limit, index: %d, limit: %ds", last, maxBALIndex)
+			return fmt.Errorf("nonce change index exceeds limit, index: %d, limit: %d", last, maxBALIndex)
 		}
 	}
 
@@ -249,62 +247,4 @@ func (b BlockAccessList) Copy() BlockAccessList {
 	}
 
 	return cpy
-}
-
-func (e BlockAccessList) PrettyPrint() string {
-	var res bytes.Buffer
-
-	printWithIndent := func(indent int, format string, args ...interface{}) {
-		fmt.Fprintf(&res, "%s%s\n", strings.Repeat("    ", indent), fmt.Sprintf(format, args...))
-	}
-
-	for _, accountDiff := range e {
-		printWithIndent(0, "%s:", accountDiff.Address.String())
-
-		if len(accountDiff.StorageChanges) > 0 {
-			printWithIndent(1, "storage changes:")
-
-			for _, slot := range accountDiff.StorageChanges {
-				printWithIndent(2, "%s:", slot.Slot.String())
-
-				for _, write := range slot.SlotChanges {
-					printWithIndent(3, "%d: %s", write.BlockAccessIndex, write.PostValue.String())
-				}
-			}
-		}
-
-		if len(accountDiff.StorageReads) > 0 {
-			printWithIndent(1, "storage reads:")
-
-			for _, slot := range accountDiff.StorageReads {
-				printWithIndent(2, "%s", slot.String())
-			}
-		}
-
-		if len(accountDiff.BalanceChanges) > 0 {
-			printWithIndent(1, "balance changes:")
-
-			for _, change := range accountDiff.BalanceChanges {
-				printWithIndent(2, "%d: %s", change.BlockAccessIndex, change.PostBalance.String())
-			}
-		}
-
-		if len(accountDiff.NonceChanges) > 0 {
-			printWithIndent(1, "nonce changes:")
-
-			for _, change := range accountDiff.NonceChanges {
-				printWithIndent(2, "%d: %d", change.BlockAccessIndex, change.PostNonce)
-			}
-		}
-
-		if len(accountDiff.CodeChanges) > 0 {
-			printWithIndent(1, "code changes:")
-
-			for _, change := range accountDiff.CodeChanges {
-				printWithIndent(2, "%d: %x", change.BlockAccessIndex, change.NewCode)
-			}
-		}
-	}
-
-	return res.String()
 }

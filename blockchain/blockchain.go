@@ -29,21 +29,19 @@ const (
 )
 
 var (
-	ErrNoBlock                     = errors.New("no block data passed in")
-	ErrParentNotFound              = errors.New("parent block not found")
-	ErrInvalidParentHash           = errors.New("parent block hash is invalid")
-	ErrParentHashMismatch          = errors.New("invalid parent block hash")
-	ErrInvalidBlockSequence        = errors.New("invalid block sequence")
-	ErrInvalidSha3Uncles           = errors.New("invalid block sha3 uncles root")
-	ErrInvalidTxRoot               = errors.New("invalid block transactions root")
-	ErrInvalidReceiptsSize         = errors.New("invalid number of receipts")
-	ErrInvalidStateRoot            = errors.New("invalid block state root")
-	ErrInvalidGasUsed              = errors.New("invalid block gas used")
-	ErrInvalidReceiptsRoot         = errors.New("invalid block receipts root")
-	ErrBlockAccessListNotFound     = errors.New("block access list not found")
-	ErrInvalidBlockRlpSize         = errors.New("invalid block rlp size")
-	ErrBALMissingForTrustMode      = errors.New("cannot apply block from BAL: BAL is empty")
-	ErrReceiptsMissingForTrustMode = errors.New("cannot apply block from BAL: receipts are empty")
+	ErrNoBlock                = errors.New("no block data passed in")
+	ErrParentNotFound         = errors.New("parent block not found")
+	ErrInvalidParentHash      = errors.New("parent block hash is invalid")
+	ErrParentHashMismatch     = errors.New("invalid parent block hash")
+	ErrInvalidBlockSequence   = errors.New("invalid block sequence")
+	ErrInvalidSha3Uncles      = errors.New("invalid block sha3 uncles root")
+	ErrInvalidTxRoot          = errors.New("invalid block transactions root")
+	ErrInvalidReceiptsSize    = errors.New("invalid number of receipts")
+	ErrInvalidStateRoot       = errors.New("invalid block state root")
+	ErrInvalidGasUsed         = errors.New("invalid block gas used")
+	ErrInvalidReceiptsRoot    = errors.New("invalid block receipts root")
+	ErrInvalidBlockRlpSize    = errors.New("invalid block rlp size")
+	ErrBALMissingForTrustMode = errors.New("cannot apply block from BAL: BAL is empty")
 
 	EmptyBALHash = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 )
@@ -861,7 +859,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 			return nil, err
 		}
 
-		b.AddBlockAccessListToCache(header.Hash, txn.BlockAccessList())
+		b.AddBlockAccessListToCache(block.Number(), txn.BlockAccessList())
 	}
 
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
@@ -889,8 +887,8 @@ func (b *Blockchain) AddReceiptsToCache(hash types.Hash, receipts []*types.Recei
 	b.receiptsCache.Add(hash, receipts)
 }
 
-func (b *Blockchain) AddBlockAccessListToCache(hash types.Hash, accessList bal.BlockAccessList) {
-	b.blockAccessListCache.Add(hash, accessList)
+func (b *Blockchain) AddBlockAccessListToCache(bn uint64, accessList bal.BlockAccessList) {
+	b.blockAccessListCache.Add(bn, accessList)
 }
 
 // WriteFullBlock writes a single block to the local blockchain.
@@ -931,12 +929,12 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		blockAccesList, err := b.GetCachedBlockAccessList(block.Hash())
+		blockAccessList, err := b.GetCachedBlockAccessList(block.Number())
 		if err != nil {
 			return err
 		}
 
-		batchWriter.PutBlockAccessList(block.Number(), blockAccesList)
+		batchWriter.PutBlockAccessList(block.Number(), blockAccessList)
 	}
 
 	// update snapshot
@@ -1010,8 +1008,8 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 && len(block.Transactions) > 0 {
-		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Hash())
+	if b.config.Params.Forks.At(block.Number()).EIP7928 {
+		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Number())
 		if accessListErr != nil {
 			return accessListErr
 		}
@@ -1066,10 +1064,10 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 	return extractedReceipts, nil
 }
 
-func (b *Blockchain) GetCachedBlockAccessList(headerHash types.Hash) (bal.BlockAccessList, error) {
-	accessList, found := b.blockAccessListCache.Get(headerHash)
+func (b *Blockchain) GetCachedBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
+	accessList, found := b.blockAccessListCache.Get(bn)
 	if !found {
-		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %s", headerHash)
+		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %d", bn)
 	}
 
 	extractedAccessList, ok := accessList.(bal.BlockAccessList)
@@ -1595,22 +1593,22 @@ func (b *Blockchain) verifyBlockAccessList(block *types.Block, computedBAL bal.B
 	return nil
 }
 
-func (b *Blockchain) GetBlockAccessList(blockNumber uint64) (bal.BlockAccessList, error) {
-	if !b.config.Params.Forks.At(blockNumber).EIP7928 {
+func (b *Blockchain) GetBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
+	if !b.config.Params.Forks.At(bn).EIP7928 {
 		return bal.BlockAccessList{}, nil
 	}
 
-	if cached, ok := b.blockAccessListCache.Get(blockNumber); ok {
+	if cached, ok := b.blockAccessListCache.Get(bn); ok {
 		blockAccessList, ok := cached.(bal.BlockAccessList)
 		if !ok {
 			return bal.BlockAccessList{},
-				fmt.Errorf("block access list cache: unexpected type %T for block %d", cached, blockNumber)
+				fmt.Errorf("block access list cache: unexpected type %T for block %d", cached, bn)
 		}
 
 		return blockAccessList, nil
 	}
 
-	return b.db.ReadBlockAccessList(blockNumber)
+	return b.db.ReadBlockAccessList(bn)
 }
 
 type Syncer interface {
@@ -1663,7 +1661,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 			)
 		}
 
-		b.AddBlockAccessListToCache(block.Header.Hash, accessList)
+		b.AddBlockAccessListToCache(block.Number(), accessList)
 
 		return &types.FullBlock{Block: block}, nil
 	}
@@ -1698,7 +1696,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		)
 	}
 
-	b.AddBlockAccessListToCache(block.Header.Hash, accessList)
+	b.AddBlockAccessListToCache(block.Number(), accessList)
 
 	return &types.FullBlock{Block: block, Receipts: nil}, nil
 }

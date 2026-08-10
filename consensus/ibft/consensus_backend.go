@@ -123,7 +123,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
 	if i.config.Params.Forks.At(view.Height).EIP7928 {
-		i.blockchain.AddBlockAccessListToCache(block.Hash(), blockAccessList)
+		i.blockchain.AddBlockAccessListToCache(block.Number(), blockAccessList)
 	}
 
 	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})

@@ -309,7 +309,7 @@ func (m *syncPeerClient) CloseStream(peerID peer.ID) error {
 	return m.network.CloseProtocolStream(syncerProto, peerID)
 }
 
-// GetBlocks returns a stream of SyncBlock (block + optinal receipts/BAL) from given height to peer's latest
+// GetBlocks returns a stream of SyncBlock (block + optional receipts/BAL) from given height to peer's latest
 func (m *syncPeerClient) GetBlocks(
 	peerID peer.ID,
 	from uint64,
@@ -416,23 +416,19 @@ func (m *syncPeerClient) GetReceipts(
 			peerID, resp.BlockNumber, blockNumber)
 	}
 
-	var receipts types.Receipts
-	if len(resp.Receipts) > 0 {
-		if err := receipts.UnmarshalRLP(resp.Receipts); err != nil {
-			metrics.IncrCounter([]string{syncerMetrics, "bad_receipts"}, 1)
+	msg, err := fromProtoReceipts(resp)
+	if err != nil {
+		metrics.IncrCounter([]string{syncerMetrics, "bad_receipts"}, 1)
 
-			return nil, fmt.Errorf("failed to decode receipts for block %d: %w",
-				blockNumber, err)
-		}
+		return nil, fmt.Errorf("failed to decode receipts for block %d: %w", blockNumber, err)
 	}
 
-	metrics.SetGauge([]string{syncerMetrics, "ingress_bytes"}, float32(len(resp.Receipts)))
+	metrics.SetGauge(
+		[]string{syncerMetrics, "ingress_bytes"},
+		float32(len(resp.Receipts)),
+	)
 
-	return &ReceiptsMsg{
-		BlockNumber: resp.BlockNumber,
-		Receipts:    receipts,
-		Received:    resp.Received,
-	}, nil
+	return msg, nil
 }
 
 func (m *syncPeerClient) addTxsToPool(txs []*types.Transaction) {
