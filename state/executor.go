@@ -964,10 +964,8 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
 	}
 
-	if !t.config.EIP7928 {
-		// return gas to the pool
-		t.addGasPool(result.GasLeft)
-	}
+	// return gas to the pool
+	t.addGasPool(result.GasLeft)
 
 	return result, nil
 }
