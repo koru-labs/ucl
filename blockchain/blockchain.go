@@ -867,7 +867,6 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 && b.parallelVerificationWorkers > 1 {
 		b.logger.Info("parallel verificaion")
-
 		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
 
 		packedBar := bar.Pack()
@@ -1520,6 +1519,16 @@ func (b *Blockchain) GetBlockByHash(hash types.Hash, full bool) (*types.Block, b
 	// Set the transactions and uncles
 	block.Transactions = body.Transactions
 	block.Uncles = body.Uncles
+
+	// Populate BAR from storage if EIP-7928 is active
+	if b.config.Params.Forks.At(header.Number).EIP7928 {
+		bar, err := b.GetBlockAccessRecord(header.Number)
+		if err != nil {
+			b.logger.Warn("failed to load BAR for block", "num", header.Number, "err", err)
+			return block, false
+		}
+		block.BlockAccessRecord = bar
+	}
 
 	return block, true
 }
