@@ -17,7 +17,7 @@ var tableMapper = map[uint8][]byte{
 	storage.DIFFICULTY:          []byte("d"), // DB key = block number + block hash + mapper, value = block total diffculty
 	storage.HEADER:              []byte("h"), // DB key = block number + block hash + mapper, value = block header
 	storage.RECEIPTS:            []byte("r"), // DB key = block number + block hash + mapper, value = block receipts
-	storage.BLOCK_ACCESS_RECORD: []byte("a"), // DB key = block number + block hash + mapper, value = EIP-7928 block acess list
+	storage.BLOCK_ACCESS_RECORD: []byte("a"), // DB key = block number + block hash + mapper, value = block access list
 	storage.CANONICAL:           {},          // DB key = block number + mapper, value = block hash
 	storage.FORK:                {},          // DB key = FORK_KEY + mapper, value = fork hashes
 	storage.HEAD_HASH:           {},          // DB key = HEAD_HASH_KEY + mapper, value = head hash

@@ -390,6 +390,27 @@ func TestCreatedContractMarkers(t *testing.T) {
 		// an inner frame reverting must not clear a marker set by an outer CREATE
 		require.True(t, txn.IsContractCreatedInTx(addr1))
 	})
+
+	t.Run("nested snapshots revert markers by depth", func(t *testing.T) {
+		t.Parallel()
+
+		txn := newTestTxn(defaultPreState)
+
+		s0 := txn.Snapshot()
+		txn.MarkContractCreated(addr1) // depth s0+1
+
+		inner := txn.Snapshot()
+		txn.MarkContractCreated(addr2) // depth inner+1
+
+		// revert only the inner frame: addr2 goes, addr1 stays
+		require.NoError(t, txn.RevertToSnapshot(inner))
+		require.True(t, txn.IsContractCreatedInTx(addr1))
+		require.False(t, txn.IsContractCreatedInTx(addr2))
+
+		// revert the outer frame too: addr1 goes as well
+		require.NoError(t, txn.RevertToSnapshot(s0))
+		require.False(t, txn.IsContractCreatedInTx(addr1))
+	})
 }
 
 // TestSelfdestruct_EIP6780_InConstructor drives the marker through the real creation path:

@@ -1,8 +1,11 @@
 package syncer
 
 import (
+	"container/list"
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
@@ -44,6 +47,12 @@ type syncer struct {
 	forkManager forkManagerInterface
 
 	enableBlockAccessList bool
+
+	list                       *list.List
+	mu                         sync.Mutex
+	ch                         chan struct{}
+	shutDownCh                 chan struct{}
+	currentReceiptsBlockNumber uint64
 }
 
 type forkManagerInterface interface {
@@ -60,17 +69,23 @@ func NewSyncer(
 	forkManager forkManagerInterface,
 	enableBlockAccessList bool,
 ) Syncer {
+	currentReceiptsBlockNumber := blockchain.GetLastSyncReceiptsBlock() + 1
+
 	return &syncer{
-		logger:                logger.Named(syncerName),
-		blockchain:            blockchain,
-		syncProgression:       progress.NewProgressionWrapper(progress.ChainSyncBulk),
-		syncPeerService:       NewSyncPeerService(network, blockchain, txPool),
-		syncPeerClient:        NewSyncPeerClient(logger, network, blockchain, txPool),
-		blockTimeout:          blockTimeout,
-		newStatusCh:           make(chan struct{}),
-		peerMap:               new(PeerMap),
-		forkManager:           forkManager,
-		enableBlockAccessList: enableBlockAccessList,
+		logger:                     logger.Named(syncerName),
+		blockchain:                 blockchain,
+		syncProgression:            progress.NewProgressionWrapper(progress.ChainSyncBulk),
+		syncPeerService:            NewSyncPeerService(network, blockchain, txPool),
+		syncPeerClient:             NewSyncPeerClient(logger, network, blockchain, txPool),
+		blockTimeout:               blockTimeout,
+		newStatusCh:                make(chan struct{}),
+		peerMap:                    new(PeerMap),
+		forkManager:                forkManager,
+		enableBlockAccessList:      enableBlockAccessList,
+		list:                       list.New(),
+		ch:                         make(chan struct{}, 1),
+		mu:                         sync.Mutex{},
+		currentReceiptsBlockNumber: currentReceiptsBlockNumber,
 	}
 }
 
@@ -263,7 +278,9 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 	localLatest := s.blockchain.Header().Number
 	shouldTerminate := false
 
-	blockCh, err := s.syncPeerClient.GetBlocks(peerID, localLatest+1, s.blockTimeout)
+	getReceipts := s.enableBlockAccessList && !s.isLocalValidator(localLatest+1)
+
+	blockCh, clt, err := s.syncPeerClient.GetBlocks(peerID, localLatest+1, s.blockTimeout, getReceipts)
 	if err != nil {
 		return 0, false, err
 	}
@@ -273,7 +290,18 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 	s.syncProgression.StartProgression(localLatest+1, subscription)
 	s.syncProgression.UpdateHighestProgression(peerLatestBlock)
 
+	receiptsStopChannel := make(chan struct{})
+	s.shutDownCh = make(chan struct{})
+
+	receiptsCtx, receiptsCancel := context.WithCancel(context.Background())
+
 	defer func() {
+		if getReceipts {
+			receiptsCancel()
+			close(s.shutDownCh)
+			<-receiptsStopChannel
+		}
+
 		err := s.syncPeerClient.CloseStream(peerID)
 		if err != nil {
 			s.logger.Error("Failed to close stream: ", err)
@@ -283,6 +311,53 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 		s.syncProgression.StopProgression()
 		s.blockchain.UnsubscribeEvents(subscription)
 	}()
+
+	if getReceipts {
+		go func() {
+			for {
+				var header *types.Header
+
+				if s.currentReceiptsBlockNumber <= localLatest {
+					currentBlock, _ := s.blockchain.GetBlockByNumber(s.currentReceiptsBlockNumber, false)
+
+					header = currentBlock.Header
+				} else {
+					header = s.getBlock()
+				}
+
+				select {
+				case <-s.shutDownCh:
+					receiptsStopChannel <- struct{}{}
+
+					return
+				default:
+				}
+
+				receipts, err := s.syncPeerClient.GetReceipts(receiptsCtx, clt, peerID, header.Number)
+				if err != nil {
+					s.logger.Error("failed to get receipts", "blockNumber", header.Number, "peerID", peerID, "err", err)
+
+					continue
+				}
+
+				if !receipts.Received {
+					time.Sleep(1 * time.Second)
+
+					continue
+				}
+
+				if err := s.blockchain.VerifyAndApplyReceipts(header, receipts.Receipts); err != nil {
+					s.logger.Error("failed to get receipts", "blockNumber", header.Number, "peerID", peerID, "err", err)
+
+					time.Sleep(1 * time.Second)
+
+					continue
+				}
+
+				s.currentReceiptsBlockNumber++
+			}
+		}()
+	}
 
 	var lastReceivedNumber uint64
 
@@ -298,7 +373,7 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 				continue
 			}
 
-			fullBlock, err := s.applyBlock(syncBlock)
+			fullBlock, err := s.applyBlock(syncBlock, getReceipts)
 			if err != nil {
 				metrics.IncrCounter([]string{syncerMetrics, "bad_block"}, 1)
 
@@ -321,25 +396,79 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 	}
 }
 
-func (s *syncer) applyBlock(syncBlock *SyncBlock) (*types.FullBlock, error) {
-	signer, err := s.forkManager.GetSigner(syncBlock.Block.Number())
-	if err != nil {
-		return nil, err
+func (s *syncer) applyBlock(syncBlock *SyncBlock, getReceipts bool) (*types.FullBlock, error) {
+	if !getReceipts {
+		fullBlock, err := s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
+
+		return fullBlock, err
 	}
 
-	validators, err := s.forkManager.GetValidators(syncBlock.Block.Number())
-	if err != nil {
-		return nil, err
-	}
-
-	if validators.Includes(signer.Address()) || !s.enableBlockAccessList {
-		return s.blockchain.VerifyFinalizedBlock(syncBlock.Block)
-	}
-
-	return s.blockchain.ApplyFinalizedBlockFromBAL(
+	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAL(
 		syncBlock.Block,
+<<<<<<< HEAD
 		syncBlock.Receipts,
+=======
+		syncBlock.BlockAccessList,
+		s,
+>>>>>>> EIP-7928-block-access-list
 	)
+
+	return fullBlock, err
+}
+
+func (s *syncer) isLocalValidator(blockNumber uint64) bool {
+	sgn, err := s.forkManager.GetSigner(blockNumber)
+	if err != nil {
+		return false
+	}
+
+	vals, err := s.forkManager.GetValidators(blockNumber)
+	if err != nil {
+		return false
+	}
+
+	return vals.Includes(sgn.Address())
+}
+
+func (s *syncer) AddBlock(header *types.Header) {
+	s.mu.Lock()
+
+	s.list.PushBack(header)
+
+	select {
+	case s.ch <- struct{}{}:
+	default:
+	}
+
+	s.mu.Unlock()
+}
+
+func (s *syncer) getBlock() *types.Header {
+	s.mu.Lock()
+
+	for s.list.Len() == 0 {
+		s.mu.Unlock()
+
+		select {
+		case <-s.ch:
+			select {
+			case <-s.shutDownCh:
+				return nil
+			default:
+			}
+
+			s.mu.Lock()
+		case <-s.shutDownCh:
+			return nil
+		}
+	}
+
+	front := s.list.Front()
+	header, _ := s.list.Remove(front).(*types.Header)
+
+	s.mu.Unlock()
+
+	return header
 }
 
 func updateMetrics(fullBlock *types.FullBlock) {

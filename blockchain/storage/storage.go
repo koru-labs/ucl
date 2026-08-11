@@ -30,12 +30,13 @@ type Writer struct {
 
 // Tables
 const (
-	BODY                = uint8(0)
-	CANONICAL           = uint8(2)
-	DIFFICULTY          = uint8(4)
-	HEADER              = uint8(6)
-	RECEIPTS            = uint8(8)
-	BLOCK_ACCESS_RECORD = uint8(10)
+	BODY                 = uint8(0)
+	CANONICAL            = uint8(2)
+	DIFFICULTY           = uint8(4)
+	HEADER               = uint8(6)
+	RECEIPTS             = uint8(8)
+	BLOCK_ACCESS_RECORD  = uint8(10)
+	LAST_SYNCED_RECEIPTS = uint8(12)
 )
 
 // Lookup tables
@@ -62,9 +63,10 @@ const (
 
 //nolint:stylecheck // needed because linter considers _ in name as an error
 var (
-	FORK_KEY        = []byte("0000000f")
-	HEAD_HASH_KEY   = []byte("0000000h")
-	HEAD_NUMBER_KEY = []byte("0000000n")
+	FORK_KEY                 = []byte("0000000f")
+	HEAD_HASH_KEY            = []byte("0000000h")
+	HEAD_NUMBER_KEY          = []byte("0000000n")
+	LAST_SYNCED_RECEIPTS_KEY = []byte("0000000d")
 )
 
 var ErrNotFound = fmt.Errorf("not found")

@@ -121,7 +121,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
 
 	if i.config.Params.Forks.At(view.Height).EIP7928 {
-		i.blockchain.AddBlockAccessRecordToCache(block.Hash(), bar)
+		i.blockchain.AddBlockAccessRecordToCache(block.Number(), bar)
 	}
 
 	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
@@ -294,7 +294,13 @@ func (i *backendIBFT) GetVotingPowers(height uint64) (map[string]*big.Int, error
 }
 
 // buildBlock builds the block, based on the passed in snapshot and parent header
-func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*types.Block, []*types.Receipt, types.BlockAccessRecord, error) {
+func (i *backendIBFT) buildBlock(
+	ctx context.Context,
+	parent *types.Header) (
+	*types.Block,
+	[]*types.Receipt,
+	types.BlockAccessRecord,
+	error) {
 	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
 	defer buildSpan.End()
 

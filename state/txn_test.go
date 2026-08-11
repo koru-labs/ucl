@@ -82,10 +82,12 @@ func newStateWithCode(preState map[types.Address]*PreState, code map[types.Addre
 			acc = &PreState{}
 			preState[addr] = acc
 		}
+
 		h := crypto.Keccak256(c)
 		acc.CodeHash = h
 		codes[types.BytesToHash(h)] = c
 	}
+
 	return &mockSnapshot{state: preState, codes: codes}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 
 	"github.com/hashicorp/go-hclog"
@@ -28,22 +29,21 @@ const (
 )
 
 var (
-	ErrNoBlock                     = errors.New("no block data passed in")
-	ErrParentNotFound              = errors.New("parent block not found")
-	ErrInvalidParentHash           = errors.New("parent block hash is invalid")
-	ErrParentHashMismatch          = errors.New("invalid parent block hash")
-	ErrInvalidBlockSequence        = errors.New("invalid block sequence")
-	ErrInvalidSha3Uncles           = errors.New("invalid block sha3 uncles root")
-	ErrInvalidTxRoot               = errors.New("invalid block transactions root")
-	ErrInvalidReceiptsSize         = errors.New("invalid number of receipts")
-	ErrInvalidStateRoot            = errors.New("invalid block state root")
-	ErrInvalidGasUsed              = errors.New("invalid block gas used")
-	ErrInvalidReceiptsRoot         = errors.New("invalid block receipts root")
-	ErrBlockAccessListNotFound     = errors.New("block access list not found")
-	ErrBALMissingForTrustMode      = errors.New("cannot apply block from BAL: BAL is empty")
-	ErrReceiptsMissingForTrustMode = errors.New("cannot apply block from BAL: receipts are empty")
-	ErrInvalidBlockRlpSize         = errors.New("invalid block rlp size")
-	EmptyBALHash                   = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
+	ErrNoBlock                = errors.New("no block data passed in")
+	ErrParentNotFound         = errors.New("parent block not found")
+	ErrInvalidParentHash      = errors.New("parent block hash is invalid")
+	ErrParentHashMismatch     = errors.New("invalid parent block hash")
+	ErrInvalidBlockSequence   = errors.New("invalid block sequence")
+	ErrInvalidSha3Uncles      = errors.New("invalid block sha3 uncles root")
+	ErrInvalidTxRoot          = errors.New("invalid block transactions root")
+	ErrInvalidReceiptsSize    = errors.New("invalid number of receipts")
+	ErrInvalidStateRoot       = errors.New("invalid block state root")
+	ErrInvalidGasUsed         = errors.New("invalid block gas used")
+	ErrInvalidReceiptsRoot    = errors.New("invalid block receipts root")
+	ErrInvalidBlockRlpSize    = errors.New("invalid block rlp size")
+	ErrBALMissingForTrustMode = errors.New("cannot apply block from BAL: BAL is empty")
+
+	EmptyBALHash = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 )
 
 // Blockchain is a blockchain reference
@@ -478,8 +478,13 @@ func (b *Blockchain) GetTD(hash types.Hash) (*big.Int, bool) {
 
 // GetReceiptsByHash returns the receipts by their hash
 func (b *Blockchain) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
-	if receipts, ok := b.receiptsCache.Get(hash); ok {
-		return receipts.([]*types.Receipt), nil
+	if cached, ok := b.receiptsCache.Get(hash); ok {
+		receipts, ok := cached.([]*types.Receipt)
+		if !ok {
+			return nil, fmt.Errorf("receipts cache: unexpected type %T for hash %s", cached, hash)
+		}
+
+		return receipts, nil
 	}
 
 	return b.db.ReadReceipts(bn, hash)
@@ -913,8 +918,8 @@ func (b *Blockchain) AddReceiptsToCache(hash types.Hash, receipts []*types.Recei
 	b.receiptsCache.Add(hash, receipts)
 }
 
-func (b *Blockchain) AddBlockAccessRecordToCache(hash types.Hash, blockAccessRecord types.BlockAccessRecord) {
-	b.blockAccessRecordCache.Add(hash, blockAccessRecord)
+func (b *Blockchain) AddBlockAccessRecordToCache(bn uint64, blockAccessRecord types.BlockAccessRecord) {
+	b.blockAccessRecordCache.Add(bn, blockAccessRecord)
 }
 
 // WriteFullBlock writes a single block to the local blockchain.
@@ -955,12 +960,12 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		blockAccesList, err := b.GetCachedBlockAccessList(block.Hash())
+		blockAccessList, err := b.GetCachedBlockAccessList(block.Number())
 		if err != nil {
 			return err
 		}
 
-		batchWriter.PutBlockAccessList(block.Number(), blockAccesList)
+		batchWriter.PutBlockAccessList(block.Number(), blockAccessList)
 	}
 
 	// update snapshot
@@ -1034,8 +1039,8 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 && len(block.Transactions) > 0 {
-		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Hash())
+	if b.config.Params.Forks.At(block.Number()).EIP7928 {
+		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Number())
 		if accessListErr != nil {
 			return accessListErr
 		}
@@ -1090,10 +1095,10 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 	return extractedReceipts, nil
 }
 
-func (b *Blockchain) GetCachedBlockAccessList(headerHash types.Hash) (types.BlockAccessRecord, error) {
-	accessList, found := b.blockAccessRecordCache.Get(headerHash)
+func (b *Blockchain) GetCachedBlockAccessList(bn uint64) (types.BlockAccessRecord, error) {
+	accessList, found := b.blockAccessRecordCache.Get(bn)
 	if !found {
-		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %s", headerHash)
+		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %d", bn)
 	}
 
 	extractedAccessList, ok := accessList.(types.BlockAccessRecord)
@@ -1614,19 +1619,26 @@ func (b *Blockchain) GetBlockAccessRecord(blockNumber uint64) (types.BlockAccess
 		return types.BlockAccessRecord{}, nil
 	}
 
-	if blockAccessList, ok := b.blockAccessRecordCache.Get(blockNumber); ok {
-		return blockAccessList.(types.BlockAccessRecord), nil
+	if blockAccessList, ok := b.blockAccessListCache.Get(blockNumber); ok {
+		return blockAccessList.(bal.BlockAccessList), nil
 	}
 
-	return b.db.ReadBlockAccessList(blockNumber)
+	return b.db.ReadBlockAccessList(bn)
+}
+
+type Syncer interface {
+	AddBlock(header *types.Header)
 }
 
 func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	block *types.Block,
-	receipts []*types.Receipt,
+	accessList bal.BlockAccessList,
+	syncer Syncer,
 ) (*types.FullBlock, error) {
 	if !b.config.Params.Forks.At(block.Number()).EIP7928 {
-		return b.VerifyFinalizedBlock(block)
+		fullBlock, err := b.VerifyFinalizedBlock(block)
+
+		return fullBlock, err
 	}
 
 	if err := b.consensus.VerifyHeader(block.Header); err != nil {
@@ -1654,18 +1666,19 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		return nil, ErrInvalidTxRoot
 	}
 
+	syncer.AddBlock(block.Header)
+
 	if block.Header.BlockAccessRecordHash == EmptyBALHash {
-		if len(block.Transactions) != 0 || len(receipts) != 0 {
+		if len(block.Transactions) != 0 {
 			return nil, fmt.Errorf(
-				"block claims empty block access list but has %d transactions and %d receipts",
+				"block claims empty block access list but has %d transactions",
 				len(block.Transactions),
-				len(receipts),
 			)
 		}
 
-		b.AddBlockAccessRecordToCache(block.Header.Hash, block.BlockAccessRecord)
+		b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 
-		return &types.FullBlock{Block: block, Receipts: receipts}, nil
+		return &types.FullBlock{Block: block}, nil
 	}
 
 	if len(block.BlockAccessRecord) == 0 {
@@ -1675,20 +1688,6 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	blockAccessListHash := block.BlockAccessRecord.Hash()
 	if blockAccessListHash != block.Header.BlockAccessRecordHash {
 		return nil, errors.New("supplied block access list does not match header hash")
-	}
-
-	// receipts checks
-	if len(receipts) == 0 {
-		return nil, ErrReceiptsMissingForTrustMode
-	}
-
-	if len(receipts) != len(block.Transactions) {
-		return nil, ErrInvalidReceiptsSize
-	}
-
-	receiptsRoot := buildroot.CalculateReceiptsRoot(receipts)
-	if receiptsRoot != block.Header.ReceiptsRoot {
-		return nil, ErrInvalidReceiptsRoot
 	}
 
 	parent, ok := b.readHeader(block.Header.ParentHash)
@@ -1708,9 +1707,33 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 		)
 	}
 
-	b.AddBlockAccessRecordToCache(block.Header.Hash, block.BlockAccessRecord)
+	b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 
-	b.AddReceiptsToCache(block.Header.Hash, receipts)
+	return &types.FullBlock{Block: block, Receipts: nil}, nil
+}
 
-	return &types.FullBlock{Block: block, Receipts: receipts}, nil
+func (b *Blockchain) VerifyAndApplyReceipts(header *types.Header, receipts types.Receipts) error {
+	receiptsRoot := buildroot.CalculateReceiptsRoot(receipts)
+	if receiptsRoot != header.ReceiptsRoot {
+		return ErrInvalidReceiptsRoot
+	}
+
+	b.AddReceiptsToCache(header.Hash, receipts)
+
+	batchWriter := b.db.NewWriter()
+
+	batchWriter.PutReceipts(header.Number, header.Hash, receipts)
+
+	batchWriter.PutLastSyncedReceipts(header.Number)
+
+	return nil
+}
+
+func (b *Blockchain) GetLastSyncReceiptsBlock() uint64 {
+	lastSyncBlock, ok := b.db.ReadLastSyncedReceipts()
+	if !ok {
+		return 0
+	}
+
+	return lastSyncBlock
 }

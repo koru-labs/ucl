@@ -196,7 +196,6 @@ func DefaultConfig() *Config {
 		EnableTxPoolEndpoints:       false,
 		EnableAllDebugEndpoints:     false,
 		EnableBlockAccessList:       false,
-		WithTrieCaching:             true,
 		WithBaseFeeFixed:            false,
 		ParallelVerificationWorkers: 1,
 	}
