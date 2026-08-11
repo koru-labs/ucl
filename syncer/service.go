@@ -69,12 +69,7 @@ func (s *syncPeerService) GetBlocks(
 			return ErrBlockNotFound
 		}
 
-		receipts, err := s.blockchain.GetReceiptsByHash(block.Number(), block.Hash())
-		if err != nil {
-			receipts = nil
-		}
-
-		resp := toProtoBlock(block, receipts)
+		resp := toProtoBlock(block)
 		metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(resp.Block)))
 
 		// if client closes stream, context.Canceled is given
@@ -178,13 +173,9 @@ func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServ
 }
 
 // toProtoBlock converts type.Block -> proto.Block
-func toProtoBlock(block *types.Block, receipts types.Receipts) *proto.Block {
+func toProtoBlock(block *types.Block) *proto.Block {
 	resp := &proto.Block{
 		Block: block.MarshalRLP(),
-	}
-
-	if len(block.BlockAccessRecord) > 0 {
-		resp.BlockAccessList = block.MarshalRLP()
 	}
 
 	return resp

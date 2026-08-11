@@ -13,7 +13,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 
 	"github.com/hashicorp/go-hclog"
@@ -867,6 +866,8 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 	}
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 && b.parallelVerificationWorkers > 1 {
+		b.logger.Info("parallel verificaion")
+
 		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
 
 		packedBar := bar.Pack()
@@ -883,7 +884,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		// Append the receipts to the receipts cache
 		b.receiptsCache.Add(header.Hash, receipts)
 
-		b.blockAccessRecordCache.Add(header.Hash, packedBar)
+		b.blockAccessRecordCache.Add(header.Number, packedBar)
 
 		return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
 	}
@@ -960,12 +961,13 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		blockAccessList, err := b.GetCachedBlockAccessList(block.Number())
-		if err != nil {
-			return err
-		}
+		/* 		blockAccessList, err := b.GetCachedBlockAccessList(block.Number())
+		   		if err != nil {
+		   			return err
+		   		}
+		*/
 
-		batchWriter.PutBlockAccessList(block.Number(), blockAccessList)
+		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
 	}
 
 	// update snapshot
@@ -1098,7 +1100,7 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 func (b *Blockchain) GetCachedBlockAccessList(bn uint64) (types.BlockAccessRecord, error) {
 	accessList, found := b.blockAccessRecordCache.Get(bn)
 	if !found {
-		return nil, fmt.Errorf("failed to retrieve block access list for header hash: %d", bn)
+		return nil, fmt.Errorf("failed to retrieve block access list for block number: %d", bn)
 	}
 
 	extractedAccessList, ok := accessList.(types.BlockAccessRecord)
@@ -1614,13 +1616,13 @@ func (b *Blockchain) SetSettlementObserver(observer func([]float64)) {
 	b.settlementObserver = observer
 }
 
-func (b *Blockchain) GetBlockAccessRecord(blockNumber uint64) (types.BlockAccessRecord, error) {
-	if !b.config.Params.Forks.At(blockNumber).EIP7928 {
+func (b *Blockchain) GetBlockAccessRecord(bn uint64) (types.BlockAccessRecord, error) {
+	if !b.config.Params.Forks.At(bn).EIP7928 {
 		return types.BlockAccessRecord{}, nil
 	}
 
-	if blockAccessList, ok := b.blockAccessListCache.Get(blockNumber); ok {
-		return blockAccessList.(bal.BlockAccessList), nil
+	if blockAccessList, ok := b.blockAccessRecordCache.Get(bn); ok {
+		return blockAccessList.(types.BlockAccessRecord), nil
 	}
 
 	return b.db.ReadBlockAccessList(bn)
@@ -1632,7 +1634,6 @@ type Syncer interface {
 
 func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	block *types.Block,
-	accessList bal.BlockAccessList,
 	syncer Syncer,
 ) (*types.FullBlock, error) {
 	if !b.config.Params.Forks.At(block.Number()).EIP7928 {

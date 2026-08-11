@@ -150,8 +150,9 @@ type TestClusterConfig struct {
 
 	WithZKServer bool
 
-	BALNonValidatorsEnabled bool
-	BALValidatorsEnabled    bool
+	BALNonValidatorsEnabled     bool
+	BALValidatorsEnabled        bool
+	ParallelVerificationWorkers uint64
 }
 
 func (c *TestClusterConfig) Dir(name string) string {
@@ -454,6 +455,12 @@ func WithBALValidators() ClusterOption {
 	}
 }
 
+func WithParallelVerification(workers uint64) ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.ParallelVerificationWorkers = workers
+	}
+}
+
 func isTrueEnv(e string) bool {
 	return strings.ToLower(os.Getenv(e)) == "true"
 }
@@ -472,16 +479,18 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 	var err error
 
 	config := &TestClusterConfig{
-		t:             t,
-		WithLogs:      isTrueEnv(envLogsEnabled),
-		WithStdout:    isTrueEnv(envStdoutEnabled),
-		Binary:        resolveBinary(),
-		EpochSize:     10,
-		EpochReward:   1,
-		BlockGasLimit: 1e7, // 10M
-		StakeAmounts:  []*big.Int{},
-		HasBridge:     false,
-		Consensus:     server.IBFTConsensus,
+		t:                           t,
+		WithLogs:                    isTrueEnv(envLogsEnabled),
+		WithStdout:                  isTrueEnv(envStdoutEnabled),
+		Binary:                      resolveBinary(),
+		EpochSize:                   10,
+		EpochReward:                 1,
+		BlockGasLimit:               1e7, // 10M
+		StakeAmounts:                []*big.Int{},
+		HasBridge:                   false,
+		Consensus:                   server.IBFTConsensus,
+		BALValidatorsEnabled:        true,
+		ParallelVerificationWorkers: 8,
 	}
 
 	if config.ValidatorPrefix == "" {
@@ -679,6 +688,7 @@ func (c *TestCluster) InitTestServer(t *testing.T,
 		config.AllDebugEndpointsEnabled = c.Config.AllDebugEndpointsEnabled
 		config.TxPoolEndpointsEnabled = c.Config.TxPoolEndpointsEnabled
 		config.BALEnabled = c.Config.BALNonValidatorsEnabled
+		config.ParallelVerificationWorkers = c.Config.ParallelVerificationWorkers
 	})
 
 	// watch the server for stop signals. It is important to fix the specific

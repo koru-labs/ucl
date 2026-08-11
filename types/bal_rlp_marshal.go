@@ -51,21 +51,6 @@ func (aa *AccountAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value 
 		vv.Set(scArr)
 	}
 
-<<<<<<< HEAD:types/bal_rlp_marshal.go
-=======
-	if len(aa.StorageReads) == 0 {
-		vv.Set(ar.NewNullArray())
-	} else {
-		srArr := ar.NewArray()
-
-		for i := range aa.StorageReads {
-			srArr.Set(ar.NewCopyBytes(aa.StorageReads[i].Bytes()))
-		}
-
-		vv.Set(srArr)
-	}
-
->>>>>>> EIP-7928-block-access-list:types/bal/bal_rlp_marshal.go
 	if len(aa.BalanceChanges) == 0 {
 		vv.Set(ar.NewNullArray())
 	} else {

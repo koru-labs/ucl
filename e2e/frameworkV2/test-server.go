@@ -24,23 +24,24 @@ import (
 )
 
 type TestServerConfig struct {
-	Name                     string
-	JSONRPCPort              int64
-	GRPCPort                 int64
-	P2PPort                  int64
-	Validator                bool
-	DataDir                  string
-	Chain                    string
-	LogLevel                 string
-	Relayer                  bool
-	NumBlockConfirmations    uint64
-	BridgeJSONRPC            string
-	UseTLS                   bool
-	TLSCertFile              string
-	TLSKeyFile               string
-	AllDebugEndpointsEnabled bool
-	TxPoolEndpointsEnabled   bool
-	BALEnabled               bool
+	Name                        string
+	JSONRPCPort                 int64
+	GRPCPort                    int64
+	P2PPort                     int64
+	Validator                   bool
+	DataDir                     string
+	Chain                       string
+	LogLevel                    string
+	Relayer                     bool
+	NumBlockConfirmations       uint64
+	BridgeJSONRPC               string
+	UseTLS                      bool
+	TLSCertFile                 string
+	TLSKeyFile                  string
+	AllDebugEndpointsEnabled    bool
+	TxPoolEndpointsEnabled      bool
+	BALEnabled                  bool
+	ParallelVerificationWorkers uint64
 }
 
 type TestServerConfigCallback func(*TestServerConfig)
@@ -195,6 +196,10 @@ func (t *TestServer) Start() {
 
 	if config.BALEnabled && !config.Validator {
 		args = append(args, "--enable-block-access-list")
+	}
+
+	if config.BALEnabled && config.ParallelVerificationWorkers > 1 {
+		args = append(args, "--parallel-verification-workers", strconv.FormatUint(config.ParallelVerificationWorkers, 10))
 	}
 
 	// Start the server

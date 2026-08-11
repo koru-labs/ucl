@@ -141,12 +141,7 @@ func (sw *SlotChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	if err != nil {
 		return err
 	}
-<<<<<<< HEAD:types/bal_rlp_unmarshal.go
 	sw.TxIndex = id
-=======
-
-	sw.BlockAccessIndex = uint32(idx)
->>>>>>> EIP-7928-block-access-list:types/bal/bal_rlp_unmarshal.go
 
 	return elems[1].GetHash(sw.Value[:])
 }
@@ -165,12 +160,7 @@ func (bc *BalanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) e
 	if err != nil {
 		return err
 	}
-<<<<<<< HEAD:types/bal_rlp_unmarshal.go
 	bc.TxIndex = id
-=======
-
-	bc.BlockAccessIndex = uint32(idx)
->>>>>>> EIP-7928-block-access-list:types/bal/bal_rlp_unmarshal.go
 
 	bc.Balance = new(big.Int)
 
@@ -191,12 +181,7 @@ func (nc *NonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) err
 	if err != nil {
 		return err
 	}
-<<<<<<< HEAD:types/bal_rlp_unmarshal.go
 	nc.TxIndex = id
-=======
-
-	nc.BlockAccessIndex = uint32(idx)
->>>>>>> EIP-7928-block-access-list:types/bal/bal_rlp_unmarshal.go
 
 	nc.Nonce, err = elems[1].GetUint64()
 
@@ -217,12 +202,7 @@ func (cc *CodeChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	if err != nil {
 		return err
 	}
-<<<<<<< HEAD:types/bal_rlp_unmarshal.go
 	cc.TxIndex = id
-=======
-
-	cc.BlockAccessIndex = uint32(idx)
->>>>>>> EIP-7928-block-access-list:types/bal/bal_rlp_unmarshal.go
 
 	cc.Code, err = elems[1].GetBytes(cc.Code[:0])
 

@@ -405,12 +405,7 @@ func (s *syncer) applyBlock(syncBlock *SyncBlock, getReceipts bool) (*types.Full
 
 	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAL(
 		syncBlock.Block,
-<<<<<<< HEAD
-		syncBlock.Receipts,
-=======
-		syncBlock.BlockAccessList,
 		s,
->>>>>>> EIP-7928-block-access-list
 	)
 
 	return fullBlock, err

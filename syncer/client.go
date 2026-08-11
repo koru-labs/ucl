@@ -27,8 +27,7 @@ const (
 )
 
 type SyncBlock struct {
-	Block           *types.Block
-	BlockAccessList types.BlockAccessRecord
+	Block *types.Block
 }
 
 type ReceiptsMsg struct {
@@ -459,15 +458,6 @@ func fromProto(protoBlock *proto.Block) (*SyncBlock, error) {
 
 	result := &SyncBlock{
 		Block: block,
-	}
-
-	if len(protoBlock.BlockAccessList) > 0 {
-		var accessList types.BlockAccessRecord
-		if err := accessList.UnmarshalRLP(protoBlock.BlockAccessList); err != nil {
-			return nil, fmt.Errorf("failed to decode block access list: %w", err)
-		}
-
-		result.BlockAccessList = accessList
 	}
 
 	return result, nil
