@@ -188,6 +188,7 @@ func (e *Executor) ParallelProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
 	blockCreator types.Address,
+	numOfWorkers uint64,
 ) (BlockAccessRecord, []*types.Receipt, uint64, error) {
 	n := len(block.Transactions)
 
@@ -219,8 +220,7 @@ func (e *Executor) ParallelProcessBlock(
 	bar := NewBlockAccessRecord()
 	gasRemaining := block.Header.GasLimit
 
-	const workerCount = 32
-	for range workerCount {
+	for range numOfWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

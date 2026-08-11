@@ -81,6 +81,8 @@ type Config struct {
 
 	// Used to make base fee value constant through the blocks
 	WithBaseFeeFixed bool
+
+	ParallelVerificationWorkers uint64
 }
 
 // Telemetry holds the config details for metric services

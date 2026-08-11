@@ -90,6 +90,8 @@ type Blockchain struct {
 	settlementObserver func(delta []float64)
 
 	withBaseFeeFixed bool // is base fee value fixed?
+
+	parallelVerificationWorkers uint64
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -116,6 +118,7 @@ type Executor interface {
 		parentRoot types.Hash,
 		block *types.Block,
 		blockCreator types.Address,
+		numOfWorkers uint64,
 	) (state.BlockAccessRecord, []*types.Receipt, uint64, error)
 }
 
@@ -217,6 +220,7 @@ func NewBlockchain(
 	executor Executor,
 	txSigner TxSigner,
 	withBaseFeeFixed bool,
+	parallelVerification uint64,
 ) (*Blockchain, error) {
 	b := &Blockchain{
 		logger:    logger.Named("blockchain"),
@@ -230,7 +234,8 @@ func NewBlockchain(
 			price: big.NewInt(0),
 			count: big.NewInt(0),
 		},
-		withBaseFeeFixed: withBaseFeeFixed,
+		withBaseFeeFixed:            withBaseFeeFixed,
+		parallelVerificationWorkers: parallelVerification,
 	}
 
 	if err := b.initCaches(defaultCacheSize); err != nil {
@@ -856,8 +861,8 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator)
+	if b.config.Params.Forks.At(block.Number()).EIP7928 && b.parallelVerificationWorkers > 1 {
+		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
 
 		packedBar := bar.Pack()
 

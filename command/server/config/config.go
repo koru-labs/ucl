@@ -71,6 +71,8 @@ type Config struct {
 
 	// Used to make base fee value constant through the blocks
 	WithBaseFeeFixed bool `json:"with_base_fee_fixed" yaml:"with_base_fee_fixed"`
+
+	ParallelVerificationWorkers uint64 `json:"parallel_verification_workers" yaml:"parallel_verification_workers"`
 }
 
 // Telemetry holds the config details for metric services.
@@ -175,27 +177,28 @@ func DefaultConfig() *Config {
 		Headers: &Headers{
 			AccessControlAllowOrigins: []string{"*"},
 		},
-		LogFilePath:              "",
-		JSONRPCBatchRequestLimit: DefaultJSONRPCBatchRequestLimit,
-		JSONRPCBlockRangeLimit:   DefaultJSONRPCBlockRangeLimit,
-		Relayer:                  false,
-		NumBlockConfirmations:    DefaultNumBlockConfirmations,
-		ConcurrentRequestsDebug:  DefaultConcurrentRequestsDebug,
-		WebSocketReadLimit:       DefaultWebSocketReadLimit,
-		MetricsInterval:          DefaultMetricsInterval,
-		UseTLS:                   false,
-		TLSCertFile:              "",
-		TLSKeyFile:               "",
-		BlockCacheTTL:            3 * time.Minute,
-		BlockCacheCapacity:       50,
-		MaxRequestBodySize:       DefaultRequestBodySize,
-		JSONRPCTimeout:           DefaultJSONRPCTimeout,
-		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
-		EnableTxPoolEndpoints:    false,
-		EnableAllDebugEndpoints:  false,
-		EnableBlockAccessList:    false,
-		WithTrieCaching:          true,
-		WithBaseFeeFixed:         false,
+		LogFilePath:                 "",
+		JSONRPCBatchRequestLimit:    DefaultJSONRPCBatchRequestLimit,
+		JSONRPCBlockRangeLimit:      DefaultJSONRPCBlockRangeLimit,
+		Relayer:                     false,
+		NumBlockConfirmations:       DefaultNumBlockConfirmations,
+		ConcurrentRequestsDebug:     DefaultConcurrentRequestsDebug,
+		WebSocketReadLimit:          DefaultWebSocketReadLimit,
+		MetricsInterval:             DefaultMetricsInterval,
+		UseTLS:                      false,
+		TLSCertFile:                 "",
+		TLSKeyFile:                  "",
+		BlockCacheTTL:               3 * time.Minute,
+		BlockCacheCapacity:          50,
+		MaxRequestBodySize:          DefaultRequestBodySize,
+		JSONRPCTimeout:              DefaultJSONRPCTimeout,
+		JumpdestCacheSize:           evm.DefaultJumpdestCacheSize,
+		EnableTxPoolEndpoints:       false,
+		EnableAllDebugEndpoints:     false,
+		EnableBlockAccessList:       false,
+		WithTrieCaching:             true,
+		WithBaseFeeFixed:            false,
+		ParallelVerificationWorkers: 1,
 	}
 }
 

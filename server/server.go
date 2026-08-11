@@ -367,6 +367,7 @@ func NewServer(config *Config) (*Server, error) {
 		m.executor,
 		signer,
 		config.WithBaseFeeFixed,
+		config.ParallelVerificationWorkers,
 	)
 	if err != nil {
 		return nil, err

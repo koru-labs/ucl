@@ -314,7 +314,7 @@ func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
 	m.processBlockFn = fn
 }
 
-func (m *mockExecutor) ParallelProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (
+func (m *mockExecutor) ParallelProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address, numOfWorkers uint64) (
 	state.BlockAccessRecord, []*types.Receipt, uint64, error) {
 	return nil, nil, 0, nil
 }
@@ -361,7 +361,7 @@ func newBlockChain(config *chain.Chain, executor Executor) (*Blockchain, error) 
 		return nil, err
 	}
 
-	b, err := NewBlockchain(hclog.NewNullLogger(), db, config, &MockVerifier{}, executor, &mockSigner{}, false)
+	b, err := NewBlockchain(hclog.NewNullLogger(), db, config, &MockVerifier{}, executor, &mockSigner{}, false, 1)
 	if err != nil {
 		return nil, err
 	}

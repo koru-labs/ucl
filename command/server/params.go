@@ -73,6 +73,8 @@ const (
 	settlementMetricsFlag = "settlement-metrics"
 	withTrieCachingFlag   = "with-trie-caching"
 	withBaseFeeFixedFlag  = "with-base-fee-fixed"
+
+	parallelVerificationWorkersFlag = "parallel-verification-workers"
 )
 
 // Flags that are deprecated, but need to be preserved for
@@ -235,21 +237,22 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONLogFormat:      p.rawConfig.JSONLogFormat,
 		LogFilePath:        p.logFileLocation,
 
-		Relayer:                 p.relayer,
-		NumBlockConfirmations:   p.rawConfig.NumBlockConfirmations,
-		MetricsInterval:         p.rawConfig.MetricsInterval,
-		UseTLS:                  p.rawConfig.UseTLS,
-		TLSCertFile:             p.rawConfig.TLSCertFile,
-		TLSKeyFile:              p.rawConfig.TLSKeyFile,
-		BlockCacheTTL:           p.rawConfig.BlockCacheTTL,
-		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
-		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
-		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
-		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
-		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
-		WithTrieCaching:         p.rawConfig.WithTrieCaching,
-		EnableBlockAccessList:   p.rawConfig.EnableBlockAccessList,
-		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
-		JumpdestCacheSize:       p.rawConfig.JumpdestCacheSize,
+		Relayer:                     p.relayer,
+		NumBlockConfirmations:       p.rawConfig.NumBlockConfirmations,
+		MetricsInterval:             p.rawConfig.MetricsInterval,
+		UseTLS:                      p.rawConfig.UseTLS,
+		TLSCertFile:                 p.rawConfig.TLSCertFile,
+		TLSKeyFile:                  p.rawConfig.TLSKeyFile,
+		BlockCacheTTL:               p.rawConfig.BlockCacheTTL,
+		BlockCacheCapacity:          p.rawConfig.BlockCacheCapacity,
+		MaxRequestBodySize:          p.rawConfig.MaxRequestBodySize,
+		JSONRPCTimeout:              p.rawConfig.JSONRPCTimeout,
+		EnableTxPoolEndpoints:       p.rawConfig.EnableTxPoolEndpoints,
+		EnableAllDebugEndpoints:     p.rawConfig.EnableAllDebugEndpoints,
+		WithTrieCaching:             p.rawConfig.WithTrieCaching,
+		EnableBlockAccessList:       p.rawConfig.EnableBlockAccessList,
+		WithBaseFeeFixed:            p.rawConfig.WithBaseFeeFixed,
+		JumpdestCacheSize:           p.rawConfig.JumpdestCacheSize,
+		ParallelVerificationWorkers: p.rawConfig.ParallelVerificationWorkers,
 	}
 }

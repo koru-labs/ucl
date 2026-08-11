@@ -639,8 +639,8 @@ func (txn *Txn) incrNonceState(addr types.Address) error {
 func (txn *Txn) incrNonceNonState(addr types.Address) error {
 	nonce, ok := txn.recorder.GetNonce(addr)
 
-	if !ok {
-		// TODO
+	if !ok && txn.bar != nil {
+		nonce, ok = txn.bar.NonceBefore(addr, txn.recorder.txIndex)
 	}
 
 	if !ok {
