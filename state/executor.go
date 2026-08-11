@@ -886,11 +886,9 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		return nil, err
 	}
 
-	if !t.config.EIP7928 {
-		// the amount of gas required is available in the block
-		if err = t.subGasPool(msg.Gas); err != nil {
-			return nil, NewGasLimitReachedTransitionApplicationError(err)
-		}
+	// the amount of gas required is available in the block
+	if err = t.subGasPool(msg.Gas); err != nil {
+		return nil, NewGasLimitReachedTransitionApplicationError(err)
 	}
 
 	if t.ctx.Tracer != nil {
