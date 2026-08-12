@@ -867,7 +867,11 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 && b.parallelVerificationWorkers > 1 {
 		b.logger.Info("parallel verificaion")
+
 		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
+		if err != nil {
+			return nil, err
+		}
 
 		packedBar := bar.Pack()
 

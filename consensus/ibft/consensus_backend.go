@@ -487,6 +487,9 @@ func (i *backendIBFT) writeTransactions(
 
 	if i.config.Params.Forks.At(blockNumber).EIP7928 {
 		bar = state.NewBlockAccessRecord()
+		defer func() {
+			transition.SetBlockAccessRecord(bar.Pack())
+		}()
 	}
 
 write:
@@ -528,10 +531,6 @@ write:
 
 	//	wait for the timer to expire
 	<-writeCtx.Done()
-
-	if i.config.Params.Forks.At(blockNumber).EIP7928 {
-		transition.SetBlockAccessRecord(bar.Pack())
-	}
 
 	return
 }
