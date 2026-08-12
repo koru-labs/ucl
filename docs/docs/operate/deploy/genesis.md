@@ -1,5 +1,17 @@
 
-In this section, we'll walk through how to configure the initial childchain state by generating a new genesis file.
+In this section, we'll walk through how to configure the initial chain state by generating a new genesis file.
+
+:::caution Supported operator path
+
+The supported operator path is **IBFT with ECDSA validators**.
+
+- Default `--consensus` is `ibft`
+- Validators are ECDSA addresses only
+- `--ibft-validator-type`, BLS validator keys, and `--consensus polybft` are no longer supported
+
+PolyBFT / BLS examples later in this page are historical and should not be used with the current CLI.
+
+:::
 
 ## 1. Overview
 
@@ -16,32 +28,21 @@ To create the chain configuration, we use the `polygon-edge genesis` command, wh
 |--------------------------------------------|-----------------------------------------------------------|--------------------------------------------------|
 | `--block-gas-limit uint`                   | The maximum amount of gas used by all transactions in a block (default 5242880) | `--block-gas-limit 10000000` |
 | `--block-time duration`                   | The predefined period which determines block creation frequency (default 2s) | `--block-time 5s` |
-| `--block-time-drift uint`                 | Configuration for block time drift value (in seconds) (default 10) | |
-| `--block-tracker-poll-interval duration`  | Interval (number of seconds) at which block tracker polls for latest block at rootchain (default 1s) | |
 | `--bootnode stringArray`                  | MultiAddr URL for p2p discovery bootstrap. This flag can be used multiple times | `--bootnode /ip4/127.0.0.1/tcp/30301/p2p/QmSomeNodeId` |
 | `--burn-contract string` | The burn contract block and address (format: `<block>:<address>[:<burn> destination]`) | `--burn-contract 100:0x742d35Cc6634C0532925a3b844Bc454e4438f44e` |
 | `--chain-id uint`                         | The ID of the chain (default 100) | `--chain-id 1234` |
-| `--consensus string`                      | The consensus protocol to be used (default "polybft") | `--consensus ibft` |
+| `--consensus string`                      | The consensus protocol to be used (default "ibft") | `--consensus ibft` |
 | `--dir string`                            | The directory for the Polygon Edge genesis data (default "./genesis.json") | `--dir ./genesis_data` |
-| `--epoch-reward uint`                     | Reward size for block sealing (default 1) | `--epoch-reward 1000000000000000000` |
 | `--epoch-size uint`                       | The epoch size for the chain (default 100000) | `--epoch-size 100` |
-| `--ibft-validator stringArray`            | Addresses to be used as IBFT validators, can be used multiple times. Needs to be present if ibft-validators-prefix-path is omitted | `--ibft-validator 0x742d35Cc6634C0532925a3b844Bc454e4438f44e` |
-| `--ibft-validator-type string`            | The type of validators in IBFT (default "bls") | `--ibft-validator-type ecdsa` |
-| `--ibft-validators-prefix-path string`    | Prefix path for validator folder directory. Needs to be present if ibft-validator is omitted | `--ibft-validator-prefix-path ./validators` |
 | `--max-validator-count uint`              | The maximum number of validators in the validator set for PoS (default 9007199254740990) | `--max-validator-count 100` |
 | `--min-validator-count uint`              | The minimum number of validators in the validator set for PoS (default 1) | `--min-validator-count 4` |
 | `--name string`                           | The name for the chain (default "polygon-edge") | `--name "My Polygon Chain"` |
-| `--native-token-config string`            | Native token configuration, provided in the following format: <name:symbol:decimals count:mintable flag:[mintable token owner address]> | `--native-token-config "MyToken:MTK:18:true/false"` |
-| `--pos`                                   | The flag indicating that the client should use Proof of Stake IBFT. Defaults to Proof of Authority if flag is not provided or false | `--is-pos true` |
+| `--pos`                                   | The flag indicating that the client should use Proof of Stake IBFT. Defaults to Proof of Authority if flag is not provided or false | `--pos` |
 | `--premine stringArray` | The premined accounts and balances (format: `<address>[:<balance>]`). Default premined balance: 1000000000000000000000000 | `--premine 0x742d35Cc6634C0532925a3b844Bc454e4438f44e:1000000000000000000` |
-| `--proxy-contracts-admin string`          | Admin for proxy contracts | |
-| `--reward-token-code string`              | Hex encoded reward token byte code | `--reward-token-code 0x606060...` |
-| `--reward-wallet string`                  | Configuration of reward wallet in format <address:amount> | `--reward-wallet 0x742d35Cc6634C0532925a3b844Bc454e4438f44e:1000000000000000000` |
-| `--sprint-size uint`                      | The number of block included into a sprint (default 5) | `--sprint-size 10` |
-| `--trieroot string`                       | Trie root from the corresponding triedb | `--trie-root 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef` |
-| `--validators stringArray` | Validators defined by user (format: `<P2P multi address>:<ECDSA address>:<public BLS key>`) | `--validators /ip4/127.0.0.1/tcp/30301/p2p/...` |
-| `--validators-path string`                | Root path containing polybft validators secrets (default "./") | `--validators-path ./validators` |
-| `--validators-prefix string`              | Folder prefix names for polybft validators secrets (default "test-chain-") | `--validators-prefix polybft-` |
+| `--trieroot string`                       | Trie root from the corresponding triedb | `--trieroot 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef` |
+| `--validators stringArray` | Validators defined by user (format: `<ECDSA address>`) | `--validators 0x742d35Cc6634C0532925a3b844Bc454e4438f44e` |
+| `--validators-path string`                | Root path containing validators secrets (default "./") | `--validators-path ./validators` |
+| `--validators-prefix string`              | Folder prefix names for validators secrets (default "test-chain-") | `--validators-prefix test-chain-` |
 
 </details>
 

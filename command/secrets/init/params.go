@@ -14,7 +14,6 @@ const (
 	dataDirFlag            = "data-dir"
 	configFlag             = "config"
 	ecdsaFlag              = "ecdsa"
-	blsFlag                = "bls"
 	networkFlag            = "network"
 	numFlag                = "num"
 	insecureLocalStoreFlag = "insecure"
@@ -35,7 +34,6 @@ type initParams struct {
 	dataDir            string
 	configPath         string
 	generatesECDSA     bool
-	generatesBLS       bool
 	generatesNetwork   bool
 	insecureLocalStore bool
 
@@ -119,16 +117,8 @@ func (ip *initParams) initLocalSecretsManager() error {
 }
 
 func (ip *initParams) initValidatorKey() error {
-	var err error
-
 	if ip.generatesECDSA {
-		if _, err = helper.InitECDSAValidatorKey(ip.secretsManager); err != nil {
-			return err
-		}
-	}
-
-	if ip.generatesBLS {
-		if _, err = helper.InitBLSValidatorKey(ip.secretsManager); err != nil {
+		if _, err := helper.InitECDSAValidatorKey(ip.secretsManager); err != nil {
 			return err
 		}
 	}
@@ -154,10 +144,6 @@ func (ip *initParams) getResult(generated []string) (command.CommandResult, erro
 	)
 
 	if res.Address, err = helper.LoadValidatorAddress(ip.secretsManager); err != nil {
-		return nil, err
-	}
-
-	if res.BLSPubkey, err = helper.LoadBLSPublicKey(ip.secretsManager); err != nil {
 		return nil, err
 	}
 

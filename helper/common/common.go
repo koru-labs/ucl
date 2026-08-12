@@ -30,11 +30,10 @@ var (
 
 	errInvalidDuration = errors.New("invalid duration")
 
-	IBFTImportantNotice = "***** IMPORTANT NOTICE: IBFT consensus protocol is about to be" +
-		" removed from the Edge in the following release. *****\n" +
-		"Please migrate to the PolyBFT protocol and plan your activities accordingly.\n" +
-		"More information on how to execute the migration process can be found here" +
-		"(https://wiki.polygon.technology/docs/edge/operate/ibft-to-polybft/)."
+	IBFTImportantNotice = "***** IMPORTANT NOTICE: IBFT with ECDSA validator keys is the supported" +
+		" operator consensus path. *****\n" +
+		"BLS validator keys and PolyBFT operator workflows are no longer supported.\n" +
+		"Generate keys with `secrets init` (ECDSA + networking only)."
 )
 
 // RetryForever will execute a function until it completes without error or

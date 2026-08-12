@@ -10,7 +10,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/helper"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft"
 	"github.com/0xPolygon/polygon-edge/helper/common"
-	"github.com/0xPolygon/polygon-edge/validators"
 )
 
 func GetCommand() *cobra.Command {
@@ -159,90 +158,27 @@ func setFlags(cmd *cobra.Command) {
 			&params.validators,
 			command.ValidatorFlag,
 			[]string{},
-			"validators defined by user (polybft format: <P2P multi address>:<ECDSA address>:<public BLS key>)",
+			"validators defined by user (format: <ECDSA address>)",
 		)
 
 		// cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorRootFlag)
 		// cmd.MarkFlagsMutuallyExclusive(command.ValidatorFlag, command.ValidatorPrefixFlag)
 	}
 
-	// IBFT Validators
-	{
-		cmd.Flags().StringVar(
-			&params.rawIBFTValidatorType,
-			command.IBFTValidatorTypeFlag,
-			string(validators.ECDSAValidatorType),
-			"the type of validators in IBFT",
-		)
-	}
+	cmd.Flags().DurationVar(
+		&params.blockTime,
+		blockTimeFlag,
+		defaultBlockTime,
+		"the predefined period which determines block creation frequency",
+	)
 
-	// PolyBFT
-	{
-		cmd.Flags().Uint64Var(
-			&params.sprintSize,
-			sprintSizeFlag,
-			defaultSprintSize,
-			"the number of block included into a sprint",
-		)
-
-		cmd.Flags().DurationVar(
-			&params.blockTime,
-			blockTimeFlag,
-			defaultBlockTime,
-			"the predefined period which determines block creation frequency",
-		)
-
-		cmd.Flags().Uint64Var(
-			&params.epochReward,
-			epochRewardFlag,
-			defaultEpochReward,
-			"reward size for block sealing",
-		)
-
-		// regenesis flag that allows to start from non-empty database
-		cmd.Flags().StringVar(
-			&params.initialStateRoot,
-			trieRootFlag,
-			"",
-			"trie root from the corresponding triedb",
-		)
-
-		cmd.Flags().StringVar(
-			&params.nativeTokenConfigRaw,
-			nativeTokenConfigFlag,
-			"",
-			"native token configuration, provided in the following format: "+
-				"<name:symbol:decimals count:mintable flag:[mintable token owner address]>",
-		)
-
-		cmd.Flags().StringVar(
-			&params.rewardTokenCode,
-			rewardTokenCodeFlag,
-			"",
-			"hex encoded reward token byte code",
-		)
-
-		cmd.Flags().StringVar(
-			&params.rewardWallet,
-			rewardWalletFlag,
-			"",
-			"configuration of reward wallet in format <address:amount>",
-		)
-
-		cmd.Flags().Uint64Var(
-			&params.blockTimeDrift,
-			blockTimeDriftFlag,
-			defaultBlockTimeDrift,
-			"configuration for block time drift value (in seconds)",
-		)
-
-		cmd.Flags().DurationVar(
-			&params.blockTrackerPollInterval,
-			blockTrackerPollIntervalFlag,
-			defaultBlockTrackerPollInterval,
-			"interval (number of seconds) at which block tracker polls for latest block at rootchain",
-		)
-	}
+	// regenesis flag that allows to start from non-empty database
+	cmd.Flags().StringVar(
+		&params.initialStateRoot,
+		trieRootFlag,
+		"",
+		"trie root from the corresponding triedb",
+	)
 
 	// Access Control Lists
 	{
@@ -362,12 +298,8 @@ func runCommand(cmd *cobra.Command, _ []string) {
 
 	var err error
 
-	if params.isPolyBFTConsensus() {
-		err = params.generatePolyBftChainConfig(outputter)
-	} else {
-		_, _ = outputter.Write([]byte(fmt.Sprintf("%s\n", common.IBFTImportantNotice)))
-		err = params.generateGenesis()
-	}
+	_, _ = outputter.Write([]byte(fmt.Sprintf("%s\n", common.IBFTImportantNotice)))
+	err = params.generateGenesis()
 
 	if err != nil {
 		outputter.SetError(err)

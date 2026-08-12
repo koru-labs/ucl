@@ -95,9 +95,6 @@ func TestNewFilter_Logs(t *testing.T) {
 		runTest(t, validators.ECDSAValidatorType)
 	})
 
-	t.Run("BLS", func(t *testing.T) {
-		runTest(t, validators.BLSValidatorType)
-	})
 }
 
 func TestNewFilter_Block(t *testing.T) {
@@ -154,9 +151,6 @@ func TestNewFilter_Block(t *testing.T) {
 		runTest(t, validators.ECDSAValidatorType)
 	})
 
-	t.Run("BLS", func(t *testing.T) {
-		runTest(t, validators.BLSValidatorType)
-	})
 }
 
 func TestFilterValue(t *testing.T) {
@@ -278,7 +272,4 @@ func TestFilterValue(t *testing.T) {
 		runTest(t, validators.ECDSAValidatorType)
 	})
 
-	t.Run("BLS", func(t *testing.T) {
-		runTest(t, validators.BLSValidatorType)
-	})
 }

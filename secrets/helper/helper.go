@@ -100,30 +100,8 @@ func InitECDSAValidatorKey(secretsManager secrets.SecretsManager) (types.Address
 	return address, nil
 }
 
-func InitBLSValidatorKey(secretsManager secrets.SecretsManager) ([]byte, error) {
-	if secretsManager.HasSecret(secrets.ValidatorBLSKey) {
-		return nil, fmt.Errorf(`secrets "%s" has been already initialized`, secrets.ValidatorBLSKey)
-	}
-
-	blsSecretKey, blsSecretKeyEncoded, err := crypto.GenerateAndEncodeBLSSecretKey()
-	if err != nil {
-		return nil, err
-	}
-
-	// Write the validator private key to the secrets manager storage
-	if setErr := secretsManager.SetSecret(
-		secrets.ValidatorBLSKey,
-		blsSecretKeyEncoded,
-	); setErr != nil {
-		return nil, setErr
-	}
-
-	pubkeyBytes, err := crypto.BLSSecretKeyToPubkeyBytes(blsSecretKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return pubkeyBytes, nil
+func InitBLSValidatorKey(_ secrets.SecretsManager) ([]byte, error) {
+	return nil, fmt.Errorf("BLS validator keys are no longer supported; use ECDSA")
 }
 
 func InitNetworkingPrivateKey(secretsManager secrets.SecretsManager) (libp2pCrypto.PrivKey, error) {
