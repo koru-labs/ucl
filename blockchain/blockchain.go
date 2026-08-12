@@ -865,31 +865,62 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 && b.parallelVerificationWorkers > 1 {
-		b.logger.Info("parallel verificaion")
+	if b.config.Params.Forks.At(block.Number()).EIP7928 {
+		if b.parallelVerificationWorkers > 1 {
+			b.logger.Info("parallel verificaion")
 
-		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
+			bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
+			if err != nil {
+				return nil, err
+			}
+
+			packedBar := bar.Pack()
+
+			if packedBar.Hash() != block.Header.BlockAccessRecordHash {
+				return nil, fmt.Errorf("block access record hash mismatch")
+			}
+
+			root, err := b.executor.ApplyBlockAccessRecord(block.Header.Number, parent.StateRoot, packedBar)
+			if err != nil {
+				return nil, err
+			}
+
+			// Append the receipts to the receipts cache
+			b.receiptsCache.Add(header.Hash, receipts)
+
+			b.blockAccessRecordCache.Add(header.Number, packedBar)
+
+			return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
+		}
+
+		txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
 		if err != nil {
 			return nil, err
 		}
 
-		packedBar := bar.Pack()
-
-		if packedBar.Hash() != block.Header.BlockAccessRecordHash {
+		computedBAR := txn.GetBlockAccessRecord()
+		if computedBAR.Hash() != block.Header.BlockAccessRecordHash && block.BlockAccessRecord.Hash() != computedBAR.Hash() {
 			return nil, fmt.Errorf("block access record hash mismatch")
 		}
 
-		root, err := b.executor.ApplyBlockAccessRecord(block.Header.Number, parent.StateRoot, packedBar)
+		if err := b.consensus.PreCommitState(block, txn); err != nil {
+			return nil, err
+		}
+
+		// Commit state trie da dobiješ pravi root
+		_, root, err := txn.Commit()
 		if err != nil {
 			return nil, err
 		}
 
-		// Append the receipts to the receipts cache
-		b.receiptsCache.Add(header.Hash, receipts)
+		b.receiptsCache.Add(header.Hash, txn.Receipts())
+		b.blockAccessRecordCache.Add(header.Number, computedBAR)
 
-		b.blockAccessRecordCache.Add(header.Number, packedBar)
-
-		return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
+		return &BlockResult{
+			Root:     root,
+			Receipts: txn.Receipts(),
+			TotalGas: txn.TotalGas(),
+		}, nil
 	}
 
 	txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)

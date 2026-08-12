@@ -165,9 +165,20 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	for _, t := range block.Transactions {
+	eip7928 := e.config.Forks.At(block.Number()).EIP7928
+	var bar BlockAccessRecord
+	if eip7928 {
+		bar = NewBlockAccessRecord()
+	}
+
+	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
+		}
+
+		if eip7928 {
+			recorder := NewTxAccessRecorder(uint64(i))
+			txn.SetTxAccessRecorder(recorder)
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -179,6 +190,14 @@ func (e *Executor) ProcessBlock(
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
+
+		if eip7928 {
+			bar.Insert(txn.GetTxAccessRecorder())
+		}
+	}
+
+	if eip7928 {
+		txn.SetBlockAccessRecord(bar.Pack())
 	}
 
 	return txn, nil
@@ -1404,6 +1423,11 @@ func (t *Transition) GetNonce(addr types.Address) uint64 {
 	return t.state.GetNonce(addr)
 }
 
+// Selfdestruct handles SELFDESTRUCT opcode with EIP-6780 semantics.
+// Under EIP-6780, account is only deleted if it was created within the same tx.
+// Under EIP-7928 (BAL), account deletion is represented in the BAL by the
+// Suicide function recording empty balance/nonce/code, which triggers EIP-158
+// empty-account clearing during ApplyBlockAccessRecord on the verifier side.
 func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address) {
 	// EIP-6780: outside of the creating transaction SELFDESTRUCT only moves the
 	// balance to the beneficiary and does not delete code, storage or the account.

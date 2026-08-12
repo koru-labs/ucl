@@ -197,6 +197,7 @@ func DefaultConfig() *Config {
 		EnableAllDebugEndpoints:     false,
 		EnableBlockAccessList:       false,
 		WithBaseFeeFixed:            false,
+		WithTrieCaching:             true,
 		ParallelVerificationWorkers: 1,
 	}
 }
