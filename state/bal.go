@@ -110,9 +110,8 @@ func (r BlockAccessRecord) Insert(recorder *TxAccessRecorder) {
 			acc.RecordCodeChange(txIndex, record.Code)
 		}
 
-		// TODO: handle the situation when the storage is nil (EIP-158)
-		// Check (txn *Txn) createAccountState...
-
+		// nil storage safely iterates 0 times; EIP-158 emptiness clearing
+		// is applied at Commit time on the receiving side, not encoded here.
 		for slot, value := range record.Storage {
 			acc.RecordStorageChange(txIndex, slot, value)
 		}
@@ -152,9 +151,8 @@ func pack(r *AccountAccessRecord, addr types.Address) types.AccountAccessRecord 
 		return bytes.Compare(x[:], y[:])
 	})
 
-	// TODO: handle the situation when the map or slice is nil (EIP-158).
-	// Check (txn *Txn) createAccountState...
-
+	// nil storage safely iterates 0 times; EIP-158 emptiness clearing
+	// is applied at Commit time on the receiving side, not encoded here.
 	for _, slot := range sortedSlots {
 		perSlotChanges := r.StorageChanges[slot]
 
@@ -457,4 +455,11 @@ func (r *TxAccessRecorder) GetCode(addr types.Address) ([]byte, bool) {
 	}
 
 	return acc.Code, acc.Code != nil
+}
+
+func (r *TxAccessRecorder) Reset(txIndex uint64) {
+	r.txIndex = txIndex
+	clear(r.current)              // Go 1.21+ builtin: empties map, keeps capacity
+	r.journal = r.journal[:0]     // len=0, cap retained
+	r.snapshots = r.snapshots[:0] // len=0, cap retained
 }

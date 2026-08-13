@@ -899,7 +899,7 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		}
 
 		computedBAR := txn.GetBlockAccessRecord()
-		if computedBAR.Hash() != block.Header.BlockAccessRecordHash && block.BlockAccessRecord.Hash() != computedBAR.Hash() {
+		if computedBAR.Hash() != block.Header.BlockAccessRecordHash {
 			return nil, fmt.Errorf("block access record hash mismatch")
 		}
 

@@ -708,8 +708,11 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr types.Address, code []byte) {
+	// In parallel-verifier worker mode (recorder+bar both set), we skip
+	// the state-trie write entirely - the worker's trie is discarded,
+	// and ApplyBlockAccessRecord will re-apply this code via SetCode on
+	// a fresh Txn (both nil), setting DirtyCode there.
 	if txn.recorder == nil || txn.bar == nil {
-		// TODO: dirty code handle
 		txn.upsertAccount(addr, true, func(object *StateObject) {
 			object.Account.CodeHash = crypto.Keccak256(code)
 			object.DirtyCode = true

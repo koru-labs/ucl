@@ -167,8 +167,12 @@ func (e *Executor) ProcessBlock(
 
 	eip7928 := e.config.Forks.At(block.Number()).EIP7928
 	var bar BlockAccessRecord
+	var recorder *TxAccessRecorder
+
 	if eip7928 {
 		bar = NewBlockAccessRecord()
+		recorder = NewTxAccessRecorder(0)
+		txn.SetTxAccessRecorder(recorder)
 	}
 
 	for i, t := range block.Transactions {
@@ -177,8 +181,7 @@ func (e *Executor) ProcessBlock(
 		}
 
 		if eip7928 {
-			recorder := NewTxAccessRecorder(uint64(i))
-			txn.SetTxAccessRecorder(recorder)
+			recorder.Reset(uint64(i))
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -192,7 +195,7 @@ func (e *Executor) ProcessBlock(
 		}
 
 		if eip7928 {
-			bar.Insert(txn.GetTxAccessRecorder())
+			bar.Insert(recorder)
 		}
 	}
 

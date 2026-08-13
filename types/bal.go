@@ -131,22 +131,25 @@ func (r BlockAccessRecord) SlotBefore(addr Address, slot Hash, txIndex uint64) (
 	if a == nil {
 		return Hash{}, false
 	}
-	var sc *StorageChange
-	for i := range a.StorageChanges {
-		if a.StorageChanges[i].Slot == slot {
-			sc = &a.StorageChanges[i]
-			break
-		}
-	}
-	if sc == nil {
+
+	n := len(a.StorageChanges)
+	idx := sort.Search(n, func(i int) bool {
+		return bytes.Compare(a.StorageChanges[i].Slot[:], slot[:]) >= 0
+	})
+
+	if idx == n || a.StorageChanges[idx].Slot != slot {
 		return Hash{}, false
 	}
+
+	sc := &a.StorageChanges[idx]
+
 	i := sort.Search(len(sc.SlotChanges), func(i int) bool {
 		return sc.SlotChanges[i].TxIndex >= txIndex
 	})
 	if i == 0 {
 		return Hash{}, false
 	}
+
 	return sc.SlotChanges[i-1].Value, true
 }
 
