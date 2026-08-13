@@ -369,7 +369,7 @@ func (s *syncer) bulkSyncWithPeer(peerID peer.ID, peerLatestBlock uint64,
 			}
 
 			// safe check
-			if syncBlock.Block.Number() == 0 {
+			if syncBlock.Block.Number() == 0 || syncBlock.Block.Number() <= s.blockchain.Header().Number {
 				continue
 			}
 
