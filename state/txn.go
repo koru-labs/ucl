@@ -823,12 +823,6 @@ func (txn *Txn) Suicide(addr types.Address) bool {
 		}
 	})
 
-	if txn.recorder != nil && suicided {
-		txn.recorder.RecordBalanceChange(addr, new(big.Int))
-		txn.recorder.RecordNonceChange(addr, 0)
-		txn.recorder.RecordCodeChange(addr, []byte{})
-	}
-
 	return suicided
 }
 

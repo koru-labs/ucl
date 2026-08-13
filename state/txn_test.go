@@ -226,3 +226,129 @@ func TestIncrNonce(t *testing.T) {
 	require.NoError(t, txn.IncrNonce(address1))
 	require.Equal(t, nonMaxUint64NonceValue+1, txn.GetNonce(address1))
 }
+
+func newBALWorkerTxn(t *testing.T, preState map[types.Address]*PreState) *Txn {
+	t.Helper()
+
+	txn := newTestTxn(preState)
+	txn.recorder = NewTxAccessRecorder(0)
+	txn.bar = types.BlockAccessRecord{} // Empty BAR - recorder is the only source
+
+	return txn
+}
+
+func TestSuicide_RecordsEmptyStateForBAL(t *testing.T) {
+	t.Parallel()
+
+	preState := map[types.Address]*PreState{
+		contractAddr: {
+			Nonce:   1,
+			Balance: 100,
+		},
+	}
+
+	txn := newBALWorkerTxn(t, preState)
+
+	suicided := txn.Suicide(contractAddr)
+	require.True(t, suicided, "the first Suicide call must return true")
+
+	// The recorder must have received "empty account" markers
+	acc, ok := txn.recorder.current[contractAddr]
+	require.True(t, ok, "recorder must have an entry for the suicided account")
+
+	require.NotNil(t, acc.Balance, "recorder Balance must be set")
+	require.Zero(t, acc.Balance.Sign(),
+		"recorder Balance must be 0, got: %s", acc.Balance)
+
+	require.NotNil(t, acc.Nonce, "recorder Nonce must be set")
+	require.Zero(t, *acc.Nonce,
+		"recorder Nonce must be 0, got: %d", *acc.Nonce)
+
+	require.NotNil(t, acc.Code, "recorder Code must be set (non-nil)")
+	require.Empty(t, acc.Code,
+		"recorder Code must be an empty slice, got: %x", acc.Code)
+}
+
+func TestSuicide_RepeatedInSameTxRecordsOnce(t *testing.T) {
+	t.Parallel()
+
+	preState := map[types.Address]*PreState{
+		contractAddr: {
+			Nonce:   1,
+			Balance: 100,
+		},
+	}
+
+	txn := newBALWorkerTxn(t, preState)
+
+	require.True(t, txn.Suicide(contractAddr))
+	require.False(t, txn.Suicide(contractAddr),
+		"the second Suicide call must return false")
+
+	// The state in the recorder remains unchanged (empty account)
+	acc := txn.recorder.current[contractAddr]
+	require.Zero(t, acc.Balance.Sign())
+	require.NotNil(t, acc.Nonce)
+	require.Zero(t, *acc.Nonce)
+	require.Empty(t, acc.Code)
+}
+
+func TestSuicide_LaterBalanceWriteOverwrites(t *testing.T) {
+	// If a callback after Suicide adds a balance to the account
+	// (e.g. resurrection in the same tx through AddBalance), the latest balance
+	// must be recorded. The goal is for the verifier to see the final state,
+	// not the intermediate state.
+	t.Parallel()
+
+	preState := map[types.Address]*PreState{
+		contractAddr: {Nonce: 1, Balance: 100},
+	}
+
+	txn := newBALWorkerTxn(t, preState)
+
+	require.True(t, txn.Suicide(contractAddr))
+
+	txn.AddBalance(contractAddr, big.NewInt(50))
+
+	acc := txn.recorder.current[contractAddr]
+	require.Equal(t, uint64(50), acc.Balance.Uint64(),
+		"final balance in recorder must be 50, got: %s", acc.Balance)
+
+	// The account is still marked as suicided in the trie — resurrection semantics
+	// are delicate, but for now the important thing is that the recorder reflects
+	// the final state.
+	require.True(t, txn.HasSuicided(contractAddr))
+}
+
+func TestSuicide_NoRecorder_DoesNothingToRecorder(t *testing.T) {
+	// Proposer mode (EIP-7928 off): txn.recorder == nil. Suicide should
+	// work normally without writing anything to the recorder.
+	t.Parallel()
+
+	preState := map[types.Address]*PreState{
+		contractAddr: {Nonce: 1, Balance: 100},
+	}
+
+	txn := newTestTxn(preState) // without a recorder
+
+	require.True(t, txn.Suicide(contractAddr))
+	require.True(t, txn.HasSuicided(contractAddr))
+	require.Zero(t, txn.GetBalance(contractAddr).Uint64())
+}
+
+func TestSuicide_NonExistentAccount(t *testing.T) {
+	t.Parallel()
+
+	preState := map[types.Address]*PreState{} // empty pre-state
+
+	txn := newBALWorkerTxn(t, preState)
+
+	suicided := txn.Suicide(contractAddr)
+	require.False(t, suicided,
+		"Suicide on a non-existent account must return false")
+
+	// The recorder must not contain an entry
+	_, ok := txn.recorder.current[contractAddr]
+	require.False(t, ok,
+		"recorder must not record Suicide for a non-existent account")
+}

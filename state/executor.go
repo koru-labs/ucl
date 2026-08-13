@@ -1456,6 +1456,12 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 
 	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
+
+	if t.config.EIP7928 && t.state.recorder != nil {
+		t.state.recorder.RecordBalanceChange(addr, new(big.Int))
+		t.state.recorder.RecordNonceChange(addr, 0)
+		t.state.recorder.RecordCodeChange(addr, []byte{})
+	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {
