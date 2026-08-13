@@ -1,0 +1,29 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "BALCaller",
+  "sourceName": "contracts/BALCaller.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "target",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "v",
+          "type": "uint256"
+        }
+      ],
+      "name": "callSet",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x603a600c600039603a6000f37f5524107700000000000000000000000000000000000000000000000000000000600052602435600452600060006024600060006004355af100",
+  "deployedBytecode": "0x7f5524107700000000000000000000000000000000000000000000000000000000600052602435600452600060006024600060006004355af100",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

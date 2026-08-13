@@ -5,6 +5,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 func (w *Writer) PutHeader(h *types.Header) {
@@ -38,6 +39,11 @@ func (w *Writer) PutReceipts(bn uint64, bh types.Hash, receipts []*types.Receipt
 	w.putRlp(RECEIPTS, getKey(bn, bh), &rs)
 }
 
+// PutBlockAccessList persists the EIP-7928 block access list for a block
+func (w *Writer) PutBlockAccessList(bn uint64, accessList bal.BlockAccessList) {
+	w.putRlp(BLOCK_ACCESS_LIST, common.EncodeUint64ToBytes(bn), accessList)
+}
+
 func (w *Writer) PutCanonicalHeader(h *types.Header, diff *big.Int) {
 	w.PutHeader(h)
 	w.PutHeadHash(h.Hash)
@@ -58,6 +64,10 @@ func (w *Writer) PutTotalDifficulty(bn uint64, bh types.Hash, diff *big.Int) {
 func (w *Writer) PutForks(forks []types.Hash) {
 	fs := Forks(forks)
 	w.putRlp(FORK, FORK_KEY, &fs)
+}
+
+func (w *Writer) PutLastSyncedReceipts(bn uint64) {
+	w.putIntoTable(LAST_SYNCED_RECEIPTS, LAST_SYNCED_RECEIPTS_KEY, common.EncodeUint64ToBytes(bn))
 }
 
 func (w *Writer) putRlp(t uint8, k []byte, raw types.RLPMarshaler) {

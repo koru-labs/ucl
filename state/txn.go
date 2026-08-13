@@ -45,6 +45,7 @@ var (
 
 // Txn is a reference of the state
 type Txn struct {
+	// underlying storage ("database"), it is accessed when the state object can't be found in the txn
 	snapshot  readSnapshot
 	snapshots []*iradix.Tree
 	txn       *iradix.Txn
@@ -54,6 +55,10 @@ type Txn struct {
 	sucidedAddrs map[types.Address]struct{}
 	// transientKeys collects transient storage keys since the last CleanRadixObjects
 	transientKeys map[string]struct{}
+
+	// createdContracts maps a contract created in the current transaction (EIP-6780) to the
+	// snapshot depth at which it was created (the number of live snapshots at that moment).
+	createdContracts map[types.Address]int
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -70,12 +75,13 @@ func newTxn(snapshot readSnapshot) *Txn {
 	codeCache, _ := lru.New(20)
 
 	return &Txn{
-		snapshot:      snapshot,
-		snapshots:     []*iradix.Tree{},
-		txn:           i.Txn(),
-		codeCache:     codeCache,
-		sucidedAddrs:  map[types.Address]struct{}{},
-		transientKeys: map[string]struct{}{},
+		snapshot:         snapshot,
+		snapshots:        []*iradix.Tree{},
+		txn:              i.Txn(),
+		codeCache:        codeCache,
+		sucidedAddrs:     map[types.Address]struct{}{},
+		transientKeys:    map[string]struct{}{},
+		createdContracts: map[types.Address]int{},
 	}
 }
 
@@ -268,6 +274,18 @@ func (txn *Txn) RevertToSnapshot(id int) error {
 
 	tree := txn.snapshots[id]
 	txn.txn = tree.Txn()
+
+	// EIP-6780: drop every contract marked deeper than this snapshot, so a reverted CREATE
+	// frame also un-marks the contract it created. A marker created at depth d belongs to the
+	// frame opened after snapshot d-1, hence the strict `>` (a marker set before this snapshot
+	// was taken, i.e. at depth <= id, must survive).
+	if len(txn.createdContracts) > 0 {
+		for addr, depth := range txn.createdContracts {
+			if depth > id {
+				delete(txn.createdContracts, addr)
+			}
+		}
+	}
 
 	return nil
 }
@@ -908,4 +926,23 @@ func (txn *Txn) CleanRadixObjects() error {
 	clear(txn.transientKeys)
 
 	return nil
+}
+
+// MarkContractCreated marks addr as created within the current transaction (EIP-6780).
+func (txn *Txn) MarkContractCreated(addr types.Address) {
+	if _, exists := txn.createdContracts[addr]; !exists {
+		txn.createdContracts[addr] = len(txn.snapshots)
+	}
+}
+
+// IsContractCreatedInTx reports whether addr was created in the current transaction.
+func (txn *Txn) IsContractCreatedInTx(addr types.Address) bool {
+	_, exists := txn.createdContracts[addr]
+
+	return exists
+}
+
+// ClearCreatedContracts removes all creation markers. Must be called at the start of every tx.
+func (txn *Txn) ClearCreatedContracts() {
+	clear(txn.createdContracts)
 }

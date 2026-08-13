@@ -22,9 +22,7 @@ const (
 
 	MaxBlockRlpSize = MaxTxsRlpSize + MaxHdrRlpSize
 
-	SignaturesBufferZone = 1 << 19 // 0.5 MB; additional buffer for signatures
-
-	MaxGrpcMsgSize = MaxBlockRlpSize + SignaturesBufferZone
+	MaxGrpcMsgSize = 20 << 20 // 20 MB
 )
 
 var (

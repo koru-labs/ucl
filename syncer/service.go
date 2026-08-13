@@ -3,11 +3,13 @@ package syncer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/0xPolygon/polygon-edge/network/grpc"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-metrics"
 )
@@ -68,7 +70,17 @@ func (s *syncPeerService) GetBlocks(
 			return ErrBlockNotFound
 		}
 
-		resp := toProtoBlock(block)
+		var (
+			blockAccessList bal.BlockAccessList
+		)
+
+		if req.IsValidator {
+			if b, err := s.blockchain.GetBlockAccessList(block.Number()); err == nil {
+				blockAccessList = b
+			}
+		}
+
+		resp := toProtoBlock(block, blockAccessList)
 		metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(resp.Block)))
 
 		// if client closes stream, context.Canceled is given
@@ -125,6 +137,42 @@ func (s *syncPeerService) GetTxPool(req *empty.Empty, stream proto.SyncPeer_GetT
 	return nil
 }
 
+func (s *syncPeerService) GetReceipts(
+	ctx context.Context,
+	req *proto.GetReceiptsRequest,
+) (*proto.Receipts, error) {
+	block, ok := s.blockchain.GetBlockByNumber(req.BlockNumber, true)
+	if !ok {
+		return nil, ErrBlockNotFound
+	}
+
+	receipts, err := s.blockchain.GetReceiptsByHash(block.Number(), block.Hash())
+	if err != nil {
+		if errors.Is(err, fmt.Errorf("not found")) {
+			return &proto.Receipts{
+				BlockNumber: block.Number(),
+				Receipts:    nil,
+				Received:    false,
+			}, nil
+		}
+
+		return nil, err
+	}
+
+	var receiptsBytes []byte
+	if len(receipts) > 0 {
+		receiptsBytes = types.Receipts(receipts).MarshalRLPTo(nil)
+	}
+
+	metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(receiptsBytes)))
+
+	return &proto.Receipts{
+		BlockNumber: block.Number(),
+		Receipts:    receiptsBytes,
+		Received:    true,
+	}, nil
+}
+
 func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServer) error {
 	txPool := &proto.Transactions{
 		Txs: txs.MarshalRLPTo(nil),
@@ -136,8 +184,14 @@ func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServ
 }
 
 // toProtoBlock converts type.Block -> proto.Block
-func toProtoBlock(block *types.Block) *proto.Block {
-	return &proto.Block{
+func toProtoBlock(block *types.Block, blockAccessList bal.BlockAccessList) *proto.Block {
+	resp := &proto.Block{
 		Block: block.MarshalRLP(),
 	}
+
+	if len(blockAccessList) > 0 {
+		resp.BlockAccessList = blockAccessList.MarshalRLP()
+	}
+
+	return resp
 }

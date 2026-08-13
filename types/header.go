@@ -29,6 +29,8 @@ type Header struct {
 
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee uint64 `json:"baseFeePerGas"`
+
+	BlockAccessListHash Hash
 }
 
 func (h *Header) Equal(hh *Header) bool {

@@ -20,6 +20,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/precompiled"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 const (
@@ -163,7 +164,9 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	for _, t := range block.Transactions {
+	blockBAL := bal.NewBlockAccessListRecord()
+
+	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
 		}
@@ -174,10 +177,16 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
+		txn.BalIndex = uint(i + 1)
+
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
+
+		blockBAL.Merge(txn.balRecorder.GetBlockAccessListRecord())
 	}
+
+	txn.blockBAL = blockBAL.ToEncodingObj()
 
 	return txn, nil
 }
@@ -236,6 +245,8 @@ func (e *Executor) BeginTxn(
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 		PostHook:    e.PostHook,
+
+		balRecorder: runtime.NoopBALRecorder{},
 	}
 
 	// enable contract deployment allow list (if any)
@@ -268,6 +279,56 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
+func (e *Executor) ApplyBlockAccessList(
+	blockNumber uint64,
+	parentRoot types.Hash,
+	accessList bal.BlockAccessList,
+) (types.Hash, error) {
+	snap, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	txn := newTxn(snap)
+
+	for _, account := range accessList {
+		for _, slotChanges := range account.StorageChanges {
+			if len(slotChanges.SlotChanges) == 0 {
+				continue
+			}
+
+			final := slotChanges.SlotChanges[len(slotChanges.SlotChanges)-1]
+			txn.SetState(account.Address, slotChanges.Slot, final.PostValue)
+		}
+
+		if n := len(account.BalanceChanges); n > 0 {
+			txn.SetBalance(account.Address, account.BalanceChanges[n-1].PostBalance)
+		}
+
+		if n := len(account.NonceChanges); n > 0 {
+			txn.SetNonce(account.Address, account.NonceChanges[n-1].PostNonce)
+		}
+
+		if n := len(account.CodeChanges); n > 0 {
+			txn.SetCode(account.Address, account.CodeChanges[n-1].NewCode)
+		}
+	}
+
+	objs, err := txn.Commit(e.config.Forks.At(blockNumber).EIP155)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	_, root, err := snap.Commit(objs)
+	if err != nil {
+		return types.Hash{}, err
+	}
+
+	bts := types.BytesToHash(root)
+
+	return bts, nil
+}
+
 type Transition struct {
 	logger hclog.Logger
 
@@ -298,6 +359,17 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
+
+	// balRecorder is used to record the block access list for the current transaction
+	// one per transaction
+	balRecorder runtime.BlockAccessListRecorder
+
+	// marshalable block access list for the block,
+	// which is used to generate the final block access list after the block execution
+	// one per block
+	blockBAL bal.BlockAccessList
+
+	BalIndex uint
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -307,6 +379,7 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		snap:        snap,
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
+		balRecorder: runtime.NoopBALRecorder{},
 	}
 }
 
@@ -476,6 +549,10 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 		return nil, fmt.Errorf("%w: address %s, codehash: %v", ErrSenderNoEOA, sender.String(),
 			t.state.GetCodeHash(sender).String())
+	}
+
+	if t.config.EIP6780 {
+		t.state.ClearCreatedContracts()
 	}
 
 	t.state.snapshots = []*iradix.Tree{}
@@ -648,6 +725,12 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
 	start := time.Now().UTC()
 
+	t.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
+
+	if t.config.EIP7928 {
+		t.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), uint32(t.BalIndex)))
+	}
+
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
 		// "invocations" avoids colliding with the Prometheus summary's *_count series.
@@ -709,6 +792,8 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 			return nil, err
 		}
 
+		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
+
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
 
@@ -744,15 +829,23 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
+	if coinbaseFee.Sign() > 0 {
+		t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
+	}
+
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
+
+		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
 	}
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
+
+	t.balRecorder.BalanceChange(msg.From, t.state.GetBalance(msg.From))
 
 	return result, nil
 }
@@ -868,13 +961,35 @@ func (t *Transition) applyCall(
 	snapshot := t.state.Snapshot()
 	t.state.TouchAccount(c.Address)
 
+	t.balRecorder.AccountRead(c.Address)
+	balIndex := t.balRecorder.GetIndex()
+
+	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
+
+	oldBalRecorder := t.balRecorder
+
+	if t.config.EIP7928 {
+		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
+
+		callBalRecorder.AccountRead(c.Address)
+
+		t.balRecorder = callBalRecorder
+	}
+
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
+			t.balRecorder = oldBalRecorder
+
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
+		}
+
+		if c.Value != nil && c.Value.Sign() != 0 {
+			t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
+			t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 		}
 	}
 
@@ -883,6 +998,8 @@ func (t *Transition) applyCall(
 	t.captureCallStart(c, callType)
 
 	result = t.run(c, host)
+	t.balRecorder = oldBalRecorder
+
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -890,6 +1007,8 @@ func (t *Transition) applyCall(
 				Err:     err,
 			}
 		}
+	} else {
+		t.balRecorder.Merge(callBalRecorder)
 	}
 
 	t.captureCallEnd(c, result)
@@ -929,8 +1048,12 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
+	t.balRecorder.NonceChange(c.Caller, t.state.GetNonce(c.Caller))
+
 	// Check if there is a collision and the address already exists
 	if t.hasCodeOrNonce(c.Address) {
+		t.balRecorder.AccountRead(c.Address)
+
 		return &runtime.ExecutionResult{
 			GasLeft: 0,
 			Err:     runtime.ErrContractAddressCollision,
@@ -940,6 +1063,10 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	// Take snapshot of the current state
 	snapshot := t.state.Snapshot()
 
+	if t.config.EIP6780 {
+		t.state.MarkContractCreated(c.Address)
+	}
+
 	if t.config.EIP158 {
 		// Force the creation of the account
 		t.state.CreateAccount(c.Address)
@@ -947,14 +1074,32 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		if err := t.state.IncrNonce(c.Address); err != nil {
 			return &runtime.ExecutionResult{Err: err}
 		}
+
+		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
+	}
+
+	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
+	oldBalRecorder := t.balRecorder
+
+	if t.config.EIP7928 {
+		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
+
+		t.balRecorder = callBalRecorder
 	}
 
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
+		t.balRecorder = oldBalRecorder
+
 		return &runtime.ExecutionResult{
 			GasLeft: gasLimit,
 			Err:     err,
 		}
+	}
+
+	if t.config.EIP7928 && c.Value != nil && c.Value.Sign() != 0 {
+		t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
+		t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 	}
 
 	var result *runtime.ExecutionResult
@@ -977,6 +1122,9 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
+			t.balRecorder = oldBalRecorder
+			t.balRecorder.Merge(callBalRecorder)
+
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -992,6 +1140,9 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
+			t.balRecorder = oldBalRecorder
+			t.balRecorder.Merge(callBalRecorder)
+
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1000,6 +1151,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	}
 
 	result = t.run(c, host)
+	t.balRecorder = oldBalRecorder
+
 	if result.Failed() {
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -1054,7 +1207,11 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			}
 
 			result.GasLeft = 0
+
+			return result
 		}
+
+		t.balRecorder.Merge(callBalRecorder)
 
 		return result
 	}
@@ -1062,6 +1219,10 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	result.GasLeft -= gasCost
 	result.Address = c.Address
 	t.state.SetCode(c.Address, result.ReturnValue)
+
+	t.balRecorder.Merge(callBalRecorder)
+
+	t.balRecorder.CodeChange(c.Address, result.ReturnValue)
 
 	return result
 }
@@ -1159,12 +1320,49 @@ func (t *Transition) GetNonce(addr types.Address) uint64 {
 }
 
 func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address) {
+	// EIP-6780: outside of the creating transaction SELFDESTRUCT only moves the
+	// balance to the beneficiary and does not delete code, storage or the account.
+	if t.config.EIP6780 && !t.state.IsContractCreatedInTx(addr) {
+		balance := t.state.GetBalance(addr)
+
+		// nothing moves when the contract targets itself, or when it holds no balance
+		if addr == beneficiary || balance.Sign() == 0 {
+			t.balRecorder.AccountRead(addr)
+			t.balRecorder.AccountRead(beneficiary)
+
+			return
+		}
+
+		if err := t.state.SubBalance(addr, balance); err != nil {
+			t.logger.Error("failed to subtract balance on selfdestruct", "address", addr, "err", err)
+
+			return
+		}
+
+		t.state.AddBalance(beneficiary, balance)
+
+		t.balRecorder.BalanceChange(addr, t.state.GetBalance(addr))
+		t.balRecorder.BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+
+		return
+	}
+
 	if !t.state.HasSuicided(addr) {
 		t.state.AddRefund(24000)
 	}
 
-	t.state.AddBalance(beneficiary, t.state.GetBalance(addr))
+	balance := t.state.GetBalance(addr)
+
+	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
+
+	if balance.Sign() != 0 {
+		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
+		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
+	} else {
+		t.BlockAccessListRecorder().AccountRead(addr)
+		t.BlockAccessListRecorder().AccountRead(beneficiary)
+	}
 }
 
 func (t *Transition) Callx(c *runtime.Contract, h runtime.Host) *runtime.ExecutionResult {
@@ -1393,4 +1591,20 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
+}
+
+func (t *Transition) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
+	return t.balRecorder
+}
+
+func (t *Transition) BlockAccessList() bal.BlockAccessList {
+	return t.blockBAL
+}
+
+func (t *Transition) SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder) {
+	t.balRecorder = recorder
+}
+
+func (t *Transition) SetBlockAccessList(b bal.BlockAccessList) {
+	t.blockBAL = b
 }

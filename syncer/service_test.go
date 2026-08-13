@@ -154,3 +154,16 @@ func TestGetStatus(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, headerNumber, status.Number)
 }
+
+func createMockBlocks(num int) []*types.Block {
+	blocks := make([]*types.Block, num)
+	for i := 0; i < num; i++ {
+		blocks[i] = &types.Block{
+			Header: &types.Header{
+				Number: uint64(i + 1),
+			},
+		}
+	}
+
+	return blocks
+}

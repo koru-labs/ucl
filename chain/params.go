@@ -93,6 +93,8 @@ const (
 	EIP5656        = "EIP5656" // MCOPY (cancun fork)
 	EIP7939        = "EIP7939" // CLZ (osaka fork)
 	EIP1153        = "EIP1153" // transient storage (cancun fork)
+	EIP6780        = "EIP6780" // SELFDESTRUCT only in same transaction (ucl2 fork)
+	EIP7928        = "EIP7928" // block access list (ucl2 fork)
 )
 
 // Forks is map which contains all forks and their starting blocks from genesis
@@ -134,6 +136,8 @@ func (f *Forks) At(block uint64) ForksInTime {
 		EIP5656:        f.IsActive(EIP5656, block),
 		EIP7939:        f.IsActive(EIP7939, block),
 		EIP1153:        f.IsActive(EIP1153, block),
+		EIP6780:        f.IsActive(EIP6780, block),
+		EIP7928:        f.IsActive(EIP7928, block),
 	}
 }
 
@@ -189,7 +193,10 @@ type ForksInTime struct {
 	EIP3855,
 	EIP5656,
 	EIP7939,
-	EIP1153 bool
+	EIP1153,
+	Ucl2,
+	EIP6780,
+	EIP7928 bool
 }
 
 // AllForksEnabled should contain all supported forks by current edge version
@@ -209,4 +216,6 @@ var AllForksEnabled = &Forks{
 	EIP5656:        NewFork(0),
 	EIP7939:        NewFork(0),
 	EIP1153:        NewFork(0),
+	EIP6780:        NewFork(0),
+	EIP7928:        NewFork(18_446_744_073_709_551_615),
 }

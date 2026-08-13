@@ -34,9 +34,10 @@ var (
 
 // PreState is the account prestate
 type PreState struct {
-	Nonce   uint64
-	Balance uint64
-	State   map[types.Hash]types.Hash
+	Nonce    uint64
+	Balance  uint64
+	State    map[types.Hash]types.Hash
+	CodeHash []byte
 }
 
 // PreStates is a set of pre states

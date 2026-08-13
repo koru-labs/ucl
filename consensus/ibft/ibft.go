@@ -158,6 +158,8 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 			params.Blockchain,
 			params.TxPool,
 			time.Duration(params.BlockTime)*3*time.Second,
+			forkManager,
+			params.EnableBlockAccessList,
 		),
 		secretsManager: params.SecretsManager,
 		Grpc:           params.Grpc,

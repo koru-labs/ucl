@@ -40,6 +40,7 @@ type TestServerConfig struct {
 	TLSKeyFile               string
 	AllDebugEndpointsEnabled bool
 	TxPoolEndpointsEnabled   bool
+	BALEnabled               bool
 }
 
 type TestServerConfigCallback func(*TestServerConfig)
@@ -190,6 +191,10 @@ func (t *TestServer) Start() {
 
 	if config.TxPoolEndpointsEnabled {
 		args = append(args, "--enable-tx-pool-endpoints")
+	}
+
+	if config.BALEnabled && !config.Validator {
+		args = append(args, "--enable-block-access-list")
 	}
 
 	// Start the server

@@ -136,6 +136,8 @@ type genesisParams struct {
 	blockTrackerPollInterval time.Duration
 
 	proxyContractsAdmin string
+
+	EnableBlockAccessListFork bool
 }
 
 func (p *genesisParams) validateFlags() error {
@@ -400,6 +402,10 @@ func (p *genesisParams) initGenesisConfig() error {
 	enabledForks := chain.AllForksEnabled
 	if !p.isBurnContractEnabled() {
 		enabledForks.RemoveFork(chain.London)
+	}
+
+	if p.EnableBlockAccessListFork {
+		enabledForks.SetFork(chain.EIP7928, chain.NewFork(0))
 	}
 
 	chainConfig := &chain.Chain{

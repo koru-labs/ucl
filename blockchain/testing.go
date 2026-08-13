@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/0xPolygon/polygon-edge/types"
@@ -304,6 +305,15 @@ func (m *mockExecutor) ProcessBlock(
 	}
 
 	return nil, nil
+}
+
+func (m *mockExecutor) ApplyBlockAccessList(
+	blockNumber uint64,
+	parentRoot types.Hash,
+	accessList bal.BlockAccessList) (
+	types.Hash,
+	error) {
+	return types.Hash{}, nil
 }
 
 func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {

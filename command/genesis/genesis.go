@@ -329,6 +329,13 @@ func setFlags(cmd *cobra.Command) {
 			[]string{},
 			"list of addresses to enable by default in the bridge block list",
 		)
+
+		cmd.Flags().BoolVar(
+			&params.EnableBlockAccessListFork,
+			enableBlockAccessListFlag,
+			false,
+			"enable block level access list(EIP-7928)",
+		)
 	}
 }
 

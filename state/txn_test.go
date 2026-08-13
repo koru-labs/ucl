@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,7 @@ import (
 
 type mockSnapshot struct {
 	state map[types.Address]*PreState
+	codes map[types.Hash][]byte
 }
 
 func (m *mockSnapshot) GetStorage(addr types.Address, root types.Hash, key types.Hash) types.Hash {
@@ -40,11 +42,20 @@ func (m *mockSnapshot) GetAccount(addr types.Address) (*Account, error) {
 		Nonce:   raw.Nonce,
 	}
 
+	if len(raw.CodeHash) > 0 {
+		acct.CodeHash = raw.CodeHash
+	}
+
 	return acct, nil
 }
 
 func (m *mockSnapshot) GetCode(hash types.Hash) ([]byte, bool) {
-	return nil, false
+	code, ok := m.codes[hash]
+	if !ok {
+		return []byte{}, false
+	}
+
+	return code, true
 }
 
 func (m *mockSnapshot) GetRootHash() types.Hash {
@@ -55,12 +66,29 @@ func (m *mockSnapshot) Commit(objs []*Object) (Snapshot, []byte, error) {
 	return nil, nil, nil
 }
 
-func newStateWithPreState(preState map[types.Address]*PreState) Snapshot {
-	return &mockSnapshot{state: preState}
+func newStateWithPreState(preState map[types.Address]*PreState, codes map[types.Hash][]byte) Snapshot {
+	return &mockSnapshot{state: preState, codes: codes}
 }
 
 func newTestTxn(p map[types.Address]*PreState) *Txn {
-	return newTxn(newStateWithPreState(p))
+	return newTxn(newStateWithPreState(p, nil))
+}
+
+func newStateWithCode(preState map[types.Address]*PreState, code map[types.Address][]byte) Snapshot {
+	codes := make(map[types.Hash][]byte, len(code))
+	for addr, c := range code {
+		acc, ok := preState[addr]
+		if !ok {
+			acc = &PreState{}
+			preState[addr] = acc
+		}
+
+		h := crypto.Keccak256(c)
+		acc.CodeHash = h
+		codes[types.BytesToHash(h)] = c
+	}
+
+	return &mockSnapshot{state: preState, codes: codes}
 }
 
 func TestTransientStorage(t *testing.T) {

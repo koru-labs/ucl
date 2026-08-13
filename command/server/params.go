@@ -63,6 +63,7 @@ const (
 
 	enableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
 	enableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+	enableBlockAccessListFlag   = "enable-block-access-list"
 
 	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
 	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
@@ -247,8 +248,8 @@ func (p *serverParams) generateConfig() *server.Config {
 		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
 		WithTrieCaching:         p.rawConfig.WithTrieCaching,
+		EnableBlockAccessList:   p.rawConfig.EnableBlockAccessList,
 		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
-
-		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
+		JumpdestCacheSize:       p.rawConfig.JumpdestCacheSize,
 	}
 }

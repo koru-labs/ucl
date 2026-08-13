@@ -13,18 +13,35 @@ service SyncPeer {
   rpc GetStatus(google.protobuf.Empty) returns (SyncPeerStatus);
   // Returns stream of transactions from the tx pool
   rpc GetTxPool(google.protobuf.Empty) returns (stream Transactions);
+  // Returns stream of receipts
+  rpc GetReceipts(GetReceiptsRequest) returns (Receipts); 
 }
 
 // GetBlocksRequest is a request for GetBlocks
 message GetBlocksRequest {
   // The height of beginning block to sync
   uint64 from = 1;
+  bool is_validator = 2; // requester is a validator -> server skips receipts and BAL
 }
 
 // Block contains a block data
 message Block {
-  // RLP Encoded Block Data
+  // RLP Encoded Block Data (Header, Transactions, Uncles)
   bytes block = 1;
+  // RLP Encoded BlockAccessList (EIP-7928). Allows sync peers to apply
+  // the finalized post-execution state directly, without re-executing
+  // transactions through the EVM.
+  bytes block_access_list = 2;
+}
+
+message GetReceiptsRequest {
+    uint64 block_number = 1;
+}
+
+message Receipts {
+    uint64 block_number = 1;
+    bytes receipts = 2;
+    bool received = 3;
 }
 
 // SyncPeerStatus contains peer status

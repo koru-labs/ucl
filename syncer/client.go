@@ -14,6 +14,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,6 +26,17 @@ const (
 	statusTopicName          = "syncer/status/0.1"
 	defaultTimeoutForStatus  = 10 * time.Second
 )
+
+type SyncBlock struct {
+	Block           *types.Block
+	BlockAccessList bal.BlockAccessList
+}
+
+type ReceiptsMsg struct {
+	BlockNumber uint64
+	Receipts    types.Receipts
+	Received    bool
+}
 
 type syncPeerClient struct {
 	logger     hclog.Logger // logger used for console logging
@@ -297,33 +309,35 @@ func (m *syncPeerClient) CloseStream(peerID peer.ID) error {
 	return m.network.CloseProtocolStream(syncerProto, peerID)
 }
 
-// GetBlocks returns a stream of blocks from given height to peer's latest
+// GetBlocks returns a stream of SyncBlock (block + optional receipts/BAL) from given height to peer's latest
 func (m *syncPeerClient) GetBlocks(
 	peerID peer.ID,
 	from uint64,
 	timeoutPerBlock time.Duration,
-) (<-chan *types.Block, error) {
+	getReceipts bool,
+) (<-chan *SyncBlock, proto.SyncPeerClient, error) {
 	clt, err := m.newSyncPeerClient(peerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sync peer client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create sync peer client: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stream, err := clt.GetBlocks(ctx, &proto.GetBlocksRequest{
-		From: from,
+		From:        from,
+		IsValidator: getReceipts,
 	})
 	if err != nil {
 		cancel()
 
-		return nil, fmt.Errorf("failed to open GetBlocks stream: %w", err)
+		return nil, nil, fmt.Errorf("failed to open GetBlocks stream: %w", err)
 	}
 
 	// input channel
 	streamBlockCh, streamErrorCh := blockStreamToChannel(stream)
 
 	// output channel
-	blockCh := make(chan *types.Block, 1)
+	blockCh := make(chan *SyncBlock, 1)
 
 	go func() {
 		defer cancel()
@@ -349,7 +363,7 @@ func (m *syncPeerClient) GetBlocks(
 		}
 	}()
 
-	return blockCh, nil
+	return blockCh, clt, nil
 }
 
 func (m *syncPeerClient) SyncTxPool(
@@ -383,6 +397,40 @@ func (m *syncPeerClient) SyncTxPool(
 	}
 }
 
+func (m *syncPeerClient) GetReceipts(
+	ctx context.Context,
+	clt proto.SyncPeerClient,
+	peerID peer.ID,
+	blockNumber uint64,
+) (*ReceiptsMsg, error) {
+	resp, err := clt.GetReceipts(ctx, &proto.GetReceiptsRequest{
+		BlockNumber: blockNumber,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch receipts for block %d from peer %s: %w",
+			blockNumber, peerID, err)
+	}
+
+	if resp.BlockNumber != blockNumber {
+		return nil, fmt.Errorf("block number mismatch from peer %s: got %d, want %d",
+			peerID, resp.BlockNumber, blockNumber)
+	}
+
+	msg, err := fromProtoReceipts(resp)
+	if err != nil {
+		metrics.IncrCounter([]string{syncerMetrics, "bad_receipts"}, 1)
+
+		return nil, fmt.Errorf("failed to decode receipts for block %d: %w", blockNumber, err)
+	}
+
+	metrics.SetGauge(
+		[]string{syncerMetrics, "ingress_bytes"},
+		float32(len(resp.Receipts)),
+	)
+
+	return msg, nil
+}
+
 func (m *syncPeerClient) addTxsToPool(txs []*types.Transaction) {
 	for _, tx := range txs {
 		if err := m.txPool.AddTxSync(tx); err != nil {
@@ -403,18 +451,43 @@ func (m *syncPeerClient) newSyncPeerClient(peerID peer.ID) (proto.SyncPeerClient
 	return proto.NewSyncPeerClient(conn), nil
 }
 
-// fromProto gets block from gRPC response data
-func fromProto(protoBlock *proto.Block) (*types.Block, error) {
+// fromProto converts a gRPC proto.Block response into a SyncBlock
+func fromProto(protoBlock *proto.Block) (*SyncBlock, error) {
 	block := &types.Block{}
 	if err := block.UnmarshalRLP(protoBlock.Block); err != nil {
 		return nil, err
 	}
 
-	return block, nil
+	result := &SyncBlock{
+		Block: block,
+	}
+
+	if len(protoBlock.BlockAccessList) > 0 {
+		var accessList bal.BlockAccessList
+		if err := accessList.UnmarshalRLP(protoBlock.BlockAccessList); err != nil {
+			return nil, fmt.Errorf("failed to decode block access list: %w", err)
+		}
+
+		result.BlockAccessList = accessList
+	}
+
+	return result, nil
 }
 
-func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *types.Block, <-chan error) {
-	blockCh := make(chan *types.Block)
+func fromProtoReceipts(protoReceipts *proto.Receipts) (*ReceiptsMsg, error) {
+	receipts := &types.Receipts{}
+	if err := receipts.UnmarshalRLP(protoReceipts.Receipts); err != nil {
+		return nil, err
+	}
+
+	return &ReceiptsMsg{
+		BlockNumber: protoReceipts.BlockNumber,
+		Receipts:    *receipts,
+	}, nil
+}
+
+func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *SyncBlock, <-chan error) {
+	blockCh := make(chan *SyncBlock)
 	errorCh := make(chan error, 1)
 
 	go func() {
@@ -443,7 +516,8 @@ func blockStreamToChannel(stream proto.SyncPeer_GetBlocksClient) (<-chan *types.
 				break
 			}
 
-			metrics.SetGauge([]string{syncerMetrics, "ingress_bytes"}, float32(len(protoBlock.Block)))
+			metrics.SetGauge([]string{syncerMetrics, "ingress_bytes"},
+				float32(len(protoBlock.Block))+float32(len(protoBlock.BlockAccessList)))
 
 			blockCh <- block
 		}

@@ -377,6 +377,13 @@ func setFlags(cmd *cobra.Command) {
 		"enable settlement metrics",
 	)
 
+	cmd.Flags().BoolVar(
+		&params.rawConfig.EnableBlockAccessList,
+		enableBlockAccessListFlag,
+		defaultConfig.EnableBlockAccessList,
+		"enable block access list",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

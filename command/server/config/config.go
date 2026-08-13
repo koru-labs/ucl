@@ -53,6 +53,7 @@ type Config struct {
 
 	EnableTxPoolEndpoints   bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
 	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+	EnableBlockAccessList   bool `json:"enable_block_access_list" yaml:"enable_block_access_list"`
 
 	// Deprecated: use enable_tx_pool_endpoints (inverted). Honored when true.
 	//nolint:lll

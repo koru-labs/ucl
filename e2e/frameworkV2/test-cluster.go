@@ -149,6 +149,9 @@ type TestClusterConfig struct {
 	Consensus server.ConsensusType
 
 	WithZKServer bool
+
+	BALNonValidatorsEnabled bool
+	BALValidatorsEnabled    bool
 }
 
 func (c *TestClusterConfig) Dir(name string) string {
@@ -439,6 +442,18 @@ func WithZKServer() ClusterOption {
 	}
 }
 
+func WithBALNonValidators() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.BALNonValidatorsEnabled = true
+	}
+}
+
+func WithBALValidators() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.BALValidatorsEnabled = true
+	}
+}
+
 func isTrueEnv(e string) bool {
 	return strings.ToLower(os.Getenv(e)) == "true"
 }
@@ -605,6 +620,10 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 
 		args = append(args, "--proxy-contracts-admin", proxyAdminAddr)
 
+		if cluster.Config.BALValidatorsEnabled {
+			args = append(args, "--enable-block-access-list")
+		}
+
 		// run genesis command with all the arguments
 		err = cluster.cmdRun(args...)
 		require.NoError(t, err)
@@ -659,6 +678,7 @@ func (c *TestCluster) InitTestServer(t *testing.T,
 		config.TLSKeyFile = c.Config.TLSKeyFile
 		config.AllDebugEndpointsEnabled = c.Config.AllDebugEndpointsEnabled
 		config.TxPoolEndpointsEnabled = c.Config.TxPoolEndpointsEnabled
+		config.BALEnabled = c.Config.BALNonValidatorsEnabled
 	})
 
 	// watch the server for stop signals. It is important to fix the specific
