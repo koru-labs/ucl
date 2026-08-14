@@ -132,16 +132,13 @@ func (b *Block) Body() *Body {
 }
 
 func (b *Block) Size() uint64 {
-	sizePtr := b.size.Load()
-	if sizePtr == nil {
-		bytes := b.MarshalRLP()
-		size := uint64(len(bytes))
-		b.size.Store(&size)
-
-		return size
+	if sizePtr := b.size.Load(); sizePtr != nil {
+		return *sizePtr
 	}
 
-	return *sizePtr
+	size := b.RLPSizeWithoutAccessRecord()
+	b.size.Store(&size)
+	return size
 }
 
 func (b *Block) String() string {
