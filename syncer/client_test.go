@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/blockchain"
+	testHelper "github.com/0xPolygon/polygon-edge/helper/tests"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/network/grpc"
@@ -495,7 +496,9 @@ func Test_syncPeerClient_GetBlocks(t *testing.T) {
 	assert.NoError(t, err)
 
 	blocks := make([]*types.Block, 0, peerLatest)
+
 	for block := range blockStream {
+		testHelper.ResetBlockSizeField(block)
 		blocks = append(blocks, block)
 	}
 

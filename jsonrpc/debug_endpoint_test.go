@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
+	testHelper "github.com/0xPolygon/polygon-edge/helper/tests"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer/structtracer"
@@ -533,6 +534,7 @@ func TestTraceBlock(t *testing.T) {
 			config: &TraceConfig{},
 			store: &debugEndpointMockStore{
 				traceBlockFn: func(block *types.Block, tracer tracer.Tracer) ([]interface{}, error) {
+					testHelper.ResetBlockSizeField(block)
 					require.Equal(t, testLatestBlock, block)
 
 					return testTraceResults, nil

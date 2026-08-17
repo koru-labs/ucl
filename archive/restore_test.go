@@ -10,6 +10,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/helper/progress"
+	testHelper "github.com/0xPolygon/polygon-edge/helper/tests"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -190,6 +191,7 @@ func Test_consumeCommonBlocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			osSignal := make(<-chan os.Signal)
 			resultBlock, err := consumeCommonBlocks(tt.chain, tt.blockStream, osSignal)
+			testHelper.ResetBlockSizeField(resultBlock)
 
 			assert.Equal(t, tt.block, resultBlock)
 			assert.Equal(t, tt.err, err)
