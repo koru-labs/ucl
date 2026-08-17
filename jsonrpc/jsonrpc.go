@@ -44,6 +44,7 @@ type JSONRPCStore interface {
 	filterManagerStore
 	bridgeStore
 	debugStore
+	consensusStore
 }
 
 type Config struct {
@@ -73,8 +74,9 @@ type Config struct {
 	BlockCacheTTL      time.Duration
 	BlockCacheCapacity uint64
 
-	EnableTxPoolEndpoints   bool
-	EnableAllDebugEndpoints bool
+	EnableTxPoolEndpoints    bool
+	EnableAllDebugEndpoints  bool
+	EnableConsensusEndpoints bool
 
 	RPCGasCap       uint64
 	BatchCostLimit  uint64
@@ -87,24 +89,25 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 		logger,
 		config.Store,
 		&dispatcherParams{
-			chainID:                 config.ChainID,
-			chainName:               config.ChainName,
-			priceLimit:              config.PriceLimit,
-			jsonRPCBatchLengthLimit: config.BatchLengthLimit,
-			blockRangeLimit:         config.BlockRangeLimit,
+			chainID:                  config.ChainID,
+			chainName:                config.ChainName,
+			priceLimit:               config.PriceLimit,
+			jsonRPCBatchLengthLimit:  config.BatchLengthLimit,
+			blockRangeLimit:          config.BlockRangeLimit,
 			filterLimits: FilterLimits{
 				PerConnection: config.FilterLimitPerConn,
 				Global:        config.FilterLimit,
 			},
-			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
-			blockCacheTTL:           config.BlockCacheTTL,
-			blockCacheCapacity:      config.BlockCacheCapacity,
-			enableTxPoolEndpoints:   config.EnableTxPoolEndpoints,
-			enableAllDebugEndpoints: config.EnableAllDebugEndpoints,
-			requestTimeout:          config.JSONRPCTimeout,
-			rpcGasCap:               config.RPCGasCap,
-			batchCostLimit:          config.BatchCostLimit,
-			maxResponseSize:         config.MaxResponseSize,
+			concurrentRequestsDebug:  config.ConcurrentRequestsDebug,
+			blockCacheTTL:            config.BlockCacheTTL,
+			blockCacheCapacity:       config.BlockCacheCapacity,
+			enableTxPoolEndpoints:    config.EnableTxPoolEndpoints,
+			enableAllDebugEndpoints:  config.EnableAllDebugEndpoints,
+			enableConsensusEndpoints: config.EnableConsensusEndpoints,
+			requestTimeout:           config.JSONRPCTimeout,
+			rpcGasCap:                config.RPCGasCap,
+			batchCostLimit:           config.BatchCostLimit,
+			maxResponseSize:          config.MaxResponseSize,
 		},
 	)
 	if err != nil {
