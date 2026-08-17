@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/command/server/config"
@@ -61,8 +63,13 @@ const (
 
 	metricsIntervalFlag = "metrics-interval"
 
-	enableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
-	enableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+	enableTxPoolEndpointsFlag    = "enable-tx-pool-endpoints"
+	enableAllDebugEndpointsFlag  = "enable-all-debug-endpoints"
+	enableConsensusEndpointsFlag = "enable-consensus-endpoints"
+
+	consensusStatePushURLFlag      = "consensus-state-push-url"
+	consensusStatePushTokenFlag    = "consensus-state-push-token"
+	consensusStatePushIntervalFlag = "consensus-state-push-interval"
 
 	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
 	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
@@ -187,6 +194,22 @@ func (p *serverParams) validateFlags() error {
 		return fmt.Errorf("max-request-body-size must be greater than zero")
 	}
 
+	pushURL := strings.TrimSpace(p.rawConfig.ConsensusStatePushURL)
+	if pushURL != "" {
+		parsed, err := url.ParseRequestURI(pushURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("consensus-state-push-url must be a valid http(s) URL")
+		}
+
+		if strings.TrimSpace(p.rawConfig.ConsensusStatePushToken) == "" {
+			return fmt.Errorf("consensus-state-push-token is required when consensus-state-push-url is set")
+		}
+
+		if p.rawConfig.ConsensusStatePushInterval <= 0 {
+			return fmt.Errorf("consensus-state-push-interval must be greater than zero")
+		}
+	}
+
 	return nil
 }
 
@@ -244,10 +267,14 @@ func (p *serverParams) generateConfig() *server.Config {
 		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
 		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
 		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
-		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
-		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
-		WithTrieCaching:         p.rawConfig.WithTrieCaching,
-		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
+		EnableTxPoolEndpoints:      p.rawConfig.EnableTxPoolEndpoints,
+		EnableAllDebugEndpoints:    p.rawConfig.EnableAllDebugEndpoints,
+		EnableConsensusEndpoints:   p.rawConfig.EnableConsensusEndpoints,
+		ConsensusStatePushURL:      p.rawConfig.ConsensusStatePushURL,
+		ConsensusStatePushToken:    p.rawConfig.ConsensusStatePushToken,
+		ConsensusStatePushInterval: p.rawConfig.ConsensusStatePushInterval,
+		WithTrieCaching:            p.rawConfig.WithTrieCaching,
+		WithBaseFeeFixed:           p.rawConfig.WithBaseFeeFixed,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}

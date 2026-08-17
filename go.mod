@@ -279,4 +279,4 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace github.com/0xPolygon/go-ibft => github.com/Ethernal-Tech/go-ibft v0.0.0-20260310110910-e47b18c247e3
+replace github.com/0xPolygon/go-ibft => ../go-ibft

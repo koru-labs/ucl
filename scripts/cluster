@@ -39,12 +39,18 @@ function showhelp() {
   echo "  destroy         Destroy the running environment"
   echo "  write-logs      Writes STDOUT and STDERR output to log file. Not applicable when using --docker flag."
   echo "Flags:"
-  echo "  --docker        Run using Docker (requires docker-compose)."
-  echo "  --help          Display this help information"
+  echo "  --docker                    Run using Docker (requires docker-compose)."
+  echo "  --tx-gossip-batch-size [N]   Set server --tx-gossip-batch-size (default N=20 when omitted)."
+  echo "  --help                      Display this help information"
+  echo "Environment (consensus health push, local defaults):"
+  echo "  CONSENSUS_STATE_PUSH_URL       Default http://127.0.0.1:8080 (set empty to disable)"
+  echo "  CONSENSUS_STATE_PUSH_TOKEN     Default dev-ingest-token-change-me"
+  echo "  CONSENSUS_STATE_PUSH_INTERVAL  Recovery heartbeat, default 30s"
   echo "Examples:"
   echo "  cluster polybft -- Run the script with the polybft consensus"
   echo "  cluster polybft --docker -- Run the script with the polybft consensus using docker"
   echo "  cluster polybft stop -- Stop the running environment"
+  echo "  cluster ibft --tx-gossip-batch-size -- Start ibft with tx gossip batch size 20"
 }
 
 function initIbftConsensus() {
@@ -55,6 +61,7 @@ function initIbftConsensus() {
   node2_id=$(./polygon-edge secrets output --data-dir test-chain-2 | grep Node | head -n 1 | awk -F ' ' '{print $4}')
 
   genesis_params="--consensus ibft --validators-prefix test-chain- \
+    --block-time 1s \
     --bootnode /ip4/127.0.0.1/tcp/30301/p2p/$node1_id \
     --bootnode /ip4/127.0.0.1/tcp/30302/p2p/$node2_id"
 }
@@ -71,8 +78,9 @@ function initPolybftConsensus() {
 
 function createGenesis() {
   ./polygon-edge genesis $genesis_params \
-    --block-gas-limit 10000000 \
+    --block-gas-limit 100000000 \
     --premine 0x85da99c8a7c2c95964c8efd687e95e632fc533d6 \
+    --premine 0xcc8c063eb6fbc29bb4dfb7f19ff087902d8d4270:0x3635C9ADC5DEA00000 \
     --premine 0x0000000000000000000000000000000000000000 \
     --epoch-size 10 \
     --reward-wallet 0xDEADBEEF:1000000 \
@@ -164,6 +172,25 @@ function startNodes() {
     echo "Writing validators logs to the files..."
   fi
 
+  gossip_batch_args=()
+  if [ -n "$TX_GOSSIP_BATCH_SIZE" ]; then
+    gossip_batch_args=(--tx-gossip-batch-size "$TX_GOSSIP_BATCH_SIZE")
+  fi
+
+  # Push consensus snapshots to con_health_backend (override via env; empty URL disables).
+  CONSENSUS_STATE_PUSH_URL="${CONSENSUS_STATE_PUSH_URL-http://127.0.0.1:8080}"
+  CONSENSUS_STATE_PUSH_TOKEN="${CONSENSUS_STATE_PUSH_TOKEN-dev-ingest-token-change-me}"
+  CONSENSUS_STATE_PUSH_INTERVAL="${CONSENSUS_STATE_PUSH_INTERVAL-30s}"
+
+  push_args=()
+  if [ -n "$CONSENSUS_STATE_PUSH_URL" ]; then
+    push_args=(
+      --consensus-state-push-url "$CONSENSUS_STATE_PUSH_URL"
+      --consensus-state-push-token "$CONSENSUS_STATE_PUSH_TOKEN"
+      --consensus-state-push-interval "$CONSENSUS_STATE_PUSH_INTERVAL"
+    )
+  fi
+
   for i in {1..4}; do
     data_dir="./test-chain-$i"
     grpc_port=$((10000 * $i))
@@ -188,6 +215,9 @@ function startNodes() {
         --num-block-confirmations 2 $relayer_arg \
         --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
+        --enable-consensus-endpoints \
+        "${push_args[@]}" \
+        "${gossip_batch_args[@]}" \
         --log-level DEBUG 2>&1 | tee $log_file &
     else
       ./polygon-edge server --data-dir "$data_dir" --chain genesis.json \
@@ -195,6 +225,9 @@ function startNodes() {
         --num-block-confirmations 2 $relayer_arg \
         --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
+        --enable-consensus-endpoints \
+        "${push_args[@]}" \
+        "${gossip_batch_args[@]}" \
         --log-level DEBUG &
     fi
 
@@ -221,8 +254,29 @@ function stopDockerEnvironment() {
 
 set -e
 
+TX_GOSSIP_BATCH_SIZE=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tx-gossip-batch-size)
+      shift
+      if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+        TX_GOSSIP_BATCH_SIZE="$1"
+        shift
+      else
+        TX_GOSSIP_BATCH_SIZE=1
+      fi
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
+
 # Show help if help flag is entered or no arguments are provided
-if [[ "$1" == "--help" ]] || [[ $# -eq 0 ]]; then
+if [[ "${1:-}" == "--help" ]] || [[ $# -eq 0 ]]; then
   showhelp
   exit 0
 fi

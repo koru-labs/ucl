@@ -39,8 +39,8 @@ type debugEndpointMockStore struct {
 	storageRangeAtFn      func(*state.StorageRangeResult, *types.Block, *types.Address, []byte, int, int) error
 	traceTxnFn            func(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
 	traceCallFn           func(*types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
-	getNonceFn            func(types.Address) uint64
-	getAccountFn          func(types.Hash, types.Address) (*Account, error)
+	getNonceFn          func(types.Address) uint64
+	getAccountFn        func(types.Hash, types.Address) (*Account, error)
 }
 
 func (s *debugEndpointMockStore) Header() *types.Header {
@@ -2283,3 +2283,4 @@ func Test_newTracer(t *testing.T) {
 		}, st.Config)
 	})
 }
+
