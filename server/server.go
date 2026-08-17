@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
@@ -101,6 +102,8 @@ type Server struct {
 	keyManagerFactory signer.KeyManagerFactory
 
 	settlementObserver *settlementObserver
+
+	consensusStatePusher *consensusStatePusher
 }
 
 // newFileLogger returns logger instance that writes all logs to a specified file.
@@ -459,6 +462,8 @@ func NewServer(config *Config) (*Server, error) {
 	if err := m.consensus.Start(); err != nil {
 		return nil, err
 	}
+
+	m.startConsensusStatePusher()
 
 	// start txpool
 	m.txpool.SetBaseFee(m.blockchain.Header())
@@ -1099,6 +1104,15 @@ func (j *jsonRPCHub) TraceCall(
 	return tracer.GetResult()
 }
 
+func (j *jsonRPCHub) GetConsensusState() (interface{}, error) {
+	provider, ok := j.Consensus.(consensus.ConsensusStateProvider)
+	if !ok {
+		return nil, fmt.Errorf("consensus state is not supported by the active consensus engine")
+	}
+
+	return provider.GetConsensusState()
+}
+
 func (j *jsonRPCHub) GetSyncProgression() *progress.Progression {
 	// restore progression
 	if restoreProg := j.restoreProgression.GetProgression(); restoreProg != nil {
@@ -1150,6 +1164,7 @@ func (s *Server) setupJSONRPC() error {
 		JSONRPCTimeout:           s.config.JSONRPCTimeout,
 		EnableTxPoolEndpoints:    s.config.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
+		EnableConsensusEndpoints: s.config.EnableConsensusEndpoints,
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)
@@ -1183,6 +1198,39 @@ func (s *Server) setupGRPC() error {
 	return nil
 }
 
+func (s *Server) startConsensusStatePusher() {
+	pushURL := strings.TrimSpace(s.config.ConsensusStatePushURL)
+	if pushURL == "" {
+		return
+	}
+
+	provider, ok := s.consensus.(consensus.ConsensusStateProvider)
+	if !ok {
+		s.logger.Warn("consensus state push configured but engine does not support consensus diagnostics")
+
+		return
+	}
+
+	interval := s.config.ConsensusStatePushInterval
+	if interval <= 0 {
+		interval = defaultConsensusStatePushHeartbeat
+	}
+
+	s.consensusStatePusher = newConsensusStatePusher(
+		s.logger,
+		provider,
+		pushURL,
+		s.config.ConsensusStatePushToken,
+		interval,
+	)
+	s.consensusStatePusher.start()
+	s.logger.Info(
+		"consensus state push enabled",
+		"url", resolveConsensusStatePushEndpoint(pushURL),
+		"heartbeat", interval,
+	)
+}
+
 // Chain returns the chain object of the client
 func (s *Server) Chain() *chain.Chain {
 	return s.chain
@@ -1195,6 +1243,10 @@ func (s *Server) JoinPeer(rawPeerMultiaddr string) error {
 
 // Close closes the Minimal server (blockchain, networking, consensus)
 func (s *Server) Close() {
+	if s.consensusStatePusher != nil {
+		s.consensusStatePusher.stop()
+	}
+
 	// Close the blockchain layer
 	if err := s.blockchain.Close(); err != nil {
 		s.logger.Error("failed to close blockchain", "err", err.Error())
