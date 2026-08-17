@@ -32,6 +32,12 @@ const (
 	TxGasContractCreation uint64 = 53000 // Per transaction that creates a contract
 )
 
+var txAccessRecorderPool = sync.Pool{
+	New: func() any {
+		return NewTxAccessRecorder(0)
+	},
+}
+
 // GetHashByNumber returns the hash function of a block number
 type GetHashByNumber = func(i uint64) types.Hash
 
@@ -212,19 +218,32 @@ func (e *Executor) ParallelProcessBlock(
 	blockCreator types.Address,
 	numOfWorkers uint64,
 ) (BlockAccessRecord, []*types.Receipt, uint64, error) {
+	// chunkSize controls how many consecutive tx indices each worker grabs per nextIdx bump.
+	// Higher = less atomic contention but worse tail latency (one slow chunk blocks its worker).
+	// 4 is a reasonable default for the RandomizedWorkload; benchmark 1/2/4/8 to tune.
+	const chunkSize = 4
+
 	n := len(block.Transactions)
+
+	// slot bundles per-tx state so the worker's writes and the aggregator's reads for
+	// the same tx land in the same cache line. `ready` doubles as the fence: publishing
+	// it with atomic Store makes receipt+recorder visible to the aggregator's atomic Load.
+	type slot struct {
+		receipt  *types.Receipt
+		recorder *TxAccessRecorder
+		ready    atomic.Bool
+	}
 
 	var (
 		receipts = make([]*types.Receipt, n)
-		txns     = make([]*Transition, n)
-		executed sync.Map
+		results  = make([]slot, n)
 
-		nextIdx  atomic.Int64
+		nextIdx  atomic.Uint64
 		firstErr atomic.Pointer[error]
 
 		stopOnce   sync.Once
 		stopCh     = make(chan struct{})
-		executedCh = make(chan struct{}, 1)
+		executedCh = make(chan struct{}, int(numOfWorkers))
 
 		wg sync.WaitGroup
 	)
@@ -234,7 +253,6 @@ func (e *Executor) ParallelProcessBlock(
 			if err != nil {
 				firstErr.CompareAndSwap(nil, &err)
 			}
-
 			close(stopCh)
 		})
 	}
@@ -242,51 +260,85 @@ func (e *Executor) ParallelProcessBlock(
 	bar := NewBlockAccessRecord()
 	gasRemaining := block.Header.GasLimit
 
+	precompilesPerWorker := make([]*precompiled.Precompiled, numOfWorkers)
+	for i := range precompilesPerWorker {
+		precompilesPerWorker[i] = precompiled.NewPrecompiled()
+	}
+
+	if block.BlockAccessRecord != nil && len(block.BlockAccessRecord) > 50 {
+		var pfWg sync.WaitGroup
+		for _, account := range block.BlockAccessRecord {
+			addr := account.Address
+			pfWg.Add(1)
+			go func() {
+				defer pfWg.Done()
+				snap, _ := e.state.NewSnapshot(parentRoot)
+				_, _ = snap.GetAccount(addr)
+			}()
+		}
+		pfWg.Wait()
+	}
+
+	var workerID atomic.Uint64
 	for range numOfWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			// Claim this worker's precompiled instance.
+			myPrecompiled := precompilesPerWorker[workerID.Add(1)-1]
+
 			for {
-				select {
-				case <-stopCh:
-					return
-				default:
-				}
-
-				i := int(nextIdx.Add(1) - 1)
-				if i >= n {
+				if firstErr.Load() != nil {
 					return
 				}
 
-				tx := block.Transactions[i]
-
-				txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
-				if err != nil {
-					stopWith(err)
+				start := int(nextIdx.Add(chunkSize)) - chunkSize
+				if start >= n {
 					return
 				}
-
-				txn.SetBlockAccessRecord(block.BlockAccessRecord)
-				txn.SetTxAccessRecorder(NewTxAccessRecorder(uint64(i)))
-
-				if tx.Gas > block.Header.GasLimit {
-					stopWith(fmt.Errorf("tx %d: gas %d exceeds block gas limit", i, tx.Gas))
-					return
+				end := start + chunkSize
+				if end > n {
+					end = n
 				}
 
-				if tx.From == emptyFrom && tx.Type != types.StateTx {
-					if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
-						tx.From = poolTx.From
+				for i := start; i < end; i++ {
+					tx := block.Transactions[i]
+
+					if tx.Gas > block.Header.GasLimit {
+						stopWith(fmt.Errorf("tx %d: gas %d exceeds block gas limit", i, tx.Gas))
+						return
 					}
-				}
 
-				if err := txn.Write(tx); err != nil {
-					stopWith(err)
-					return
-				}
+					if tx.From == emptyFrom && tx.Type != types.StateTx {
+						if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
+							tx.From = poolTx.From
+						}
+					}
 
-				txns[i] = txn
-				executed.Store(i, struct{}{})
+					txn, err := e.BeginTxnWithPrecompiled(
+						parentRoot, block.Header, blockCreator, myPrecompiled)
+					if err != nil {
+						stopWith(err)
+						return
+					}
+
+					rec := txAccessRecorderPool.Get().(*TxAccessRecorder)
+					rec.Reset(uint64(i))
+
+					txn.SetBlockAccessRecord(block.BlockAccessRecord)
+					txn.SetTxAccessRecorder(rec)
+
+					if err := txn.Write(tx); err != nil {
+						txAccessRecorderPool.Put(rec)
+						stopWith(err)
+						return
+					}
+
+					results[i].receipt = txn.receipts[0]
+					results[i].recorder = rec
+					results[i].ready.Store(true)
+				}
 
 				select {
 				case executedCh <- struct{}{}:
@@ -309,12 +361,12 @@ func (e *Executor) ParallelProcessBlock(
 			}
 
 			for current < n {
-				if _, ok := executed.Load(current); !ok {
+				if !results[current].ready.Load() {
 					break
 				}
 
 				tx := block.Transactions[current]
-				receipt := txns[current].receipts[0]
+				receipt := results[current].receipt
 
 				if gasRemaining < tx.Gas {
 					stopWith(fmt.Errorf("tx %d: not enough block gas remaining", current))
@@ -323,9 +375,12 @@ func (e *Executor) ParallelProcessBlock(
 
 				gasRemaining -= receipt.GasUsed
 				receipt.CumulativeGasUsed = block.Header.GasLimit - gasRemaining
-
 				receipts[current] = receipt
-				bar.Insert(txns[current].GetTxAccessRecorder())
+
+				rec := results[current].recorder
+				bar.Insert(rec)
+				txAccessRecorderPool.Put(rec)
+
 				current++
 			}
 		}
@@ -428,6 +483,160 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
+func (e *Executor) BeginTxnWithCustomTxn(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	gasLimit uint64,
+	txnFactory func(Snapshot) *Txn,
+) (*Transition, error) {
+	forkConfig := e.config.Forks.At(header.Number)
+
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	burnContract := types.ZeroAddress
+	if forkConfig.London {
+		burnContract, err = e.config.CalculateBurnContract(header.Number)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	txCtx := runtime.TxContext{
+		Coinbase:     coinbaseReceiver,
+		Timestamp:    int64(header.Timestamp),
+		Number:       int64(header.Number),
+		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
+		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
+		GasLimit:     int64(gasLimit),
+		ChainID:      e.config.ChainID,
+		BurnContract: burnContract,
+	}
+
+	txn := &Transition{
+		logger:   e.logger,
+		ctx:      txCtx,
+		state:    txnFactory(auxSnap2),
+		snap:     auxSnap2,
+		getHash:  e.GetHash(header),
+		auxState: e.state,
+		config:   forkConfig,
+		gasPool:  gasLimit,
+
+		totalGas: 0,
+
+		evm:         evm.NewEVM(),
+		precompiles: precompiled.NewPrecompiled(),
+		PostHook:    e.PostHook,
+	}
+
+	// enable contract deployment allow list (if any)
+	if e.config.ContractDeployerAllowList != nil {
+		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
+	}
+
+	if e.config.ContractDeployerBlockList != nil {
+		txn.deploymentBlockList = addresslist.NewAddressList(txn, contracts.BlockListContractsAddr)
+	}
+
+	// enable transactions allow list (if any)
+	if e.config.TransactionsAllowList != nil {
+		txn.txnAllowList = addresslist.NewAddressList(txn, contracts.AllowListTransactionsAddr)
+	}
+
+	if e.config.TransactionsBlockList != nil {
+		txn.txnBlockList = addresslist.NewAddressList(txn, contracts.BlockListTransactionsAddr)
+	}
+
+	// enable transactions allow list (if any)
+	if e.config.BridgeAllowList != nil {
+		txn.bridgeAllowList = addresslist.NewAddressList(txn, contracts.AllowListBridgeAddr)
+	}
+
+	if e.config.BridgeBlockList != nil {
+		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
+	}
+
+	return txn, nil
+}
+
+func (e *Executor) BeginTxnWithPrecompiled(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	prec *precompiled.Precompiled,
+) (*Transition, error) {
+	forkConfig := e.config.Forks.At(header.Number)
+
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	burnContract := types.ZeroAddress
+	if forkConfig.London {
+		burnContract, err = e.config.CalculateBurnContract(header.Number)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newTxn := NewTxn(auxSnap2)
+
+	txCtx := runtime.TxContext{
+		Coinbase:     coinbaseReceiver,
+		Timestamp:    int64(header.Timestamp),
+		Number:       int64(header.Number),
+		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
+		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
+		GasLimit:     int64(header.GasLimit),
+		ChainID:      e.config.ChainID,
+		BurnContract: burnContract,
+	}
+
+	txn := &Transition{
+		logger:   e.logger,
+		ctx:      txCtx,
+		state:    newTxn,
+		snap:     auxSnap2,
+		getHash:  e.GetHash(header),
+		auxState: e.state,
+		config:   forkConfig,
+		gasPool:  uint64(txCtx.GasLimit),
+
+		receipts: []*types.Receipt{},
+		totalGas: 0,
+
+		evm:         evm.NewEVM(),
+		precompiles: prec,
+		PostHook:    e.PostHook,
+	}
+
+	if e.config.ContractDeployerAllowList != nil {
+		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
+	}
+	if e.config.ContractDeployerBlockList != nil {
+		txn.deploymentBlockList = addresslist.NewAddressList(txn, contracts.BlockListContractsAddr)
+	}
+	if e.config.TransactionsAllowList != nil {
+		txn.txnAllowList = addresslist.NewAddressList(txn, contracts.AllowListTransactionsAddr)
+	}
+	if e.config.TransactionsBlockList != nil {
+		txn.txnBlockList = addresslist.NewAddressList(txn, contracts.BlockListTransactionsAddr)
+	}
+	if e.config.BridgeAllowList != nil {
+		txn.bridgeAllowList = addresslist.NewAddressList(txn, contracts.AllowListBridgeAddr)
+	}
+	if e.config.BridgeBlockList != nil {
+		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
+	}
+
+	return txn, nil
+}
+
 func (e *Executor) ApplyBlockAccessRecord(
 	blockNumber uint64,
 	parentRoot types.Hash,
@@ -436,6 +645,32 @@ func (e *Executor) ApplyBlockAccessRecord(
 	snap, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
 		return types.Hash{}, err
+	}
+
+	// prefetch: warm the account cache before the serial SetX loop
+	// so trie reads happen in parallel, not sequentially inside SetX
+	const prefetchWorkers = 8
+	if len(accessList) > 100 {
+		var pfWg sync.WaitGroup
+		chunkSize := (len(accessList) + prefetchWorkers - 1) / prefetchWorkers
+		for w := 0; w < prefetchWorkers; w++ {
+			start := w * chunkSize
+			end := start + chunkSize
+			if end > len(accessList) {
+				end = len(accessList)
+			}
+			if start >= end {
+				break
+			}
+			pfWg.Add(1)
+			go func(from, to int) {
+				defer pfWg.Done()
+				for i := from; i < to; i++ {
+					_, _ = snap.GetAccount(accessList[i].Address) // warm cache
+				}
+			}(start, end)
+		}
+		pfWg.Wait()
 	}
 
 	txn := newTxn(snap)
