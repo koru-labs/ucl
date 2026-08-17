@@ -296,12 +296,9 @@ func runCommand(cmd *cobra.Command, _ []string) {
 	outputter := command.InitializeOutputter(cmd)
 	defer outputter.WriteOutput()
 
-	var err error
-
 	_, _ = outputter.Write([]byte(fmt.Sprintf("%s\n", common.IBFTImportantNotice)))
-	err = params.generateGenesis()
 
-	if err != nil {
+	if err := params.generateGenesis(); err != nil {
 		outputter.SetError(err)
 
 		return

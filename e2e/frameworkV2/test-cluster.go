@@ -23,6 +23,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	secretsHelper "github.com/0xPolygon/polygon-edge/secrets/helper"
 	"github.com/0xPolygon/polygon-edge/server"
 	"github.com/0xPolygon/polygon-edge/txrelayerv2"
 	"github.com/0xPolygon/polygon-edge/types"
@@ -48,6 +49,9 @@ const (
 
 	// prefix for non validators directory
 	nonValidatorPrefix = "test-non-validator-"
+
+	// bootnodePortStart matches genesis bootnode ports and cluster initialPort+1
+	bootnodePortStart = 30301
 
 	// NativeTokenMintableTestCfg is the test native token config for Supernets originated native tokens
 	NativeTokenMintableTestCfg = "Mintable Edge Coin:MEC:18" //nolint:gosec
@@ -579,18 +583,17 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			}
 		}
 
-		validators, err := genesis.ReadValidatorsByPrefix(
-			cluster.Config.TmpDir, cluster.Config.ValidatorPrefix)
+		bootnodes, err := readBootnodeAddrs(cluster.Config.TmpDir, cluster.Config.ValidatorPrefix)
 		require.NoError(t, err)
 
 		if cluster.Config.BootnodeCount > 0 {
 			bootNodesCnt := cluster.Config.BootnodeCount
-			if len(validators) < bootNodesCnt {
-				bootNodesCnt = len(validators)
+			if len(bootnodes) < bootNodesCnt {
+				bootNodesCnt = len(bootnodes)
 			}
 
 			for i := 0; i < bootNodesCnt; i++ {
-				args = append(args, "--bootnode", validators[i].MultiAddr)
+				args = append(args, "--bootnode", bootnodes[i])
 			}
 		}
 
@@ -809,6 +812,33 @@ func runCommand(binary string, args []string, stdout io.Writer) error {
 // RunEdgeCommand - calls a command line edge function
 func RunEdgeCommand(args []string, stdout io.Writer) error {
 	return runCommand(resolveBinary(), args, stdout)
+}
+
+// readBootnodeAddrs builds libp2p multiaddrs from network keys (no BLS).
+func readBootnodeAddrs(dir, prefix string) ([]string, error) {
+	validatorKeyFiles, err := genesis.GetValidatorKeyFiles(dir, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	bootnodes := make([]string, 0, len(validatorKeyFiles))
+
+	for i, file := range validatorKeyFiles {
+		secretsManager, err := secretsHelper.SetupLocalSecretsManager(filepath.Join(dir, file))
+		if err != nil {
+			return nil, err
+		}
+
+		nodeID, err := secretsHelper.LoadNodeID(secretsManager)
+		if err != nil {
+			return nil, err
+		}
+
+		bootnodes = append(bootnodes,
+			fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/p2p/%s", bootnodePortStart+int64(i), nodeID))
+	}
+
+	return bootnodes, nil
 }
 
 // InitSecrets initializes account(s) secrets with given prefix.

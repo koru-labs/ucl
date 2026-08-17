@@ -54,5 +54,4 @@ func TestClusterBlockSync(t *testing.T) {
 	t.Run("ECDSA", func(t *testing.T) {
 		runTest(t, validators.ECDSAValidatorType)
 	})
-
 }
