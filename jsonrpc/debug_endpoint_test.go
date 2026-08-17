@@ -606,6 +606,7 @@ func TestTraceBlockFromFile(t *testing.T) {
 			config:  &TraceConfig{},
 			store: &debugEndpointMockStore{
 				traceBlockFn: func(block *types.Block, tracer tracer.Tracer) ([]interface{}, error) {
+					testHelper.ResetBlockSizeField(block)
 					require.Equal(t, testLatestBlock, block)
 
 					return testTraceResults, nil

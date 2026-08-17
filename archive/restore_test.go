@@ -123,6 +123,7 @@ func Test_importBlocks(t *testing.T) {
 
 			assert.Equal(t, tt.err, err)
 			latestBlock := getLatestBlockFromMockChain(tt.chain)
+			testHelper.ResetBlockSizeField(latestBlock)
 			assert.Equal(t, tt.latestBlock, latestBlock)
 		})
 	}
@@ -224,6 +225,7 @@ func Test_parseBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			block, err := tt.blockstream.nextBlock()
+			testHelper.ResetBlockSizeField(block)
 
 			assert.Equal(t, tt.block, block)
 			assert.Equal(t, tt.err, err)
@@ -429,6 +431,7 @@ func Test_parrseBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			block, err := tt.blockstream.parseBlock(tt.size)
+			testHelper.ResetBlockSizeField(block)
 			assert.Equal(t, tt.err, err)
 			assert.Equal(t, tt.block, block)
 		})
