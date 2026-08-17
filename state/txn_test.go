@@ -314,7 +314,7 @@ func TestSuicide_LaterBalanceWriteOverwrites(t *testing.T) {
 	require.Equal(t, uint64(50), acc.Balance.Uint64(),
 		"final balance in recorder must be 50, got: %s", acc.Balance)
 
-	// The account is still marked as suicided in the trie — resurrection semantics
+	// The account is still marked as suicided in the trie - resurrection semantics
 	// are delicate, but for now the important thing is that the recorder reflects
 	// the final state.
 	require.True(t, txn.HasSuicided(contractAddr))

@@ -1,18 +1,27 @@
 package ibft
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/0xPolygon/polygon-edge/blockchain"
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/hook"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
+	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	sth "github.com/0xPolygon/polygon-edge/state/statetesthelper"
 	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/Ethernal-Tech/ethgo"
 	"github.com/hashicorp/go-hclog"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +33,78 @@ func getBenchData() (txsCount []int, workers []int) {
 	return
 }
 
+// BenchmarkBuildBlockNoBAL benchmarks the real backendIBFT.buildBlock proposer path with
+// EIP-7928 disabled: no BAR is built. writeTransactions always waits out the full block-time
+// window (2s in the harness), so every op costs at least that much wall clock - the interesting
+// output is the txs/block metric: how many of the offered transactions actually entered the
+// block before the window closed.
+func BenchmarkBuildBlockNoBAL(b *testing.B) {
+	benchSizes, _ := getBenchData()
+
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
+			h, txs := benchScenarioNoBAL(b, 12, size)
+
+			included := 0
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, false)
+				require.NoError(b, err)
+				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
+				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
+				require.Empty(b, bal, "no BAL must be built with EIP-7928 disabled")
+
+				included = len(block.Transactions)
+			}
+
+			b.StopTimer()
+			b.ReportMetric(float64(included), "txs/block")
+
+			if included < len(txs) {
+				b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
+			}
+		})
+	}
+}
+
+// BenchmarkBuildBlockWithBAL benchmarks buildBlock with EIP-7928 enabled: sequential execution
+// plus BAR recording, packing, and hashing. Delta vs BuildBlockNoBAL is the proposer-side cost
+// BAL adds.
+func BenchmarkBuildBlockWithBAL(b *testing.B) {
+	benchSizes, _ := getBenchData()
+
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
+			h, txs := benchScenario(b, 12, size)
+
+			included := 0
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, true)
+				require.NoError(b, err)
+				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
+				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
+				require.NotEmpty(b, bal, "BAL must be built with EIP-7928 enabled")
+
+				included = len(block.Transactions)
+			}
+
+			b.StopTimer()
+			b.ReportMetric(float64(included), "txs/block")
+
+			if included < len(txs) {
+				b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
+			}
+		})
+	}
+}
+
 // BenchmarkSequentialVerifyNoBAL is the absolute baseline: ProcessBlock with EIP-7928 disabled,
 // no BAR recording overhead at all. This is the "before BAL existed" wall time.
 func BenchmarkSequentialVerifyNoBAL(b *testing.B) {
@@ -32,14 +113,14 @@ func BenchmarkSequentialVerifyNoBAL(b *testing.B) {
 	for _, size := range benchSizes {
 		h, txs := benchScenarioNoBAL(b, 12, size)
 
-		// Build through the non-BAL sequential path — no recorder, no BAR. The committed root
+		// Build through the non-BAL sequential path - no recorder, no BAR. The committed root
 		// is the baseline the verify loop below must reproduce.
 		header := h.benchHeader()
 		block := &types.Block{Header: header, Transactions: txs}
 
 		tran, err := h.executor.ProcessBlock(h.parentHeader.StateRoot, block, h.proposer)
 		require.NoError(b, err)
-		require.Empty(b, tran.GetBlockAccessRecord(), "EIP-7928 must be off — BAR must not be built")
+		require.Empty(b, tran.GetBlockAccessRecord(), "EIP-7928 must be off - BAR must not be built")
 
 		_, root, err := tran.Commit()
 		require.NoError(b, err)
@@ -170,10 +251,38 @@ type parHarness struct {
 	proposer      types.Address
 	parentHeader  *types.Header
 	deployerNonce uint64
+
+	chainParams *chain.Params
+	blockchain  *blockchain.Blockchain
+	forkManager *forkManagerMock
 }
 
 func newParHarness(tb testing.TB) *parHarness {
 	tb.Helper()
+
+	proposerKey, err := crypto.GenerateECDSAKey()
+	require.NoError(tb, err)
+
+	mySigner := signer.NewSigner(
+		signer.NewECDSAKeyManagerFromKey(proposerKey.PrivateKey()),
+		signer.NewECDSAKeyManagerFromKey(proposerKey.PrivateKey()),
+	)
+	round := uint64(0)
+	validatorsSet := validators.NewECDSAValidatorSet(
+		validators.NewECDSAValidator(proposerKey.Address()),
+		validators.NewECDSAValidator(types.StringToAddress("1")),
+	)
+	parentExtraData := &signer.IstanbulExtra{
+		Validators:           validatorsSet,
+		ParentCommittedSeals: &signer.SerializedSeal{},
+		CommittedSeals:       &signer.AggregatedSeal{},
+		RoundNumber:          &round,
+	}
+
+	forkManagerMock := &forkManagerMock{}
+	forkManagerMock.On("GetValidators", mock.Anything).Return(validatorsSet)
+	forkManagerMock.On("GetSigner", mock.Anything).Return(mySigner)
+	forkManagerMock.On("GetHooks", mock.Anything).Return(&hook.Hooks{})
 
 	forks := &chain.Forks{
 		chain.Homestead:      chain.NewFork(0),
@@ -201,29 +310,34 @@ func newParHarness(tb testing.TB) *parHarness {
 	}
 
 	parentHeader := &types.Header{
-		Number:   2,
-		Hash:     types.Hash{0, 1, 2, 3, 4, 5},
-		GasLimit: 1_000_000_000_000,
+		Number:     2,
+		Hash:       types.Hash{0, 1, 2, 3, 4, 5},
+		ParentHash: types.Hash{1, 3},
+		GasLimit:   1_000_000_000_000,
+		ExtraData:  append(make([]byte, signer.IstanbulExtraVanity), parentExtraData.MarshalRLPTo(nil)...),
 	}
+
+	bc := blockchain.NewTestBlockchain(tb, []*types.Header{
+		{Number: 1, Hash: types.Hash{1, 3}}, parentHeader,
+	})
 
 	executor := state.NewExecutor(
 		chainParams, itrie.NewState(itrie.NewMemoryStorage()), hclog.NewNullLogger())
-
-	// RandomizedWorkload never invokes BLOCKHASH, so a no-op suffices.
-	executor.GetHash = func(*types.Header) state.GetHashByNumber {
-		return func(uint64) types.Hash { return types.ZeroHash }
-	}
+	executor.GetHash = bc.GetHashHelper
 
 	return &parHarness{
 		executor:     executor,
 		forks:        forks,
-		proposer:     parAddr(0xFF),
+		proposer:     proposerKey.Address(),
 		parentHeader: parentHeader,
+		chainParams:  chainParams,
+		blockchain:   bc,
+		forkManager:  forkManagerMock,
 	}
 }
 
-// newParHarnessNoBAL is newParHarness with EIP-7928 disabled. Everything else — parent state,
-// executor, accounts, deployed contracts — is identical, so blocks built here compare
+// newParHarnessNoBAL is newParHarness with EIP-7928 disabled. Everything else - parent state,
+// executor, accounts, deployed contracts - is identical, so blocks built here compare
 // apples-to-apples with BAL-enabled harness runs on the same workload.
 func newParHarnessNoBAL(tb testing.TB) *parHarness {
 	tb.Helper()
@@ -326,7 +440,7 @@ func (h *parHarness) benchBlockBAL(tb testing.TB, txs []*types.Transaction) *typ
 }
 
 // verifySequential runs ProcessBlock + Commit. Whether the BAR is built or not depends on
-// whether EIP-7928 is active for the block's number at call time — governed by the harness.
+// whether EIP-7928 is active for the block's number at call time - governed by the harness.
 func (h *parHarness) verifySequential(tb testing.TB, block *types.Block) types.Hash {
 	tb.Helper()
 
@@ -363,6 +477,36 @@ func (h *parHarness) verifyParallelBAL(
 	return root
 }
 
+func (h *parHarness) buildBlockFn(
+	tb testing.TB,
+	parent *types.Header,
+	txs []*types.Transaction,
+	blockTime time.Duration,
+	enableBAL bool,
+) (*types.Block, []*types.Receipt, types.BlockAccessRecord, error) {
+	tb.Helper()
+
+	if enableBAL {
+		(*h.forks)[chain.EIP7928] = chain.NewFork(0)
+	} else {
+		delete(*h.forks, chain.EIP7928)
+	}
+
+	i := &backendIBFT{
+		forkManager: h.forkManager,
+		blockchain:  h.blockchain,
+		executor:    h.executor,
+		logger:      hclog.NewNullLogger(),
+		txpool:      &fakeTxPool{txs: txs},
+		blockTime:   blockTime,
+		config: &consensus.Config{
+			Params: h.chainParams,
+		},
+	}
+
+	return i.buildBlock(context.TODO(), parent)
+}
+
 var parDeployer = types.Address{0xD0}
 
 func parAddr(b byte) types.Address {
@@ -378,3 +522,25 @@ func fundAll(callers ...types.Address) map[types.Address]*big.Int {
 	}
 	return m
 }
+
+type fakeTxPool struct {
+	txs []*types.Transaction
+	idx int
+}
+
+func (p *fakeTxPool) Prepare()       {}
+func (p *fakeTxPool) Length() uint64 { return uint64(len(p.txs) - p.idx) }
+func (p *fakeTxPool) Peek() *types.Transaction {
+	if p.idx >= len(p.txs) {
+		return nil
+	}
+
+	return p.txs[p.idx]
+}
+func (p *fakeTxPool) Pop(*types.Transaction)      { p.idx++ }
+func (p *fakeTxPool) Drop(*types.Transaction)     { p.idx++ }
+func (p *fakeTxPool) Demote(*types.Transaction)   {}
+func (p *fakeTxPool) ResetWithBlock(*types.Block) {}
+func (p *fakeTxPool) SetSealing(bool)             {}
+func (p *fakeTxPool) ReinsertProposed()           {}
+func (p *fakeTxPool) ClearProposed()              {}

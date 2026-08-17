@@ -220,8 +220,7 @@ func (e *Executor) ParallelProcessBlock(
 ) (BlockAccessRecord, []*types.Receipt, uint64, error) {
 	// chunkSize controls how many consecutive tx indices each worker grabs per nextIdx bump.
 	// Higher = less atomic contention but worse tail latency (one slow chunk blocks its worker).
-	// 4 is a reasonable default for the RandomizedWorkload; benchmark 1/2/4/8 to tune.
-	const chunkSize = 4
+	const chunkSize = 10
 
 	n := len(block.Transactions)
 
@@ -260,33 +259,19 @@ func (e *Executor) ParallelProcessBlock(
 	bar := NewBlockAccessRecord()
 	gasRemaining := block.Header.GasLimit
 
+	// One Precompiled per worker; its mutable `buf` scratch is only touched by
+	// its owning worker's Run calls, never shared across goroutines.
 	precompilesPerWorker := make([]*precompiled.Precompiled, numOfWorkers)
 	for i := range precompilesPerWorker {
 		precompilesPerWorker[i] = precompiled.NewPrecompiled()
 	}
 
-	if block.BlockAccessRecord != nil && len(block.BlockAccessRecord) > 50 {
-		var pfWg sync.WaitGroup
-		for _, account := range block.BlockAccessRecord {
-			addr := account.Address
-			pfWg.Add(1)
-			go func() {
-				defer pfWg.Done()
-				snap, _ := e.state.NewSnapshot(parentRoot)
-				_, _ = snap.GetAccount(addr)
-			}()
-		}
-		pfWg.Wait()
-	}
-
-	var workerID atomic.Uint64
-	for range numOfWorkers {
+	for w := uint64(0); w < numOfWorkers; w++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID uint64) {
 			defer wg.Done()
 
-			// Claim this worker's precompiled instance.
-			myPrecompiled := precompilesPerWorker[workerID.Add(1)-1]
+			myPrecompiled := precompilesPerWorker[workerID]
 
 			for {
 				if firstErr.Load() != nil {
@@ -310,6 +295,10 @@ func (e *Executor) ParallelProcessBlock(
 						return
 					}
 
+					// TODO(race): pool lookup + Write's own signer.Sender both mutate
+					// tx.From when From is empty. All workers derive the same
+					// signature-recovered value so the race is practically benign, but
+					// -race will flag it.
 					if tx.From == emptyFrom && tx.Type != types.StateTx {
 						if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
 							tx.From = poolTx.From
@@ -345,7 +334,7 @@ func (e *Executor) ParallelProcessBlock(
 				default:
 				}
 			}
-		}()
+		}(w)
 	}
 
 	wg.Add(1)
@@ -353,6 +342,19 @@ func (e *Executor) ParallelProcessBlock(
 		defer wg.Done()
 
 		current := 0
+
+		// Cleanup any ready-but-unconsumed results on any exit path. Normal
+		// completion sets current==n so this is a no-op; error/gas-exhaust exits
+		// return recorders to the pool that would otherwise leak.
+		defer func() {
+			for i := current; i < n; i++ {
+				if results[i].ready.Load() && results[i].recorder != nil {
+					txAccessRecorderPool.Put(results[i].recorder)
+					results[i].recorder = nil
+				}
+			}
+		}()
+
 		for current < n {
 			select {
 			case <-stopCh:
