@@ -85,7 +85,15 @@ func (t *TxType) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 }
 
 func (b *Block) UnmarshalRLP(input []byte) error {
-	return UnmarshalRlp(b.unmarshalRLPFrom, input)
+	err := UnmarshalRlp(b.unmarshalRLPFrom, input)
+	if err != nil {
+		return err
+	}
+
+	size := uint64(len(input))
+	b.size.Store(&size)
+
+	return nil
 }
 
 func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
@@ -94,7 +102,7 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 		return err
 	}
 
-	if len(elems) < 3 {
+	if len(elems) != 3 {
 		return fmt.Errorf("incorrect number of elements to decode block, expected 3 but found %d", len(elems))
 	}
 
