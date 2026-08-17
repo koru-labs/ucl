@@ -152,7 +152,7 @@ func (h *Header) RLPSize() uint64 {
 
 	payload += rlpUintSize(h.BaseFee)
 
-	// Optional field, only encoded when set — mirrors MarshalRLPWith.
+	// Optional field, only encoded when BlockAccessRecord is set.
 	if h.BlockAccessRecordHash != ZeroHash {
 		payload += rlpFixedBytesSize(32)
 	}

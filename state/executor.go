@@ -295,10 +295,6 @@ func (e *Executor) ParallelProcessBlock(
 						return
 					}
 
-					// TODO(race): pool lookup + Write's own signer.Sender both mutate
-					// tx.From when From is empty. All workers derive the same
-					// signature-recovered value so the race is practically benign, but
-					// -race will flag it.
 					if tx.From == emptyFrom && tx.Type != types.StateTx {
 						if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
 							tx.From = poolTx.From
