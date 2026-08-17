@@ -75,7 +75,6 @@ func (nt *NodeType) Append(value NodeType) {
 
 var (
 	startTime              int64
-	testRewardWalletAddr   = types.StringToAddress("0xFFFFFFFF")
 	ProxyContractAdminAddr = "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
 )
 
@@ -532,15 +531,8 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			"--dir", genesisPath,
 			"--block-gas-limit", strconv.FormatUint(cluster.Config.BlockGasLimit, 10),
 			"--epoch-size", strconv.Itoa(cluster.Config.EpochSize),
-			"--epoch-reward", strconv.Itoa(cluster.Config.EpochReward),
 			"--premine", "0x0000000000000000000000000000000000000000:0x" + ethgo.Ether(10).String(),
 			"--trieroot", cluster.Config.InitialStateRoot.String(),
-		}
-
-		if cluster.Config.RewardWallet != "" {
-			args = append(args, "--reward-wallet", cluster.Config.RewardWallet)
-		} else {
-			args = append(args, "--reward-wallet", testRewardWalletAddr.String())
 		}
 
 		if cluster.Config.BlockTime != 0 {
@@ -548,23 +540,11 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 				cluster.Config.BlockTime.String())
 		}
 
-		if cluster.Config.TestRewardToken != "" {
-			args = append(args, "--reward-token-code", cluster.Config.TestRewardToken)
-		}
-
 		if cluster.Config.BaseFeeConfig != "" {
 			args = append(args, "--base-fee-config", cluster.Config.BaseFeeConfig)
 		}
 
-		if cluster.Config.NativeTokenConfigRaw != "" {
-			args = append(args, "--native-token-config", cluster.Config.NativeTokenConfigRaw)
-		}
-
-		tokenConfig, err := polybft.ParseRawTokenConfig(cluster.Config.NativeTokenConfigRaw)
-		require.NoError(t, err)
-
 		if len(cluster.Config.Premine) != 0 {
-			// only add premine flags in genesis if token is mintable
 			for _, premine := range cluster.Config.Premine {
 				args = append(args, "--premine", premine)
 			}
@@ -575,12 +555,6 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			args = append(args, "--burn-contract",
 				fmt.Sprintf("%d:%s:%s",
 					burnContract.BlockNumber, burnContract.Address, burnContract.DestinationAddress))
-		}
-
-		if tokenConfig.IsMintable && len(cluster.Config.StakeAmounts) != 0 {
-			for i, addr := range addresses {
-				args = append(args, "--stake", fmt.Sprintf("%s:%s", addr.String(), cluster.Config.getStakeAmount(i).String()))
-			}
 		}
 
 		bootnodes, err := readBootnodeAddrs(cluster.Config.TmpDir, cluster.Config.ValidatorPrefix)
