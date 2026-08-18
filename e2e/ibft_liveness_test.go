@@ -173,6 +173,11 @@ func runTwoValidatorStallThenRecover(t *testing.T, validatorType validators.Vali
 	waitAllReach(t, servers, target, c.recoverWait, "recovery after single-validator restart")
 }
 
+// The fault/recovery scenarios below run ECDSA only: IBFT's quorum, round-change and recovery logic
+// is independent of the signature scheme (signer correctness is covered by unit tests). BLS is
+// exercised only by TestIBFTLiveness_DuplicateValidatorKeyHealthy, where double-signing interacts
+// with BLS signature aggregation.
+
 // TestIBFTLiveness_TwoValidators_OneDownStallsChain: with a 2-validator set (quorum 2), gracefully
 // stopping one validator must freeze the committed head (sealing without quorum is the faulty
 // behaviour we guard against); the chain must recover after restart.
@@ -192,10 +197,6 @@ func TestIBFTLiveness_TwoValidators_OneDownStallsChain(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
-	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
 	})
 }
 
@@ -218,10 +219,6 @@ func TestIBFTLiveness_TwoValidators_OneDownKill9Recovers(t *testing.T) {
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
 	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
-	})
 }
 
 // TestIBFTLiveness_TwoValidators_LongPartitionRecovers is the graceful-stop variant with a much
@@ -243,10 +240,6 @@ func TestIBFTLiveness_TwoValidators_LongPartitionRecovers(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
-	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
 	})
 }
 
@@ -304,10 +297,6 @@ func TestIBFTLiveness_MinorityValidatorRestart(t *testing.T) {
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
 	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
-	})
 }
 
 // TestIBFTLiveness_SixValidators_OneDownMajoritySeals: with six validators (quorum = (2*6)/3+1 = 5),
@@ -346,10 +335,6 @@ func TestIBFTLiveness_SixValidators_OneDownMajoritySeals(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
-	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
 	})
 }
 
@@ -401,10 +386,6 @@ func TestIBFTLiveness_SuperminorityPartitionRecovers(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
-	})
-
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
 	})
 }
 
@@ -492,6 +473,8 @@ func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
 	})
 
+	// Unlike the other scenarios, BLS is exercised here because double-signing interacts with BLS
+	// signature aggregation, so this case is not equivalent to the ECDSA run.
 	t.Run("BLS", func(t *testing.T) {
 		run(t, validators.BLSValidatorType)
 	})
