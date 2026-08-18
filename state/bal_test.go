@@ -138,6 +138,7 @@ func TestBlockAccessRecord_Insert_AllFields(t *testing.T) {
 	t.Parallel()
 
 	const txIndex uint64 = 5
+
 	addr := arAddr(1)
 	slot := arHash(0x10)
 	val := arHash(0xAA)
@@ -623,6 +624,7 @@ func TestTxAccessRecorder_Insert_AfterRevert(t *testing.T) {
 	t.Parallel()
 
 	const txIndex uint64 = 4
+
 	addr := arAddr(1)
 
 	r := NewTxAccessRecorder(txIndex)

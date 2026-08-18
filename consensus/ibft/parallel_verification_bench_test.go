@@ -151,15 +151,15 @@ func benchBuildBlock(b *testing.B, withBAL bool) {
 			b.ResetTimer()
 
 			for range b.N {
-				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, withBAL)
+				block, receipts, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, withBAL)
 				require.NoError(b, err)
 				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
 				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
 
 				if withBAL {
-					require.NotEmpty(b, bal, "BAL must be built with EIP-7928 enabled")
+					require.NotEmpty(b, block.BlockAccessRecord, "BAL must be built with EIP-7928 enabled")
 				} else {
-					require.Empty(b, bal, "no BAL must be built with EIP-7928 disabled")
+					require.Empty(b, block.BlockAccessRecord, "no BAL must be built with EIP-7928 disabled")
 				}
 
 				included = len(block.Transactions)
@@ -474,7 +474,7 @@ func (h *parHarness) buildBlockFn(
 	txs []*types.Transaction,
 	blockTime time.Duration,
 	enableBAL bool,
-) (*types.Block, []*types.Receipt, types.BlockAccessRecord, error) {
+) (*types.Block, []*types.Receipt, error) {
 	tb.Helper()
 
 	if enableBAL {

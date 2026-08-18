@@ -137,7 +137,9 @@ func (b *Block) Size() uint64 {
 	}
 
 	size := b.RLPSizeWithoutAccessRecord()
+
 	b.size.Store(&size)
+
 	return size
 }
 

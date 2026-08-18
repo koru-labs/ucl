@@ -892,8 +892,6 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 			// Append the receipts to the receipts cache
 			b.receiptsCache.Add(header.Hash, receipts)
 
-			b.blockAccessRecordCache.Add(header.Number, packedBar)
-
 			return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
 		}
 
@@ -911,14 +909,12 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 			return nil, err
 		}
 
-		// Commit state trie da dobiješ pravi root
 		_, root, err := txn.Commit()
 		if err != nil {
 			return nil, err
 		}
 
 		b.receiptsCache.Add(header.Hash, txn.Receipts())
-		b.blockAccessRecordCache.Add(header.Number, computedBAR)
 
 		return &BlockResult{
 			Root:     root,
@@ -1000,6 +996,8 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
 		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
+
+		b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 	}
 
 	// update snapshot
@@ -1074,12 +1072,9 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		blockAccessList, accessListErr := b.GetCachedBlockAccessList(block.Number())
-		if accessListErr != nil {
-			return accessListErr
-		}
+		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
 
-		batchWriter.PutBlockAccessList(block.Number(), blockAccessList)
+		b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 	}
 
 	// update snapshot
@@ -1127,20 +1122,6 @@ func (b *Blockchain) GetCachedReceipts(headerHash types.Hash) ([]*types.Receipt,
 	}
 
 	return extractedReceipts, nil
-}
-
-func (b *Blockchain) GetCachedBlockAccessList(bn uint64) (types.BlockAccessRecord, error) {
-	accessList, found := b.blockAccessRecordCache.Get(bn)
-	if !found {
-		return nil, fmt.Errorf("failed to retrieve block access list for block number: %d", bn)
-	}
-
-	extractedAccessList, ok := accessList.(types.BlockAccessRecord)
-	if !ok {
-		return nil, errors.New("invalid type assertion for block access list")
-	}
-
-	return extractedAccessList, nil
 }
 
 // extractBlockReceipts extracts the receipts from the passed in block
@@ -1665,8 +1646,10 @@ func (b *Blockchain) GetBlockAccessRecord(bn uint64) (types.BlockAccessRecord, e
 		return types.BlockAccessRecord{}, nil
 	}
 
-	if blockAccessList, ok := b.blockAccessRecordCache.Get(bn); ok {
-		return blockAccessList.(types.BlockAccessRecord), nil
+	if cached, ok := b.blockAccessRecordCache.Get(bn); ok {
+		if record, ok := cached.(types.BlockAccessRecord); ok {
+			return record, nil
+		}
 	}
 
 	return b.db.ReadBlockAccessList(bn)

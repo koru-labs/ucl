@@ -271,6 +271,7 @@ func (e *Executor) ParallelProcessBlock(
 
 	for w := uint64(0); w < numOfWorkers; w++ {
 		wg.Add(1)
+
 		go func(workerID uint64) {
 			defer wg.Done()
 
@@ -315,6 +316,7 @@ func (e *Executor) ParallelProcessBlock(
 					}
 
 					rec := txAccessRecorderPool.Get().(*TxAccessRecorder)
+
 					rec.Reset(uint64(i))
 
 					txn.SetBlockAccessRecord(block.BlockAccessRecord)
@@ -341,6 +343,7 @@ func (e *Executor) ParallelProcessBlock(
 	}
 
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
 

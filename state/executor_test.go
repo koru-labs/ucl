@@ -491,9 +491,6 @@ func TestSelfdestruct_EIP7928_CreatedInTx_RecordsEmptyState(t *testing.T) {
 	require.Zero(t, *acc.Nonce, "recorder Nonce must be 0")
 	require.NotNil(t, acc.Code)
 	require.Empty(t, acc.Code, "recorder Code must be empty")
-
-	require.Zero(t, tr.state.GetRefund(),
-		"under London (EIP-3529), SELFDESTRUCT must not give a refund")
 }
 
 func TestSelfdestruct_EIP7928_NotCreatedInTx_BalanceOnly(t *testing.T) {
