@@ -107,7 +107,8 @@ func (sc *StorageChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 func (sw *SlotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(sw.TxIndex)))
+
+	vv.Set(ar.NewUint(sw.TxIndex))
 	vv.Set(ar.NewCopyBytes(sw.Value.Bytes()))
 
 	return vv
@@ -115,7 +116,8 @@ func (sw *SlotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 func (bc *BalanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(bc.TxIndex)))
+
+	vv.Set(ar.NewUint(bc.TxIndex))
 	vv.Set(ar.NewBigInt(bc.Balance))
 
 	return vv
@@ -123,7 +125,8 @@ func (bc *BalanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 func (nc *NonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(nc.TxIndex)))
+
+	vv.Set(ar.NewUint(nc.TxIndex))
 	vv.Set(ar.NewUint(nc.Nonce))
 
 	return vv
@@ -131,7 +134,8 @@ func (nc *NonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 
 func (cc *CodeChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(cc.TxIndex)))
+
+	vv.Set(ar.NewUint(cc.TxIndex))
 	vv.Set(ar.NewCopyBytes(cc.Code))
 
 	return vv

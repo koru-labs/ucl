@@ -483,6 +483,7 @@ func (i *backendIBFT) writeTransactions(
 	i.buildBlockTxsRlpSize = 0
 
 	var txRecorder *state.TxAccessRecorder
+
 	var bar state.BlockAccessRecord
 
 	if i.config.Params.Forks.At(blockNumber).EIP7928 {

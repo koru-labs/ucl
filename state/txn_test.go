@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
@@ -237,23 +238,25 @@ func newBALWorkerTxn(t *testing.T, preState map[types.Address]*PreState) *Txn {
 	return txn
 }
 
-func TestSuicide_RecordsEmptyStateForBAL(t *testing.T) {
+func TestSelfdestruct_EIP7928_RecordsEmptyStateForBAL(t *testing.T) {
+	// SELFDESTRUCT of a contract created in the same tx records empty
+	// balance / nonce / code in the recorder, so the verifier's Commit
+	// clears the account via EIP-158 empty-account removal.
 	t.Parallel()
 
-	preState := map[types.Address]*PreState{
-		contractAddr: {
-			Nonce:   1,
-			Balance: 100,
-		},
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, London: true,
+		EIP6780: true, EIP7928: true,
 	}
 
-	txn := newBALWorkerTxn(t, preState)
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 0)
+	tr.state.MarkContractCreated(contractAddr)
 
-	suicided := txn.Suicide(contractAddr)
-	require.True(t, suicided, "the first Suicide call must return true")
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
 
-	// The recorder must have received "empty account" markers
-	acc, ok := txn.recorder.current[contractAddr]
+	require.True(t, tr.state.HasSuicided(contractAddr))
+
+	acc, ok := tr.state.recorder.current[contractAddr]
 	require.True(t, ok, "recorder must have an entry for the suicided account")
 
 	require.NotNil(t, acc.Balance, "recorder Balance must be set")
@@ -269,55 +272,62 @@ func TestSuicide_RecordsEmptyStateForBAL(t *testing.T) {
 		"recorder Code must be an empty slice, got: %x", acc.Code)
 }
 
-func TestSuicide_RepeatedInSameTxRecordsOnce(t *testing.T) {
+func TestSelfdestruct_EIP7928_RepeatedInSameTxRecordsOnce(t *testing.T) {
+	// A second SELFDESTRUCT of the same address in the same tx must leave
+	// the recorder's "empty account" markers intact: Balance=0, Nonce=0,
+	// Code=[]. Extra writes are allowed as long as the resulting state on
+	// which the verifier will act is unchanged.
 	t.Parallel()
 
-	preState := map[types.Address]*PreState{
-		contractAddr: {
-			Nonce:   1,
-			Balance: 100,
-		},
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, London: true,
+		EIP6780: true, EIP7928: true,
 	}
 
-	txn := newBALWorkerTxn(t, preState)
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 0)
+	tr.state.MarkContractCreated(contractAddr)
 
-	require.True(t, txn.Suicide(contractAddr))
-	require.False(t, txn.Suicide(contractAddr),
-		"the second Suicide call must return false")
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+	require.True(t, tr.state.HasSuicided(contractAddr))
 
-	// The state in the recorder remains unchanged (empty account)
-	acc := txn.recorder.current[contractAddr]
-	require.Zero(t, acc.Balance.Sign())
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+
+	acc := tr.state.recorder.current[contractAddr]
+	require.NotNil(t, acc)
+	require.NotNil(t, acc.Balance)
+	require.Zero(t, acc.Balance.Sign(),
+		"recorder Balance must remain 0 after repeated Selfdestruct")
 	require.NotNil(t, acc.Nonce)
-	require.Zero(t, *acc.Nonce)
-	require.Empty(t, acc.Code)
+	require.Zero(t, *acc.Nonce,
+		"recorder Nonce must remain 0 after repeated Selfdestruct")
+	require.NotNil(t, acc.Code)
+	require.Empty(t, acc.Code,
+		"recorder Code must remain empty after repeated Selfdestruct")
 }
 
-func TestSuicide_LaterBalanceWriteOverwrites(t *testing.T) {
-	// If a callback after Suicide adds a balance to the account
-	// (e.g. resurrection in the same tx through AddBalance), the latest balance
-	// must be recorded. The goal is for the verifier to see the final state,
-	// not the intermediate state.
+func TestSelfdestruct_EIP7928_LaterBalanceWriteOverwrites(t *testing.T) {
+	// If a callback after SELFDESTRUCT credits the account (e.g. a later
+	// AddBalance in the same tx), the recorder's Balance must reflect the
+	// latest value - the verifier sees the final state, not the intermediate.
 	t.Parallel()
 
-	preState := map[types.Address]*PreState{
-		contractAddr: {Nonce: 1, Balance: 100},
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, London: true,
+		EIP6780: true, EIP7928: true,
 	}
 
-	txn := newBALWorkerTxn(t, preState)
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 0)
+	tr.state.MarkContractCreated(contractAddr)
 
-	require.True(t, txn.Suicide(contractAddr))
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+	require.True(t, tr.state.HasSuicided(contractAddr))
 
-	txn.AddBalance(contractAddr, big.NewInt(50))
+	tr.state.AddBalance(contractAddr, big.NewInt(42))
 
-	acc := txn.recorder.current[contractAddr]
-	require.Equal(t, uint64(50), acc.Balance.Uint64(),
-		"final balance in recorder must be 50, got: %s", acc.Balance)
-
-	// The account is still marked as suicided in the trie - resurrection semantics
-	// are delicate, but for now the important thing is that the recorder reflects
-	// the final state.
-	require.True(t, txn.HasSuicided(contractAddr))
+	acc := tr.state.recorder.current[contractAddr]
+	require.NotNil(t, acc)
+	require.Equal(t, int64(42), acc.Balance.Int64(),
+		"recorder Balance must reflect the post-suicide AddBalance")
 }
 
 func TestSuicide_NoRecorder_DoesNothingToRecorder(t *testing.T) {

@@ -67,7 +67,7 @@ func (r *AccountAccessRecord) RecordCodeChange(id uint64, code []byte) {
 	r.CodeChanges[id] = bytes.Clone(code)
 }
 
-// BlockAccessRecord holds state changes for all accounts modified during block executin.
+// BlockAccessRecord holds state changes for all accounts modified during block execution.
 type BlockAccessRecord map[types.Address]*AccountAccessRecord
 
 // NewBlockAccessRecord returns a new empty [BlockAccessRecord].

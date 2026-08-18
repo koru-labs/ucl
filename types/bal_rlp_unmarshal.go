@@ -53,6 +53,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 	}
 
 	aa.StorageChanges = make([]StorageChange, len(scElems))
+
 	for i, scElem := range scElems {
 		if err = aa.StorageChanges[i].unmarshalRLPFrom(p, scElem); err != nil {
 			return err
@@ -65,6 +66,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 	}
 
 	aa.BalanceChanges = make([]BalanceChange, len(bcElems))
+
 	for i, bcElem := range bcElems {
 		if err = aa.BalanceChanges[i].unmarshalRLPFrom(p, bcElem); err != nil {
 			return err
@@ -77,6 +79,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 	}
 
 	aa.NonceChanges = make([]NonceChange, len(ncElems))
+
 	for i, ncElem := range ncElems {
 		if err = aa.NonceChanges[i].unmarshalRLPFrom(p, ncElem); err != nil {
 			return err
@@ -89,6 +92,7 @@ func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Va
 	}
 
 	aa.CodeChanges = make([]CodeChange, len(ccElems))
+
 	for i, ccElem := range ccElems {
 		if err = aa.CodeChanges[i].unmarshalRLPFrom(p, ccElem); err != nil {
 			return err
@@ -141,6 +145,7 @@ func (sw *SlotChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	if err != nil {
 		return err
 	}
+
 	sw.TxIndex = id
 
 	return elems[1].GetHash(sw.Value[:])
@@ -160,6 +165,7 @@ func (bc *BalanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) e
 	if err != nil {
 		return err
 	}
+
 	bc.TxIndex = id
 
 	bc.Balance = new(big.Int)
@@ -181,6 +187,7 @@ func (nc *NonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) err
 	if err != nil {
 		return err
 	}
+
 	nc.TxIndex = id
 
 	nc.Nonce, err = elems[1].GetUint64()
@@ -202,6 +209,7 @@ func (cc *CodeChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 	if err != nil {
 		return err
 	}
+
 	cc.TxIndex = id
 
 	cc.Code, err = elems[1].GetBytes(cc.Code[:0])

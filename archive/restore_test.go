@@ -215,7 +215,7 @@ func Test_parseBlock(t *testing.T) {
 			blockstream: newBlockStream(bytes.NewBuffer((&Metadata{}).MarshalRLP())),
 			block:       nil,
 			// should fail by wrong format
-			err: errors.New("incorrect number of elements to decode block, expected 3 but found 2"),
+			err: errors.New("incorrect number of elements to decode block, expected 3 or 4 but found 2"),
 		},
 	}
 

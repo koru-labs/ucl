@@ -319,7 +319,11 @@ func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
 	m.processBlockFn = fn
 }
 
-func (m *mockExecutor) ParallelProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address, numOfWorkers uint64) (
+func (m *mockExecutor) ParallelProcessBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+	numOfWorkers uint64) (
 	state.BlockAccessRecord, []*types.Receipt, uint64, error) {
 	return nil, nil, 0, nil
 }

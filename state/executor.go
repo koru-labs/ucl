@@ -172,7 +172,9 @@ func (e *Executor) ProcessBlock(
 	}
 
 	eip7928 := e.config.Forks.At(block.Number()).EIP7928
+
 	var bar BlockAccessRecord
+
 	var recorder *TxAccessRecorder
 
 	if eip7928 {
@@ -252,6 +254,7 @@ func (e *Executor) ParallelProcessBlock(
 			if err != nil {
 				firstErr.CompareAndSwap(nil, &err)
 			}
+
 			close(stopCh)
 		})
 	}
@@ -282,6 +285,7 @@ func (e *Executor) ParallelProcessBlock(
 				if start >= n {
 					return
 				}
+
 				end := start + chunkSize
 				if end > n {
 					end = n
@@ -292,6 +296,7 @@ func (e *Executor) ParallelProcessBlock(
 
 					if tx.Gas > block.Header.GasLimit {
 						stopWith(fmt.Errorf("tx %d: gas %d exceeds block gas limit", i, tx.Gas))
+
 						return
 					}
 
@@ -305,6 +310,7 @@ func (e *Executor) ParallelProcessBlock(
 						parentRoot, block.Header, blockCreator, myPrecompiled)
 					if err != nil {
 						stopWith(err)
+
 						return
 					}
 
@@ -317,6 +323,7 @@ func (e *Executor) ParallelProcessBlock(
 					if err := txn.Write(tx); err != nil {
 						txAccessRecorderPool.Put(rec)
 						stopWith(err)
+
 						return
 					}
 
@@ -368,6 +375,7 @@ func (e *Executor) ParallelProcessBlock(
 
 				if gasRemaining < tx.Gas {
 					stopWith(fmt.Errorf("tx %d: not enough block gas remaining", current))
+
 					return
 				}
 
@@ -616,18 +624,23 @@ func (e *Executor) BeginTxnWithPrecompiled(
 	if e.config.ContractDeployerAllowList != nil {
 		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
 	}
+
 	if e.config.ContractDeployerBlockList != nil {
 		txn.deploymentBlockList = addresslist.NewAddressList(txn, contracts.BlockListContractsAddr)
 	}
+
 	if e.config.TransactionsAllowList != nil {
 		txn.txnAllowList = addresslist.NewAddressList(txn, contracts.AllowListTransactionsAddr)
 	}
+
 	if e.config.TransactionsBlockList != nil {
 		txn.txnBlockList = addresslist.NewAddressList(txn, contracts.BlockListTransactionsAddr)
 	}
+
 	if e.config.BridgeAllowList != nil {
 		txn.bridgeAllowList = addresslist.NewAddressList(txn, contracts.AllowListBridgeAddr)
 	}
+
 	if e.config.BridgeBlockList != nil {
 		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
 	}
@@ -648,26 +661,35 @@ func (e *Executor) ApplyBlockAccessRecord(
 	// prefetch: warm the account cache before the serial SetX loop
 	// so trie reads happen in parallel, not sequentially inside SetX
 	const prefetchWorkers = 8
+
 	if len(accessList) > 100 {
 		var pfWg sync.WaitGroup
+
 		chunkSize := (len(accessList) + prefetchWorkers - 1) / prefetchWorkers
+
 		for w := 0; w < prefetchWorkers; w++ {
 			start := w * chunkSize
+
 			end := start + chunkSize
 			if end > len(accessList) {
 				end = len(accessList)
 			}
+
 			if start >= end {
 				break
 			}
+
 			pfWg.Add(1)
+
 			go func(from, to int) {
 				defer pfWg.Done()
+
 				for i := from; i < to; i++ {
 					_, _ = snap.GetAccount(accessList[i].Address) // warm cache
 				}
 			}(start, end)
 		}
+
 		pfWg.Wait()
 	}
 
@@ -950,6 +972,7 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	result, err := t.apply(msg)
 	if err != nil {
 		t.state.recorder.Revert()
+
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
@@ -1386,7 +1409,9 @@ func (t *Transition) hasCodeOrNonce(addr types.Address) bool {
 	}
 
 	if t.state.bar != nil {
-		// TODO
+		if _, ok := t.state.bar.CodeBefore(addr, t.state.recorder.txIndex); ok {
+			return true
+		}
 	}
 
 	// EIP-7610 change - rejects the contract deployment if the destination has non-empty storage.
@@ -1492,6 +1517,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	result = t.run(c, host)
 	if result.Failed() {
 		t.state.recorder.Revert()
+
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1520,6 +1546,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
 	if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
 		t.state.recorder.Revert()
+
 		if err := t.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1541,6 +1568,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		// Out of gas creating the contract
 		if t.config.Homestead {
 			t.state.recorder.Revert()
+
 			if err := t.state.RevertToSnapshot(snapshot); err != nil {
 				return &runtime.ExecutionResult{
 					Err: err,
@@ -1552,7 +1580,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			return result
 		}
 
-		// TODO: check for this
 		t.state.recorder.Commit()
 
 		return result

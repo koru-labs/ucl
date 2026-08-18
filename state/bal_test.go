@@ -14,6 +14,7 @@ import (
 // of package state.
 func arAddr(b byte) types.Address {
 	var a types.Address
+
 	a[len(a)-1] = b
 
 	return a
@@ -21,15 +22,13 @@ func arAddr(b byte) types.Address {
 
 func arHash(b byte) types.Hash {
 	var h types.Hash
+
 	h[len(h)-1] = b
 
 	return h
 }
 
-// -----------------------------------------------------------------------------
 // AccountAccessRecord
-// -----------------------------------------------------------------------------
-
 func TestAccountAccessRecord_New(t *testing.T) {
 	t.Parallel()
 
@@ -112,10 +111,7 @@ func TestAccountAccessRecord_RecordCodeChange_Clones(t *testing.T) {
 		"recorded code must be a clone")
 }
 
-// -----------------------------------------------------------------------------
 // BlockAccessRecord
-// -----------------------------------------------------------------------------
-
 func TestBlockAccessRecord_GetOrCreate(t *testing.T) {
 	t.Parallel()
 
@@ -218,10 +214,6 @@ func TestBlockAccessRecord_Insert_MultipleTxAccumulate(t *testing.T) {
 	require.Equal(t, big.NewInt(20), acc.BalanceChanges[2])
 }
 
-// -----------------------------------------------------------------------------
-// BlockAccessRecord.Pack
-// -----------------------------------------------------------------------------
-
 func TestBlockAccessRecord_Pack_Empty(t *testing.T) {
 	t.Parallel()
 
@@ -311,10 +303,7 @@ func TestBlockAccessRecord_Pack_ClonesBalanceAndCode(t *testing.T) {
 	require.Equal(t, []byte{0x01, 0x02}, packed[0].CodeChanges[0].Code)
 }
 
-// -----------------------------------------------------------------------------
 // TxAccessRecorder: construction, getters, nil-safety
-// -----------------------------------------------------------------------------
-
 func TestTxAccessRecorder_NilReceiver(t *testing.T) {
 	t.Parallel()
 
@@ -425,10 +414,7 @@ func TestTxAccessRecorder_RecordCode_Clones(t *testing.T) {
 	require.Equal(t, []byte{0x01, 0x02}, got)
 }
 
-// -----------------------------------------------------------------------------
 // TxAccessRecorder: snapshot / commit / revert
-// -----------------------------------------------------------------------------
-
 func TestTxAccessRecorder_Revert_RemovesNewAccount(t *testing.T) {
 	t.Parallel()
 

@@ -982,7 +982,6 @@ func (txn *Txn) createAccountState(addr types.Address) {
 	txn.txn.Insert(addr.Bytes(), obj)
 
 	if txn.recorder != nil {
-		// TODO: check the way it encodes empty map and slice!
 		txn.recorder.RecordBalanceChange(addr, obj.Account.Balance)
 		txn.recorder.RecordNonceChange(addr, 0)
 		txn.recorder.RecordCodeChange(addr, []byte{})
@@ -999,7 +998,11 @@ func (txn *Txn) createAccountNonState(addr types.Address) {
 	}
 
 	if balance == nil {
-		// TODO
+		if txn.bar != nil {
+			if b, ok := txn.bar.BalanceBefore(addr, txn.recorder.txIndex); ok {
+				balance = b
+			}
+		}
 	}
 
 	if balance == nil {
@@ -1012,7 +1015,6 @@ func (txn *Txn) createAccountNonState(addr types.Address) {
 		balance = big.NewInt(0)
 	}
 
-	// TODO: check the way it encodes empty map and slice!
 	txn.recorder.RecordBalanceChange(addr, balance)
 	txn.recorder.RecordNonceChange(addr, 0)
 	txn.recorder.RecordCodeChange(addr, []byte{})

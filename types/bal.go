@@ -72,6 +72,7 @@ func (r BlockAccessRecord) account(addr Address) *AccountAccessRecord {
 			return &r[i]
 		}
 	}
+
 	return nil
 }
 
@@ -82,12 +83,14 @@ func (r BlockAccessRecord) BalanceBefore(addr Address, txIndex uint64) (*big.Int
 	if a == nil {
 		return nil, false
 	}
+
 	i := sort.Search(len(a.BalanceChanges), func(i int) bool {
 		return a.BalanceChanges[i].TxIndex >= txIndex
 	})
 	if i == 0 {
 		return nil, false
 	}
+
 	return a.BalanceChanges[i-1].Balance, true
 }
 
@@ -98,12 +101,14 @@ func (r BlockAccessRecord) NonceBefore(addr Address, txIndex uint64) (uint64, bo
 	if a == nil {
 		return 0, false
 	}
+
 	i := sort.Search(len(a.NonceChanges), func(i int) bool {
 		return a.NonceChanges[i].TxIndex >= txIndex
 	})
 	if i == 0 {
 		return 0, false
 	}
+
 	return a.NonceChanges[i-1].Nonce, true
 }
 
@@ -114,12 +119,14 @@ func (r BlockAccessRecord) CodeBefore(addr Address, txIndex uint64) ([]byte, boo
 	if a == nil {
 		return nil, false
 	}
+
 	i := sort.Search(len(a.CodeChanges), func(i int) bool {
 		return a.CodeChanges[i].TxIndex >= txIndex
 	})
 	if i == 0 {
 		return nil, false
 	}
+
 	return a.CodeChanges[i-1].Code, true
 }
 

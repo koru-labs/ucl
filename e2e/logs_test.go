@@ -269,6 +269,7 @@ func TestFilterValue(t *testing.T) {
 		}
 
 		var res []*ethgo.Log
+
 		require.Eventually(t, func() bool {
 			var err error
 

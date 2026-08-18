@@ -40,7 +40,7 @@ var (
 	ErrInvalidGasUsed         = errors.New("invalid block gas used")
 	ErrInvalidReceiptsRoot    = errors.New("invalid block receipts root")
 	ErrInvalidBlockRlpSize    = errors.New("invalid block rlp size")
-	ErrBALMissingForTrustMode = errors.New("cannot apply block from BAL: BAL is empty")
+	ErrBarMissingForTrustMode = errors.New("cannot apply block from block access record: block access record is empty")
 
 	EmptyBALHash = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 )
@@ -869,7 +869,11 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		if b.parallelVerificationWorkers > 1 {
 			b.logger.Info("parallel verificaion")
 
-			bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
+			bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(
+				parent.StateRoot,
+				block,
+				blockCreator,
+				b.parallelVerificationWorkers)
 			if err != nil {
 				return nil, err
 			}
@@ -995,12 +999,6 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		/* 		blockAccessList, err := b.GetCachedBlockAccessList(block.Number())
-		   		if err != nil {
-		   			return err
-		   		}
-		*/
-
 		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
 	}
 
@@ -1560,8 +1558,10 @@ func (b *Blockchain) GetBlockByHash(hash types.Hash, full bool) (*types.Block, b
 		bar, err := b.GetBlockAccessRecord(header.Number)
 		if err != nil {
 			b.logger.Warn("failed to load BAR for block", "num", header.Number, "err", err)
+
 			return block, false
 		}
+
 		block.BlockAccessRecord = bar
 	}
 
@@ -1727,7 +1727,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	}
 
 	if len(block.BlockAccessRecord) == 0 {
-		return nil, ErrBALMissingForTrustMode
+		return nil, ErrBarMissingForTrustMode
 	}
 
 	blockAccessListHash := block.BlockAccessRecord.Hash()

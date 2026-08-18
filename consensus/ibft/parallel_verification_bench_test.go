@@ -27,83 +27,16 @@ import (
 
 func getBenchData() (txsCount []int, workers []int) {
 	txsCount = []int{100, 1000, 5000, 10000}
+
 	for i := 1; i <= runtime.GOMAXPROCS(0); i <<= 1 {
 		workers = append(workers, i)
 	}
+
 	return
 }
 
-// BenchmarkBuildBlockNoBAL benchmarks the real backendIBFT.buildBlock proposer path with
-// EIP-7928 disabled: no BAR is built. writeTransactions always waits out the full block-time
-// window (2s in the harness), so every op costs at least that much wall clock - the interesting
-// output is the txs/block metric: how many of the offered transactions actually entered the
-// block before the window closed.
-func BenchmarkBuildBlockNoBAL(b *testing.B) {
-	benchSizes, _ := getBenchData()
-
-	for _, size := range benchSizes {
-		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
-			h, txs := benchScenarioNoBAL(b, 12, size)
-
-			included := 0
-
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, false)
-				require.NoError(b, err)
-				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
-				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
-				require.Empty(b, bal, "no BAL must be built with EIP-7928 disabled")
-
-				included = len(block.Transactions)
-			}
-
-			b.StopTimer()
-			b.ReportMetric(float64(included), "txs/block")
-
-			if included < len(txs) {
-				b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
-			}
-		})
-	}
-}
-
-// BenchmarkBuildBlockWithBAL benchmarks buildBlock with EIP-7928 enabled: sequential execution
-// plus BAR recording, packing, and hashing. Delta vs BuildBlockNoBAL is the proposer-side cost
-// BAL adds.
-func BenchmarkBuildBlockWithBAL(b *testing.B) {
-	benchSizes, _ := getBenchData()
-
-	for _, size := range benchSizes {
-		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
-			h, txs := benchScenario(b, 12, size)
-
-			included := 0
-
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, true)
-				require.NoError(b, err)
-				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
-				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
-				require.NotEmpty(b, bal, "BAL must be built with EIP-7928 enabled")
-
-				included = len(block.Transactions)
-			}
-
-			b.StopTimer()
-			b.ReportMetric(float64(included), "txs/block")
-
-			if included < len(txs) {
-				b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
-			}
-		})
-	}
-}
+func BenchmarkBuildBlockNoBAL(b *testing.B)   { benchBuildBlock(b, false) }
+func BenchmarkBuildBlockWithBAL(b *testing.B) { benchBuildBlock(b, true) }
 
 // BenchmarkSequentialVerifyNoBAL is the absolute baseline: ProcessBlock with EIP-7928 disabled,
 // no BAR recording overhead at all. This is the "before BAL existed" wall time.
@@ -124,6 +57,7 @@ func BenchmarkSequentialVerifyNoBAL(b *testing.B) {
 
 		_, root, err := tran.Commit()
 		require.NoError(b, err)
+
 		header.StateRoot = root
 
 		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
@@ -188,11 +122,66 @@ func BenchmarkParallelVerifyBAL(b *testing.B) {
 	}
 }
 
+// benchBuildBlock is the shared body of BenchmarkBuildBlock{NoBAL,WithBAL}.
+// It builds one block per b.N iteration over each configured tx-count, using
+// a BAL-enabled or BAL-disabled harness depending on withBAL, and asserts
+// that a BAL is (or is not) produced accordingly. Reports the included tx
+// count as the "txs/block" metric and logs when the block-time window
+// truncates the workload.
+func benchBuildBlock(b *testing.B, withBAL bool) {
+	b.Helper()
+
+	benchSizes, _ := getBenchData()
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprintf("txs=%d", size), func(b *testing.B) {
+			var (
+				h   *parHarness
+				txs []*types.Transaction
+			)
+
+			if withBAL {
+				h, txs = benchScenario(b, 12, size)
+			} else {
+				h, txs = benchScenarioNoBAL(b, 12, size)
+			}
+
+			included := 0
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				block, receipts, bal, err := h.buildBlockFn(b, h.parentHeader, txs, 2*time.Second, withBAL)
+				require.NoError(b, err)
+				require.NotEmpty(b, block.Transactions, "the block-time window must fit at least one tx")
+				require.Len(b, receipts, len(block.Transactions), "every included tx must have a receipt")
+
+				if withBAL {
+					require.NotEmpty(b, bal, "BAL must be built with EIP-7928 enabled")
+				} else {
+					require.Empty(b, bal, "no BAL must be built with EIP-7928 disabled")
+				}
+
+				included = len(block.Transactions)
+			}
+
+			b.StopTimer()
+
+			b.ReportMetric(float64(included), "txs/block")
+
+			if included < len(txs) {
+				b.Logf("block-time window truncated the block: %d of %d txs included", included, len(txs))
+			}
+		})
+	}
+}
+
 // benchScenario returns a BAL-enabled harness populated with the RandomizedWorkload.
 func benchScenario(tb testing.TB, numSenders, numTxs int) (*parHarness, []*types.Transaction) {
 	tb.Helper()
 
 	h := newParHarness(tb)
+
 	return h, populateWorkload(tb, h, numSenders, numTxs)
 }
 
@@ -201,6 +190,7 @@ func benchScenarioNoBAL(tb testing.TB, numSenders, numTxs int) (*parHarness, []*
 	tb.Helper()
 
 	h := newParHarnessNoBAL(tb)
+
 	return h, populateWorkload(tb, h, numSenders, numTxs)
 }
 
@@ -229,6 +219,7 @@ func populateWorkload(tb testing.TB, h *parHarness, numSenders, numTxs int) []*t
 	for i := range targets {
 		targets[i] = parAddr(byte(200 + i))
 	}
+
 	receivers := make([]types.Address, 6)
 	for i := range receivers {
 		receivers[i] = parAddr(byte(100 + i))
@@ -511,7 +502,9 @@ var parDeployer = types.Address{0xD0}
 
 func parAddr(b byte) types.Address {
 	var a types.Address
+
 	a[19] = b
+
 	return a
 }
 
@@ -520,6 +513,7 @@ func fundAll(callers ...types.Address) map[types.Address]*big.Int {
 	for _, c := range callers {
 		m[c] = ethgo.Ether(100)
 	}
+
 	return m
 }
 

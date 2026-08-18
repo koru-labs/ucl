@@ -42,7 +42,7 @@ func TestE2E_BAL_CrossNodeAgreement(t *testing.T) {
 			cluster.WaitForReady(t)
 
 			// Sanity: we really have 4 validators + 2 non-validators.
-			//require.Len(t, cluster.Servers, 6)
+			// require.Len(t, cluster.Servers, 6)
 
 			// A recipient EOA that starts with zero balance, so we can watch a
 			// BalanceChange entry take effect on every node.
@@ -314,7 +314,7 @@ func newBALTestCluster(
 	t.Helper()
 
 	opts := []frameworkV2.ClusterOption{
-		//frameworkV2.WithNonValidators(2),
+		// frameworkV2.WithNonValidators(2),
 		frameworkV2.WithBootnodeCount(1),
 		frameworkV2.WithPremine(map[types.Address]*big.Int{
 			senderAddr: ethgo.Ether(100),

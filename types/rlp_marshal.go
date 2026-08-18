@@ -390,10 +390,12 @@ func (t *Transaction) RLPSize() uint64 {
 // with no leading zeros. Returns 0 for v == 0 (RLP encodes zero as an empty string).
 func byteLen(v uint64) uint64 {
 	var n uint64
+
 	for v > 0 {
 		n++
 		v >>= 8
 	}
+
 	return n
 }
 
@@ -403,9 +405,11 @@ func rlpUintSize(v uint64) uint64 {
 	if v == 0 {
 		return 1
 	}
+
 	if v < 0x80 {
 		return 1
 	}
+
 	return 1 + byteLen(v)
 }
 
@@ -416,9 +420,11 @@ func rlpBytesSize(b []byte) uint64 {
 	if n == 1 && b[0] < 0x80 {
 		return 1
 	}
+
 	if n <= 55 {
 		return 1 + n
 	}
+
 	return 1 + byteLen(n) + n
 }
 
@@ -428,6 +434,7 @@ func rlpFixedBytesSize(n uint64) uint64 {
 	if n <= 55 {
 		return 1 + n
 	}
+
 	return 1 + byteLen(n) + n
 }
 
@@ -437,6 +444,7 @@ func rlpBigIntSize(i *big.Int) uint64 {
 	if i == nil || i.Sign() == 0 {
 		return 1
 	}
+
 	return rlpBytesSize(i.Bytes())
 }
 
@@ -445,6 +453,7 @@ func rlpListSize(payloadSize uint64) uint64 {
 	if payloadSize <= 55 {
 		return 1 + payloadSize
 	}
+
 	return 1 + byteLen(payloadSize) + payloadSize
 }
 
@@ -457,11 +466,13 @@ func transactionsSectionSize(txs []*Transaction) uint64 {
 	}
 
 	var payload uint64
+
 	for _, tx := range txs {
 		if tx.Type != LegacyTx {
 			// EIP-2718 type is always < 0x80, so it fits in a single byte.
 			payload += 1
 		}
+
 		payload += tx.RLPSize()
 	}
 
