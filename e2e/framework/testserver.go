@@ -289,19 +289,6 @@ func (t *TestServer) SecretsInit() (*InitIBFTResult, error) {
 		return nil, setErr
 	}
 
-	if t.Config.ValidatorType == validators.BLSValidatorType {
-		// Generate the BLS Key
-		_, blsKeyEncoded, keyErr := crypto.GenerateAndEncodeBLSSecretKey()
-		if keyErr != nil {
-			return nil, keyErr
-		}
-
-		// Write the networking private key to the secrets manager storage
-		if setErr := localSecretsManager.SetSecret(secrets.ValidatorBLSKey, blsKeyEncoded); setErr != nil {
-			return nil, setErr
-		}
-	}
-
 	// Get the node ID from the private key
 	nodeID, err := peer.IDFromPrivateKey(libp2pKey)
 	if err != nil {
@@ -338,7 +325,6 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(
 			args,
 			"--consensus", "ibft",
-			"--ibft-validator-type", string(t.Config.ValidatorType),
 		)
 
 		if t.Config.IBFTDirPrefix == "" {
@@ -355,7 +341,6 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(
 			args,
 			"--consensus", "dev",
-			"--ibft-validator-type", string(t.Config.ValidatorType),
 		)
 
 		// Set up any initial staker addresses for the predeployed Staking SC
@@ -565,9 +550,6 @@ func (t *TestServer) SwitchIBFTType(typ fork.IBFTType, from uint64, to, deployme
 		"--type", string(typ),
 		"--from", strconv.FormatUint(from, 10),
 	)
-
-	// Default ibft validator type for e2e tests is ECDSA
-	args = append(args, "--ibft-validator-type", string(validators.ECDSAValidatorType))
 
 	if to != nil {
 		args = append(args, "--to", strconv.FormatUint(*to, 10))

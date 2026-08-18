@@ -7,7 +7,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/command"
 	"github.com/0xPolygon/polygon-edge/command/helper"
-	"github.com/0xPolygon/polygon-edge/validators"
 )
 
 func GetCommand() *cobra.Command {
@@ -53,16 +52,6 @@ func setFlags(cmd *cobra.Command) {
 			fromFlag,
 			"",
 			"the height to switch the new type",
-		)
-	}
-
-	// IBFT
-	{
-		cmd.Flags().StringVar(
-			&params.rawIBFTValidatorType,
-			command.IBFTValidatorTypeFlag,
-			string(validators.BLSValidatorType),
-			"the type of validators in IBFT",
 		)
 	}
 

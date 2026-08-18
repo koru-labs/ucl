@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/Ethernal-Tech/ethgo"
 	"github.com/golang/protobuf/ptypes/any"
@@ -270,4 +273,17 @@ func GenerateAddTxnReq(params GenerateTxReqParams) (*txpoolOp.AddTxnReq, error) 
 	}
 
 	return msg, nil
+}
+
+func ResetBlockSizeField(block *types.Block) {
+	if block == nil {
+		return
+	}
+
+	v := reflect.ValueOf(block).Elem()
+	f := v.FieldByName("size")
+
+	// Create a settable value pointing to the unexported field's address
+	writableField := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr()))
+	writableField.Elem().Set(reflect.ValueOf(atomic.Pointer[uint64]{}))
 }

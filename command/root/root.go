@@ -15,8 +15,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/loadtest"
 	"github.com/0xPolygon/polygon-edge/command/monitor"
 	"github.com/0xPolygon/polygon-edge/command/peers"
-	"github.com/0xPolygon/polygon-edge/command/polybft"
-	"github.com/0xPolygon/polygon-edge/command/polybftsecrets"
 	"github.com/0xPolygon/polygon-edge/command/regenesis"
 	"github.com/0xPolygon/polygon-edge/command/rootchain"
 	"github.com/0xPolygon/polygon-edge/command/secrets"
@@ -59,8 +57,6 @@ func (rc *RootCommand) registerSubCommands() {
 		genesis.GetCommand(),
 		server.GetCommand(),
 		license.GetCommand(),
-		polybftsecrets.GetCommand(),
-		polybft.GetCommand(),
 		bridge.GetCommand(),
 		regenesis.GetCommand(),
 		loadtest.GetCommand(),

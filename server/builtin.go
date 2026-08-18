@@ -32,10 +32,9 @@ const (
 )
 
 var consensusBackends = map[ConsensusType]consensus.Factory{
-	DevConsensus:     consensusDev.Factory,
-	IBFTConsensus:    consensusIBFT.Factory,
-	PolyBFTConsensus: consensusPolyBFT.Factory,
-	DummyConsensus:   consensusDummy.Factory,
+	DevConsensus:   consensusDev.Factory,
+	IBFTConsensus:  consensusIBFT.Factory,
+	DummyConsensus: consensusDummy.Factory,
 }
 
 // secretsManagerBackends defines the SecretManager factories for different

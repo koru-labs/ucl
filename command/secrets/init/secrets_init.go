@@ -79,13 +79,6 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().BoolVar(
-		&basicParams.generatesBLS,
-		blsFlag,
-		true,
-		"the flag indicating whether new BLS key is created",
-	)
-
-	cmd.Flags().BoolVar(
 		&basicParams.insecureLocalStore,
 		insecureLocalStoreFlag,
 		false,
@@ -155,7 +148,6 @@ func getParamsList() []initParams {
 			dataDir:            fmt.Sprintf("%s%d", basicParams.dataDir, i),
 			configPath:         basicParams.configPath,
 			generatesECDSA:     basicParams.generatesECDSA,
-			generatesBLS:       basicParams.generatesBLS,
 			generatesNetwork:   basicParams.generatesNetwork,
 			insecureLocalStore: basicParams.insecureLocalStore,
 		}

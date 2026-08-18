@@ -91,9 +91,8 @@ type genesisParams struct {
 	validators           []string
 
 	// IBFT
-	rawIBFTValidatorType string
-	ibftValidatorType    validators.ValidatorType
-	ibftValidators       validators.Validators
+	ibftValidatorType validators.ValidatorType
+	ibftValidators    validators.Validators
 
 	extraData []byte
 	consensus server.ConsensusType
@@ -159,35 +158,13 @@ func (p *genesisParams) validateFlags() error {
 		return err
 	}
 
-	if p.isPolyBFTConsensus() {
-		if err := p.extractNativeTokenMetadata(); err != nil {
-			return err
-		}
-
-		if err := p.validateBurnContract(); err != nil {
-			return err
-		}
-
-		if err := p.validateRewardWalletAndToken(); err != nil {
-			return err
-		}
-
-		if err := p.validatePremineInfo(); err != nil {
-			return err
-		}
-
-		if err := p.validateProxyContractsAdmin(); err != nil {
-			return err
-		}
-	}
-
 	// Check if the genesis file already exists
 	if generateError := verifyGenesisExistence(p.genesisPath); generateError != nil {
 		return errors.New(generateError.GetMessage())
 	}
 
 	// Check that the epoch size is correct
-	if p.epochSize < 2 && (p.isIBFTConsensus() || p.isPolyBFTConsensus()) {
+	if p.epochSize < 2 && p.isIBFTConsensus() {
 		// Epoch size must be greater than 1, so new transactions have a chance to be added to a block.
 		// Otherwise, every block would be an endblock (meaning it will not have any transactions).
 		// Check is placed here to avoid additional parsing if epochSize < 2
@@ -235,12 +212,10 @@ func (p *genesisParams) initRawParams() error {
 	p.consensus = server.ConsensusType(p.consensusRaw)
 
 	if p.consensus == server.PolyBFTConsensus {
-		return nil
+		return errUnsupportedConsensus
 	}
 
-	if err := p.initIBFTValidatorType(); err != nil {
-		return err
-	}
+	p.ibftValidatorType = validators.ECDSAValidatorType
 
 	if err := p.initValidatorSet(); err != nil {
 		return err
@@ -292,17 +267,8 @@ func (p *genesisParams) setValidatorSetFromPrefixPath() error {
 	return nil
 }
 
-func (p *genesisParams) initIBFTValidatorType() error {
-	var err error
-	if p.ibftValidatorType, err = validators.ParseValidatorType(p.rawIBFTValidatorType); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (p *genesisParams) initValidatorSet() error {
-	p.ibftValidators = validators.NewValidatorSetFromType(p.ibftValidatorType)
+	p.ibftValidators = validators.NewValidatorSetFromType(validators.ECDSAValidatorType)
 
 	// Set validator set
 	// Priority goes to cli command over prefix path
@@ -331,19 +297,10 @@ func (p *genesisParams) initIBFTExtraData() {
 		return
 	}
 
-	var committedSeal signer.Seals
-
-	switch p.ibftValidatorType {
-	case validators.ECDSAValidatorType:
-		committedSeal = new(signer.SerializedSeal)
-	case validators.BLSValidatorType:
-		committedSeal = new(signer.AggregatedSeal)
-	}
-
 	ibftExtra := &signer.IstanbulExtra{
 		Validators:     p.ibftValidators,
 		ProposerSeal:   []byte{},
-		CommittedSeals: committedSeal,
+		CommittedSeals: new(signer.SerializedSeal),
 	}
 
 	p.extraData = make([]byte, signer.IstanbulExtraVanity)

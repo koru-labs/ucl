@@ -11,9 +11,14 @@ premine_addresses=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    ibft|polybft)
+    ibft)
       consensus="$1"
       shift
+      ;;
+    polybft)
+      echo "PolyBFT is no longer supported (BLS validator keys removed)."
+      echo "Use: cluster ibft"
+      exit 1
       ;;
     --docker)
       docker_flag="--docker"
@@ -44,19 +49,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Check if jq is installed
-if [[ "$consensus" == "polybft" ]] && ! command -v jq >/dev/null 2>&1; then
-  echo "jq is not installed."
-  echo "Manual installation instructions: Visit https://jqlang.github.io/jq/ for more information."
-  dp_error_flag=1
-fi
 
-# Check if curl is installed
-if [[ "$consensus" == "polybft" ]] && ! command -v curl >/dev/null 2>&1; then
-  echo "curl is not installed."
-  echo "Manual installation instructions: Visit https://everything.curl.dev/get/ for more information."
-  dp_error_flag=1
-fi
 
 # Check if docker-compose is installed
 if [[ "$docker_flag" == "--docker" ]] && ! command -v docker-compose >/dev/null 2>&1; then
@@ -75,7 +68,6 @@ function showhelp() {
   echo "Usage: cluster {consensus} [{command}] [{flags}]"
   echo "Consensus:"
   echo "  ibft            Start Supernets test environment locally with ibft consensus"
-  echo "  polybft         Start Supernets test environment locally with polybft consensus"
   echo "Commands:"
   echo "  stop            Stop the running environment"
   echo "  destroy         Destroy the running environment"
@@ -87,9 +79,9 @@ function showhelp() {
   echo "                  If not provided, default addresses are used."
   echo "  --help          Display this help information"
   echo "Examples:"
-  echo "  cluster polybft -- Run the script with the polybft consensus"
-  echo "  cluster polybft --docker -- Run the script with the polybft consensus using docker"
-  echo "  cluster polybft stop -- Stop the running environment"
+  echo "  cluster ibft -- Run the script with IBFT consensus"
+  echo "  cluster ibft --docker -- Run the script with IBFT consensus using docker"
+  echo "  cluster ibft stop -- Stop the running environment"
   echo "  cluster ibft --premine 0xABC,0xDEF -- Run with custom premine addresses"
 }
 
@@ -105,15 +97,6 @@ function initIbftConsensus() {
     --bootnode /ip4/127.0.0.1/tcp/30302/p2p/$node2_id"
 }
 
-function initPolybftConsensus() {
-  echo "Running with polybft consensus"
-  genesis_params="--consensus polybft"
-
-  address1=$(./polygon-edge polybft-secrets --insecure --data-dir test-chain-1 | grep Public | head -n 1 | awk -F ' ' '{print $5}')
-  address2=$(./polygon-edge polybft-secrets --insecure --data-dir test-chain-2 | grep Public | head -n 1 | awk -F ' ' '{print $5}')
-  address3=$(./polygon-edge polybft-secrets --insecure --data-dir test-chain-3 | grep Public | head -n 1 | awk -F ' ' '{print $5}')
-  address4=$(./polygon-edge polybft-secrets --insecure --data-dir test-chain-4 | grep Public | head -n 1 | awk -F ' ' '{print $5}')
-}
 
 function createGenesis() {
   # Build premine arguments dynamically
@@ -128,89 +111,9 @@ function createGenesis() {
     --premine 0x0000000000000000000000000000000000000000 \
     ${premine_args} \
     --epoch-size 10 \
-    --reward-wallet 0xDEADBEEF:1000000 \
-    --native-token-config "Polygon:MATIC:18:true:$address1" \
-    --burn-contract 0:0x0000000000000000000000000000000000000000 \
-    --proxy-contracts-admin 0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed
+    --burn-contract 0:0x0000000000000000000000000000000000000000
 }
 
-function initRootchain() {
-  echo "Initializing rootchain"
-
-  if [ "$1" == "write-logs" ]; then
-    echo "Writing rootchain server logs to the file..."
-    ./polygon-edge rootchain server 2>&1 | tee ./rootchain-server.log &
-  else
-    ./polygon-edge rootchain server >/dev/null &
-  fi
-
-  set +e
-  while true; do
-    if curl -sSf -o /dev/null http://127.0.0.1:8545; then
-      break
-    fi
-    sleep 1
-  done
-  set -e
-
-  proxyContractsAdmin=0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed
-
-  ./polygon-edge polybft stake-manager-deploy \
-    --jsonrpc http://127.0.0.1:8545 \
-    --proxy-contracts-admin ${proxyContractsAdmin} \
-    --test
-
-  stakeManagerAddr=$(cat genesis.json | jq -r '.params.engine.polybft.bridge.stakeManagerAddr')
-  stakeToken=$(cat genesis.json | jq -r '.params.engine.polybft.bridge.stakeTokenAddr')
-
-  ./polygon-edge rootchain deploy \
-    --stake-manager ${stakeManagerAddr} \
-    --stake-token ${stakeToken} \
-    --proxy-contracts-admin ${proxyContractsAdmin} \
-    --test
-
-  customSupernetManagerAddr=$(cat genesis.json | jq -r '.params.engine.polybft.bridge.customSupernetManagerAddr')
-  supernetID=$(cat genesis.json | jq -r '.params.engine.polybft.supernetID')
-
-  ./polygon-edge rootchain fund \
-    --stake-token ${stakeToken} \
-    --mint \
-    --addresses ${address1},${address2},${address3},${address4} \
-    --amounts 1000000000000000000000000,1000000000000000000000000,1000000000000000000000000,1000000000000000000000000
-
-  ./polygon-edge polybft whitelist-validators \
-    --addresses ${address1},${address2},${address3},${address4} \
-    --supernet-manager ${customSupernetManagerAddr} \
-    --private-key aa75e9a7d427efc732f8e4f1a5b7646adcc61fd5bae40f80d13c8419c9f43d6d \
-    --jsonrpc http://127.0.0.1:8545
-
-  counter=1
-  while [ $counter -le 4 ]; do
-    echo "Registering validator: ${counter}"
-
-    ./polygon-edge polybft register-validator \
-      --supernet-manager ${customSupernetManagerAddr} \
-      --data-dir test-chain-${counter} \
-      --jsonrpc http://127.0.0.1:8545
-
-    ./polygon-edge polybft stake \
-      --data-dir test-chain-${counter} \
-      --amount 1000000000000000000000000 \
-      --supernet-id ${supernetID} \
-      --stake-manager ${stakeManagerAddr} \
-      --stake-token ${stakeToken} \
-      --jsonrpc http://127.0.0.1:8545
-
-    ((counter++))
-  done
-
-  ./polygon-edge polybft supernet \
-    --private-key aa75e9a7d427efc732f8e4f1a5b7646adcc61fd5bae40f80d13c8419c9f43d6d \
-    --supernet-manager ${customSupernetManagerAddr} \
-    --finalize-genesis-set \
-    --enable-staking \
-    --jsonrpc http://127.0.0.1:8545
-}
 
 function startNodes() {
   if [ "$2" == "write-logs" ]; then
@@ -225,12 +128,6 @@ function startNodes() {
 
     log_file="./validator-$i.log"
 
-    relayer_arg=""
-    # Start relayer only if running polybft and for the 1st node
-    if [ "$1" == "polybft" ] && [ $i -eq 1 ]; then
-      relayer_arg="--relayer"
-    fi
-
     if [ "$2" == "write-logs" ]; then
       if [ ! -f "$log_file" ]; then
         touch "$log_file"
@@ -238,14 +135,14 @@ function startNodes() {
 
       ./polygon-edge server --data-dir "$data_dir" --chain genesis.json \
         --grpc-address ":$grpc_port" --libp2p ":$libp2p_port" --jsonrpc ":$jsonrpc_port" \
-        --num-block-confirmations 2 $relayer_arg \
+        --num-block-confirmations 2 \
         --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
         --log-level DEBUG 2>&1 | tee $log_file &
     else
       ./polygon-edge server --data-dir "$data_dir" --chain genesis.json \
         --grpc-address ":$grpc_port" --libp2p ":$libp2p_port" --jsonrpc ":$jsonrpc_port" \
-        --num-block-confirmations 2 $relayer_arg \
+        --num-block-confirmations 2 \
         --json-rpc-batch-request-limit 0 \
         --gossip-msg-size 4194304 \
         --log-level DEBUG &
@@ -257,9 +154,7 @@ function startNodes() {
 }
 
 function startServerFromDockerCompose() {
-  if [ "$1" != "polybft" ]; then
-    export EDGE_CONSENSUS="$1"
-  fi
+  export EDGE_CONSENSUS="$1"
 
   docker-compose -f ./docker/local/docker-compose.yml up -d --build
 }
@@ -311,24 +206,13 @@ case "$docker_flag" in
 # cluster {consensus}
 *)
   echo "Running $consensus environment from local binary..."
-  # Initialize ibft or polybft consensus
   if [ "$consensus" == "ibft" ]; then
-    # Initialize ibft consensus
     initIbftConsensus
-    # Create genesis file and start the server from binary
     createGenesis
-    startNodes $consensus $command_arg
-    exit 0
-  elif [ "$consensus" == "polybft" ]; then
-    # Initialize polybft consensus
-    initPolybftConsensus
-    # Create genesis file and start the server from binary
-    createGenesis
-    initRootchain $command_arg
     startNodes $consensus $command_arg
     exit 0
   else
-    echo "Unsupported consensus mode. Supported modes are: ibft and polybft."
+    echo "Unsupported consensus mode. Supported mode: ibft"
     showhelp
     exit 1
   fi

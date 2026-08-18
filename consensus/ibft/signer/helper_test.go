@@ -3,7 +3,6 @@ package signer
 import (
 	"crypto/ecdsa"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/crypto"
@@ -73,7 +72,6 @@ func Test_wrapCommitHash(t *testing.T) {
 	assert.Equal(t, expectedOutput, output)
 }
 
-//nolint
 func Test_getOrCreateECDSAKey(t *testing.T) {
 	t.Parallel()
 
@@ -184,114 +182,13 @@ func Test_getOrCreateECDSAKey(t *testing.T) {
 	}
 }
 
-//nolint
 func Test_getOrCreateBLSKey(t *testing.T) {
 	t.Parallel()
 
-	testKey, testKeyEncoded := newTestBLSKey(t)
+	res, err := getOrCreateBLSKey(&MockSecretManager{})
 
-	testSecretName := func(name string) {
-		t.Helper()
-
-		// make sure that the correct key is given
-		assert.Equal(t, secrets.ValidatorBLSKey, name)
-	}
-
-	tests := []struct {
-		name              string
-		mockSecretManager *MockSecretManager
-		expectedResult    *bls_sig.SecretKey
-		expectedErr       error
-	}{
-		{
-			name: "should load BLS key from secret manager if the key exists",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					return testKeyEncoded, nil
-				},
-			},
-			expectedResult: testKey,
-			expectedErr:    nil,
-		},
-		{
-			name: "should create new BLS key if the key doesn't exist",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return false
-				},
-				SetSecretFn: func(name string, key []byte) error {
-					testSecretName(name)
-
-					assert.NotEqual(t, testKeyEncoded, key)
-
-					return nil
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					return testKeyEncoded, nil
-				},
-			},
-			expectedResult: testKey,
-			expectedErr:    nil,
-		},
-		{
-			name: "should return error if secret manager returns error",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					return nil, errTest
-				},
-			},
-			expectedResult: nil,
-			expectedErr:    errTest,
-		},
-		{
-			name: "should return error if the key manager fails to generate new BLS key",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return false
-				},
-				SetSecretFn: func(name string, key []byte) error {
-					testSecretName(name)
-
-					return errTest
-				},
-			},
-			expectedResult: nil,
-			expectedErr:    errTest,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			res, err := getOrCreateBLSKey(test.mockSecretManager)
-
-			assert.Equal(t, test.expectedResult, res)
-			assert.ErrorIs(t, test.expectedErr, err)
-		})
-	}
+	assert.Nil(t, res)
+	assert.ErrorIs(t, err, ErrBLSValidatorKeysUnsupported)
 }
 
 // make sure that header hash calculation returns the same hash
@@ -333,7 +230,6 @@ func TestNewKeyManagerFromType(t *testing.T) {
 	t.Parallel()
 
 	testECDSAKey, testECDSAKeyEncoded := newTestECDSAKey(t)
-	testBLSKey, testBLSKeyEncoded := newTestBLSKey(t)
 
 	tests := []struct {
 		name              string
@@ -357,24 +253,11 @@ func TestNewKeyManagerFromType(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:          "BLSValidatorType",
-			validatorType: validators.BLSValidatorType,
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					switch name {
-					case secrets.ValidatorKey:
-						return testECDSAKeyEncoded, nil
-					case secrets.ValidatorBLSKey:
-						return testBLSKeyEncoded, nil
-					}
-
-					return nil, fmt.Errorf("unexpected key name: %s", name)
-				},
-			},
-			expectedRes: NewBLSKeyManagerFromKeys(testECDSAKey, testBLSKey),
+			name:              "BLSValidatorType",
+			validatorType:     validators.BLSValidatorType,
+			mockSecretManager: &MockSecretManager{},
+			expectedRes:       nil,
+			expectedErr:       ErrBLSValidatorKeysUnsupported,
 		},
 		{
 			name:          "unsupported type",
