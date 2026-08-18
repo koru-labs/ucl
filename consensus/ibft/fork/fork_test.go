@@ -150,12 +150,12 @@ func TestGetIBFTForks(t *testing.T) {
 			name: "should return a single fork for ECDSA if IBFTConfig has type and validator type",
 			config: map[string]interface{}{
 				"type":           "PoS",
-				"validator_type": "bls",
+				"validator_type": "ecdsa",
 			},
 			res: IBFTForks{
 				{
 					Type:          PoS,
-					ValidatorType: validators.BLSValidatorType,
+					ValidatorType: validators.ECDSAValidatorType,
 					Deployment:    nil,
 					From:          common.JSONNumber{Value: 0},
 					To:            nil,
@@ -164,7 +164,16 @@ func TestGetIBFTForks(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "should return multiple forks",
+			name: "should reject BLS validator type",
+			config: map[string]interface{}{
+				"type":           "PoS",
+				"validator_type": "bls",
+			},
+			res: nil,
+			err: ErrUnsupportedBLSValidatorType,
+		},
+		{
+			name: "should reject forks that include BLS validator type",
 			config: map[string]interface{}{
 				"types": []interface{}{
 					map[string]interface{}{
@@ -180,6 +189,26 @@ func TestGetIBFTForks(t *testing.T) {
 					},
 				},
 			},
+			res: nil,
+			err: ErrUnsupportedBLSValidatorType,
+		},
+		{
+			name: "should return multiple ECDSA forks",
+			config: map[string]interface{}{
+				"types": []interface{}{
+					map[string]interface{}{
+						"type":           "PoA",
+						"validator_type": "ecdsa",
+						"from":           0,
+						"to":             10,
+					},
+					map[string]interface{}{
+						"type":           "PoS",
+						"validator_type": "ecdsa",
+						"from":           11,
+					},
+				},
+			},
 			res: IBFTForks{
 				{
 					Type:          PoA,
@@ -189,8 +218,8 @@ func TestGetIBFTForks(t *testing.T) {
 					To:            &common.JSONNumber{Value: 10},
 				},
 				{
-					Type:          PoA,
-					ValidatorType: validators.BLSValidatorType,
+					Type:          PoS,
+					ValidatorType: validators.ECDSAValidatorType,
 					Deployment:    nil,
 					From:          common.JSONNumber{Value: 11},
 					To:            nil,

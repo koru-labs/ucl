@@ -2,18 +2,15 @@
 
 ## Prerequisites
 
-When deploying with `polybft` consensus, there are some additional dependencies:
-
 * [go 1.20.x](https://go.dev/dl/)
-* [jq](https://jqlang.github.io/jq)
-* [curl](https://everything.curl.dev/get)
 
 ## Local development
 
 Running `polygon-edge` from local binary can be done very easily by using provided `scripts` folder.
 
-* `scripts/cluster ibft` - deploy environment with `ibft` consensus
-* `scripts/cluster polybft` - deploy environment with `polybft` consensus
+* `scripts/cluster ibft` - deploy environment with `ibft` consensus (ECDSA validators)
+
+PolyBFT / BLS validator key workflows are no longer supported.
 
 ## Customization
 

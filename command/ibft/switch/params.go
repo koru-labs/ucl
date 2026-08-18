@@ -43,8 +43,7 @@ type switchParams struct {
 	fromRaw       string
 	from          uint64
 
-	rawIBFTValidatorType string
-	ibftValidatorType    validators.ValidatorType
+	ibftValidatorType validators.ValidatorType
 
 	// PoA
 	validatorRootPath   string
@@ -73,9 +72,7 @@ func (p *switchParams) initRawParams() error {
 		return err
 	}
 
-	if err := p.initIBFTValidatorType(); err != nil {
-		return err
-	}
+	p.ibftValidatorType = validators.ECDSAValidatorType
 
 	if err := p.initDeployment(); err != nil {
 		return err
@@ -107,20 +104,6 @@ func (p *switchParams) initMechanismType() error {
 	}
 
 	p.ibftType = ibftType
-
-	return nil
-}
-
-func (p *switchParams) initIBFTValidatorType() error {
-	if p.rawIBFTValidatorType == "" {
-		return nil
-	}
-
-	var err error
-
-	if p.ibftValidatorType, err = validators.ParseValidatorType(p.rawIBFTValidatorType); err != nil {
-		return err
-	}
 
 	return nil
 }

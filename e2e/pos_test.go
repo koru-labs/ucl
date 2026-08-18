@@ -166,7 +166,7 @@ func TestPoS_ValidatorBoundaries(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			err := framework.StakeAmount(tt.address, tt.key, stakeAmount, srv)
+			_, err := framework.StakeAmount(tt.address, tt.key, stakeAmount, srv)
 			assert.NoError(t, err)
 			validateValidatorSet(t, tt.address, client, tt.expectedExistence, tt.expectedSize)
 		})
@@ -204,13 +204,12 @@ func TestPoS_Stake(t *testing.T) {
 	client := srv.JSONRPC()
 
 	// Stake Balance
-	stakeError := framework.StakeAmount(
+	if _, stakeError := framework.StakeAmount(
 		stakerAddr,
 		stakerKey,
 		stakeAmount,
 		srv,
-	)
-	if stakeError != nil {
+	); stakeError != nil {
 		t.Fatalf("Unable to stake amount, %v", stakeError)
 	}
 
@@ -801,7 +800,7 @@ func TestSnapshotUpdating(t *testing.T) {
 	sendCtx, sendWaitFn := context.WithTimeout(context.Background(), time.Second*30)
 	defer sendWaitFn()
 
-	receipt, transferErr := firstValidator.SendRawTx(
+	if _, transferErr := firstValidator.SendRawTx(
 		sendCtx,
 		&framework.PreparedTransaction{
 			From:     faucetAddr,
@@ -809,13 +808,12 @@ func TestSnapshotUpdating(t *testing.T) {
 			GasPrice: ethgo.Gwei(1),
 			Gas:      1000000,
 			Value:    framework.EthToWei(300),
-		}, faucetKey)
-	if transferErr != nil {
+		}, faucetKey); transferErr != nil {
 		t.Fatalf("Unable to transfer funds, %v", transferErr)
 	}
 
 	// Now that the non-validator has funds, they can stake
-	stakeError := framework.StakeAmount(
+	stakeReceipt, stakeError := framework.StakeAmount(
 		firstNonValidatorAddr,
 		firstNonValidatorKey,
 		stakeAmount,
@@ -831,8 +829,9 @@ func TestSnapshotUpdating(t *testing.T) {
 	// Check validator set on the Staking Smart Contract
 	validateValidatorSet(t, firstNonValidatorAddr, firstValidator.JSONRPC(), true, numGenesisValidators+1)
 
-	// Find the nearest next epoch block
-	nextEpoch := getNextEpochBlock(receipt.BlockNumber, epochSize) + epochSize
+	// A snapshot for a block reads the validator set from the end of the previous epoch,
+	// so the boundary must be the first one after the block that carried the stake.
+	nextEpoch := getNextEpochBlock(stakeReceipt.BlockNumber, epochSize)
 
 	servers := make([]*framework.TestServer, 0)
 	for i := 0; i < totalServers; i++ {

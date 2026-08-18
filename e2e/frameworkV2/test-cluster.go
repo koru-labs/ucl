@@ -23,14 +23,11 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/polybft/contractsapi"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/helper/common"
-	"github.com/0xPolygon/polygon-edge/secrets"
-	"github.com/0xPolygon/polygon-edge/secrets/helper"
-	"github.com/0xPolygon/polygon-edge/secrets/local"
+	secretsHelper "github.com/0xPolygon/polygon-edge/secrets/helper"
 	"github.com/0xPolygon/polygon-edge/server"
 	"github.com/0xPolygon/polygon-edge/txrelayerv2"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
-	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +49,9 @@ const (
 
 	// prefix for non validators directory
 	nonValidatorPrefix = "test-non-validator-"
+
+	// bootnodePortStart matches genesis bootnode ports and cluster initialPort+1
+	bootnodePortStart = 30301
 
 	// NativeTokenMintableTestCfg is the test native token config for Supernets originated native tokens
 	NativeTokenMintableTestCfg = "Mintable Edge Coin:MEC:18" //nolint:gosec
@@ -75,7 +75,6 @@ func (nt *NodeType) Append(value NodeType) {
 
 var (
 	startTime              int64
-	testRewardWalletAddr   = types.StringToAddress("0xFFFFFFFF")
 	ProxyContractAdminAddr = "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
 )
 
@@ -532,15 +531,8 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 			"--dir", genesisPath,
 			"--block-gas-limit", strconv.FormatUint(cluster.Config.BlockGasLimit, 10),
 			"--epoch-size", strconv.Itoa(cluster.Config.EpochSize),
-			"--epoch-reward", strconv.Itoa(cluster.Config.EpochReward),
 			"--premine", "0x0000000000000000000000000000000000000000:0x" + ethgo.Ether(10).String(),
 			"--trieroot", cluster.Config.InitialStateRoot.String(),
-		}
-
-		if cluster.Config.RewardWallet != "" {
-			args = append(args, "--reward-wallet", cluster.Config.RewardWallet)
-		} else {
-			args = append(args, "--reward-wallet", testRewardWalletAddr.String())
 		}
 
 		if cluster.Config.BlockTime != 0 {
@@ -548,23 +540,11 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 				cluster.Config.BlockTime.String())
 		}
 
-		if cluster.Config.TestRewardToken != "" {
-			args = append(args, "--reward-token-code", cluster.Config.TestRewardToken)
-		}
-
 		if cluster.Config.BaseFeeConfig != "" {
 			args = append(args, "--base-fee-config", cluster.Config.BaseFeeConfig)
 		}
 
-		if cluster.Config.NativeTokenConfigRaw != "" {
-			args = append(args, "--native-token-config", cluster.Config.NativeTokenConfigRaw)
-		}
-
-		tokenConfig, err := polybft.ParseRawTokenConfig(cluster.Config.NativeTokenConfigRaw)
-		require.NoError(t, err)
-
 		if len(cluster.Config.Premine) != 0 {
-			// only add premine flags in genesis if token is mintable
 			for _, premine := range cluster.Config.Premine {
 				args = append(args, "--premine", premine)
 			}
@@ -577,24 +557,17 @@ func NewTestCluster(t *testing.T, validatorsCount int, opts ...ClusterOption) *T
 					burnContract.BlockNumber, burnContract.Address, burnContract.DestinationAddress))
 		}
 
-		if tokenConfig.IsMintable && len(cluster.Config.StakeAmounts) != 0 {
-			for i, addr := range addresses {
-				args = append(args, "--stake", fmt.Sprintf("%s:%s", addr.String(), cluster.Config.getStakeAmount(i).String()))
-			}
-		}
-
-		validators, err := genesis.ReadValidatorsByPrefix(
-			cluster.Config.TmpDir, cluster.Config.ValidatorPrefix)
+		bootnodes, err := readBootnodeAddrs(cluster.Config.TmpDir, cluster.Config.ValidatorPrefix)
 		require.NoError(t, err)
 
 		if cluster.Config.BootnodeCount > 0 {
 			bootNodesCnt := cluster.Config.BootnodeCount
-			if len(validators) < bootNodesCnt {
-				bootNodesCnt = len(validators)
+			if len(bootnodes) < bootNodesCnt {
+				bootNodesCnt = len(bootnodes)
 			}
 
 			for i := 0; i < bootNodesCnt; i++ {
-				args = append(args, "--bootnode", validators[i].MultiAddr)
+				args = append(args, "--bootnode", bootnodes[i])
 			}
 		}
 
@@ -815,6 +788,33 @@ func RunEdgeCommand(args []string, stdout io.Writer) error {
 	return runCommand(resolveBinary(), args, stdout)
 }
 
+// readBootnodeAddrs builds libp2p multiaddrs from network keys (no BLS).
+func readBootnodeAddrs(dir, prefix string) ([]string, error) {
+	validatorKeyFiles, err := genesis.GetValidatorKeyFiles(dir, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	bootnodes := make([]string, 0, len(validatorKeyFiles))
+
+	for i, file := range validatorKeyFiles {
+		secretsManager, err := secretsHelper.SetupLocalSecretsManager(filepath.Join(dir, file))
+		if err != nil {
+			return nil, err
+		}
+
+		nodeID, err := secretsHelper.LoadNodeID(secretsManager)
+		if err != nil {
+			return nil, err
+		}
+
+		bootnodes = append(bootnodes,
+			fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/p2p/%s", bootnodePortStart+int64(i), nodeID))
+	}
+
+	return bootnodes, nil
+}
+
 // InitSecrets initializes account(s) secrets with given prefix.
 // (secrets are being stored in the temp directory created by given e2e test execution)
 func (c *TestCluster) InitSecrets(prefix string, count int) ([]types.Address, error) {
@@ -942,24 +942,6 @@ func (t *TestTxn) Reverted() bool {
 	return t.Failed() && t.txn.Gas == t.receipt.GasUsed
 }
 
-// ReadValidatorBLSKey reads the BLS public key for a validator at the given dataDir
-// using the local secrets manager — same approach as the rest of the framework.
-func ReadValidatorBLSKey(dataDir string) (string, error) {
-	sm, err := local.SecretsManagerFactory(
-		nil,
-		&secrets.SecretsManagerParams{
-			Logger: hclog.NewNullLogger(),
-			Extra: map[string]interface{}{
-				secrets.Path: dataDir,
-			},
-		},
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create secrets manager for %s: %w", dataDir, err)
-	}
-
-	return helper.LoadBLSPublicKey(sm)
-}
 
 func dockerComposeUp(logsDir string) {
 	// Create a log file for docker-compose output

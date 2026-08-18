@@ -9,19 +9,13 @@ import (
 
 // SecretsOutputAllResult for default output case
 type SecretsOutputAllResult struct {
-	Address   string `json:"address"`
-	BLSPubkey string `json:"bls"`
-	NodeID    string `json:"node_id"`
+	Address string `json:"address"`
+	NodeID  string `json:"node_id"`
 }
 
 // SecretsOutputNodeIDResult for `--node` output case
 type SecretsOutputNodeIDResult struct {
 	NodeID string `json:"node_id"`
-}
-
-// SecretsOutputBLSResult for `--bls` output case
-type SecretsOutputBLSResult struct {
-	BLSPubkey string `json:"bls"`
 }
 
 // SecretsOutputValidatorResult for `--validator` output case
@@ -37,23 +31,14 @@ func (r *SecretsOutputValidatorResult) GetOutput() string {
 	return r.Address
 }
 
-func (r *SecretsOutputBLSResult) GetOutput() string {
-	return r.BLSPubkey
-}
-
 func (r *SecretsOutputAllResult) GetOutput() string {
 	var buffer bytes.Buffer
 
-	vals := make([]string, 0, 3)
+	vals := make([]string, 0, 2)
 
 	vals = append(
 		vals,
 		fmt.Sprintf("Public key (address)|%s", r.Address),
-	)
-
-	vals = append(
-		vals,
-		fmt.Sprintf("BLS Public key|%s", r.BLSPubkey),
 	)
 
 	vals = append(

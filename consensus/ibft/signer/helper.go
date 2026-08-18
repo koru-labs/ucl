@@ -15,6 +15,11 @@ import (
 	"github.com/umbracle/fastrlp"
 )
 
+// ErrBLSValidatorKeysUnsupported is returned when IBFT attempts to create or load BLS validator keys.
+var ErrBLSValidatorKeysUnsupported = fmt.Errorf(
+	"BLS validator keys are no longer supported; use ECDSA",
+)
+
 const (
 	// legacyCommitCode is the value that is contained in
 	// legacy committed seals, so it needs to be preserved in order
@@ -43,20 +48,9 @@ func getOrCreateECDSAKey(manager secrets.SecretsManager) (*ecdsa.PrivateKey, err
 	return crypto.BytesToECDSAPrivateKey(keyBytes)
 }
 
-// getOrCreateECDSAKey loads BLS key or creates a new key
-func getOrCreateBLSKey(manager secrets.SecretsManager) (*bls_sig.SecretKey, error) {
-	if !manager.HasSecret(secrets.ValidatorBLSKey) {
-		if _, err := helper.InitBLSValidatorKey(manager); err != nil {
-			return nil, err
-		}
-	}
-
-	keyBytes, err := manager.GetSecret(secrets.ValidatorBLSKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return crypto.BytesToBLSSecretKey(keyBytes)
+// getOrCreateBLSKey no longer generates or loads BLS validator keys for operators.
+func getOrCreateBLSKey(_ secrets.SecretsManager) (*bls_sig.SecretKey, error) {
+	return nil, ErrBLSValidatorKeysUnsupported
 }
 
 // calculateHeaderHash is hash calculation of header for IBFT
@@ -103,7 +97,7 @@ func NewKeyManagerFromType(
 	case validators.ECDSAValidatorType:
 		return NewECDSAKeyManager(secretManager)
 	case validators.BLSValidatorType:
-		return NewBLSKeyManager(secretManager)
+		return nil, ErrBLSValidatorKeysUnsupported
 	default:
 		return nil, fmt.Errorf("unsupported validator type: %s", validatorType)
 	}

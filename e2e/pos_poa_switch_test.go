@@ -128,7 +128,7 @@ func TestPoAPoSSwitch(t *testing.T) {
 		go func(srv *framework.TestServer, key *ecdsa.PrivateKey, addr types.Address) {
 			defer wg.Done()
 
-			err := framework.StakeAmount(
+			_, err := framework.StakeAmount(
 				addr,
 				key,
 				stakeAmount,

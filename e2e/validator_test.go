@@ -36,17 +36,14 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, candidateAddrs, 1)
 
-	candidateBLS, err := ReadValidatorBLSKey(cluster.Config.Dir(firstValidatorDataDir))
-	require.NoError(t, err)
 
 	candidateAddr := candidateAddrs[0]
 
 	t.Logf("candidate address: %s", candidateAddr)
-	t.Log("candidate BLS public key", candidateBLS)
 
 	// cast auth votes from every existing validator
 	for i, srv := range cluster.Servers {
-		err := srv.IBFTPropose(candidateAddr, candidateBLS, true)
+		err := srv.IBFTPropose(candidateAddr, true)
 		require.NoErrorf(t, err, "node %d failed to cast auth vote", i)
 		t.Logf("node %d voted auth for %s", i, candidateAddr)
 	}
@@ -89,14 +86,11 @@ func TestIBFT_AddRemoveValidator(t *testing.T) {
 	t.Logf("validator %s successfully added — set size: %d", candidateAddr, len(validators))
 
 	targetAddr := cluster.Servers[0].Address()
-	targetDataDir := cluster.Config.Dir(fmt.Sprintf("test-chain-%d", 1))
 
-	targetBLS, err := ReadValidatorBLSKey(targetDataDir)
-	require.NoError(t, err)
 	t.Logf("target for removal: %s", targetAddr)
 
 	for i := 1; i <= initialValidators; i++ {
-		err := cluster.Servers[i].IBFTPropose(targetAddr, targetBLS, false)
+		err := cluster.Servers[i].IBFTPropose(targetAddr, false)
 		require.NoErrorf(t, err, "node %d failed to cast drop vote", i)
 		t.Logf("node %d voted drop for %s", i, targetAddr)
 	}
@@ -175,13 +169,11 @@ func TestIBFT_NotEnoughVotes(t *testing.T) {
 	require.Len(t, candidateAddrs, 1)
 
 	candidateAddr := candidateAddrs[0]
-	candidateBLS, err := ReadValidatorBLSKey(cluster.Config.Dir(candidateDataDir))
-	require.NoError(t, err)
 	t.Logf("candidate address: %s", candidateAddr)
 
 	// cast only 1 auth vote (insufficient)
 	for i := 0; i < votesToCast; i++ {
-		err := cluster.Servers[i].IBFTPropose(candidateAddr, candidateBLS, true)
+		err := cluster.Servers[i].IBFTPropose(candidateAddr, true)
 		require.NoErrorf(t, err, "node %d failed to cast auth vote", i)
 		t.Logf("node %d cast auth vote (only %d/%d — insufficient)", i, votesToCast, initialValidators)
 	}
@@ -232,34 +224,27 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, firstCandidateAddrs, 1)
 
-	firstCandidateBLS, err := ReadValidatorBLSKey(cluster.Config.Dir(firstValidatorDataDir))
-	require.NoError(t, err)
 
 	firstCandidateAddr := firstCandidateAddrs[0]
 
 	t.Logf("first candidate address: %s", firstCandidateAddr)
-	t.Log("first candidate BLS public key", firstCandidateBLS)
 
 	secondCandidateAddrs, err := cluster.InitSecrets(secondValidatorDataDir, 1)
 	require.NoError(t, err)
 	require.Len(t, firstCandidateAddrs, 1)
 
-	secondCandidateBLS, err := ReadValidatorBLSKey(cluster.Config.Dir(secondValidatorDataDir))
-	require.NoError(t, err)
-
 	secondCandidateAddr := secondCandidateAddrs[0]
 
-	t.Logf("second candidate address: %s", firstCandidateAddr)
-	t.Log("second candidate BLS public key", firstCandidateBLS)
+	t.Logf("second candidate address: %s", secondCandidateAddr)
 
 	// cast auth votes from every existing validator
 	for i, srv := range cluster.Servers {
 		// vote for fist candidate
-		err := srv.IBFTPropose(firstCandidateAddr, firstCandidateBLS, true)
+		err := srv.IBFTPropose(firstCandidateAddr, true)
 		require.NoErrorf(t, err, "node %d failed to cast auth vote", i)
 		t.Logf("node %d voted auth for %s", i, firstCandidateAddr)
 		// vote for second candidate
-		err = srv.IBFTPropose(secondCandidateAddr, secondCandidateBLS, true)
+		err = srv.IBFTPropose(secondCandidateAddr, true)
 		require.NoErrorf(t, err, "node %d failed to cast auth vote", i)
 		t.Logf("node %d voted auth for %s", i, secondCandidateAddr)
 	}
@@ -313,25 +298,18 @@ func TestIBFT_AddRemoveMultipleValidators(t *testing.T) {
 		firstCandidateAddr, secondCandidateAddr, len(validators))
 
 	firstTargetAddr := cluster.Servers[0].Address()
-	firstTargetDataDir := cluster.Config.Dir(fmt.Sprintf("test-chain-%d", 1))
-
 	secondTargetAddr := cluster.Servers[1].Address()
-	secondTargetDataDir := cluster.Config.Dir(fmt.Sprintf("test-chain-%d", 2))
 
-	targetBLS, err := ReadValidatorBLSKey(firstTargetDataDir)
-	require.NoError(t, err)
 	t.Logf("target for removal: %s", firstTargetAddr)
 
-	secondTargetBLS, err := ReadValidatorBLSKey(secondTargetDataDir)
-	require.NoError(t, err)
 	t.Logf("target for removal: %s", secondTargetAddr)
 
 	for i := 2; i <= initialValidators+1; i++ {
-		err := cluster.Servers[i].IBFTPropose(firstTargetAddr, targetBLS, false)
+		err := cluster.Servers[i].IBFTPropose(firstTargetAddr, false)
 		require.NoErrorf(t, err, "node %d failed to cast drop vote", i)
 		t.Logf("node %d voted drop for %s", i, firstTargetAddr)
 
-		err = cluster.Servers[i].IBFTPropose(secondTargetAddr, secondTargetBLS, false)
+		err = cluster.Servers[i].IBFTPropose(secondTargetAddr, false)
 		require.NoErrorf(t, err, "node %d failed to cast drop vote", i)
 		t.Logf("node %d voted drop for %s", i, secondTargetAddr)
 	}
@@ -403,17 +381,12 @@ func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, candidateAddrs, 1)
 
-	candidateBLS, err := ReadValidatorBLSKey(cluster.Config.Dir(newValidatorDataDir))
-	require.NoError(t, err)
 
 	candidateAddr := candidateAddrs[0]
 	t.Logf("candidate address: %s", candidateAddr)
 
 	// pick removal target before voting
 	targetAddr := cluster.Servers[0].Address()
-	targetDataDir := cluster.Config.Dir(fmt.Sprintf("test-chain-%d", 1))
-	targetBLS, err := ReadValidatorBLSKey(targetDataDir)
-	require.NoError(t, err)
 	t.Logf("target for removal: %s", targetAddr)
 
 	var voteWg sync.WaitGroup
@@ -425,7 +398,7 @@ func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 		defer voteWg.Done()
 
 		for i, srv := range cluster.Servers {
-			authErr = srv.IBFTPropose(candidateAddr, candidateBLS, true)
+			authErr = srv.IBFTPropose(candidateAddr, true)
 			require.NoErrorf(t, authErr, "node %d failed to cast auth vote", i)
 			t.Logf("node %d voted auth for %s", i, candidateAddr)
 		}
@@ -435,7 +408,7 @@ func TestIBFT_AddRemoveValidator_Simultaneous(t *testing.T) {
 		defer voteWg.Done()
 
 		for i, srv := range cluster.Servers {
-			dropErr = srv.IBFTPropose(targetAddr, targetBLS, false)
+			dropErr = srv.IBFTPropose(targetAddr, false)
 			require.NoErrorf(t, dropErr, "node %d failed to cast drop vote", i)
 			t.Logf("node %d voted drop for %s", i, targetAddr)
 		}
