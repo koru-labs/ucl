@@ -188,6 +188,45 @@ func (t *TestServer) Stop() {
 	}
 }
 
+// StopViaKill9 terminates the validator uncleanly via os.Process.Kill (SIGKILL on Unix,
+// TerminateProcess on Windows), simulating a crash rather than a graceful shutdown. It reaps the
+// process and clears server state like [TestServer.Stop].
+func (t *TestServer) StopViaKill9() {
+	if t.cmd == nil {
+		t.ReleaseReservedPorts()
+
+		return
+	}
+
+	if t.cmd.Process == nil {
+		t.cmd = nil
+		t.ReleaseReservedPorts()
+
+		return
+	}
+
+	t.t.Logf("StopViaKill9: killing pid %d", t.cmd.Process.Pid)
+
+	if err := t.cmd.Process.Kill(); err != nil {
+		t.t.Errorf("StopViaKill9: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = t.cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.t.Log("timeout waiting for server process to exit after kill")
+	}
+
+	t.cmd = nil
+	t.ReleaseReservedPorts()
+}
+
 func (t *TestServer) GetLatestBlockHeight() (uint64, error) {
 	return t.JSONRPC().Eth().BlockNumber()
 }
