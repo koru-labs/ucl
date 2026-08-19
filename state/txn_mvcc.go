@@ -55,17 +55,14 @@ type KeyValue struct {
 // already-merged state from earlier batches, layered on the true base trie); such a read
 // stays valid as long as it *still* falls through (the base never changes mid-block).
 //
-// epochAddr is non-nil only for storage-key reads: GetState's resolution for a storage key
-// isn't a plain mv.Read (see resolveStorageRead) - it additionally depends on the owning
-// account's accountEpochKey, so re-validating it must redo that exact same two-step
-// resolution rather than a plain mv.Read, or a storage key whose raw mv version never changes
-// would spuriously (and permanently) fail validation forever once its account-epoch override
-// has ever applied.
+// A read whose result is derived from several keys (GetState combines a storage key with its
+// account's accountEpochKey) records each underlying key separately: the derived value is a
+// pure function of the observed versions, so re-validating every input version is exactly
+// equivalent to re-deriving the result, and needs no special-casing here.
 type mvReadRecord struct {
 	key                 Key
 	observedTxIndex     int
 	observedIncarnation int
-	epochAddr           *types.Address
 }
 
 // TxnMVCC is an ITransitionTxn backend for one speculative incarnation of one transaction
@@ -177,21 +174,8 @@ func (t *TxnMVCC) PendingCredits() map[types.Address]*big.Int {
 // false result means this incarnation is stale and must be discarded and re-executed.
 func (t *TxnMVCC) Validate() bool {
 	for _, r := range t.readSet {
-		var (
-			foundTxIndex, foundIncarnation int
-			found, blocked                 bool
-		)
-
-		if r.epochAddr != nil {
-			_, foundTxIndex, foundIncarnation, found, _, blocked = t.resolveStorageRead(*r.epochAddr, r.key)
-		} else {
-			var isEstimate bool
-
-			_, foundTxIndex, foundIncarnation, isEstimate, found = t.mv.Read(r.key, t.txIndex)
-			blocked = found && isEstimate
-		}
-
-		if blocked {
+		_, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(r.key, t.txIndex)
+		if found && isEstimate {
 			return false
 		}
 
@@ -494,45 +478,23 @@ func accountEpochKey(addr types.Address) Key {
 	return NewSubpathKey(addr, SuicidePath)
 }
 
-// resolveStorageRead resolves a storage key exactly as GetState needs to: the raw mv version,
-// overridden to "not found" if the owning account has been reset (see accountEpochKey) since
-// that version was written. It has no side effects (no caching, no read recording), so both
-// GetState (which then caches + records) and Validate (which must re-derive the identical
-// effective observation, not a plain mv.Read - see mvReadRecord.epochAddr) can share it.
-func (t *TxnMVCC) resolveStorageRead(addr types.Address, stateKey Key) (
-	val any, foundTxIndex, foundIncarnation int, found bool, blockedOn int, blocked bool,
-) {
-	var isEstimate bool
-
-	val, foundTxIndex, foundIncarnation, isEstimate, found = t.mv.Read(stateKey, t.txIndex)
+// readVersioned resolves one key against mv, recording the observed version in the read-set
+// (observedTxIndex -1 == "resolved to base") and aborting this incarnation if it lands on an
+// estimate. Recording every underlying key a result is derived from is what lets Validate stay
+// a plain per-key version comparison (see mvReadRecord).
+func (t *TxnMVCC) readVersioned(key Key) (val any, foundTxIndex int, found bool) {
+	val, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(key, t.txIndex)
 	if found && isEstimate {
-		return nil, 0, 0, false, foundTxIndex, true
+		panic(&EstimateAbort{BlockedOn: foundTxIndex})
 	}
 
-	if !found {
-		return val, foundTxIndex, foundIncarnation, found, 0, false
+	if found {
+		t.recordRead(key, foundTxIndex, foundIncarnation)
+	} else {
+		t.recordRead(key, -1, 0)
 	}
 
-	epochKey := accountEpochKey(addr)
-
-	_, epochTxIndex, _, epochEstimate, epochFound := t.mv.Read(epochKey, t.txIndex)
-	if epochFound && epochEstimate {
-		return nil, 0, 0, false, epochTxIndex, true
-	}
-
-	// the account was reset after this storage version was written - it belongs to a destroyed
-	// lineage and must not be visible to this read
-	if epochFound && epochTxIndex > foundTxIndex {
-		found = false
-	}
-
-	return val, foundTxIndex, foundIncarnation, found, 0, false
-}
-
-func (t *TxnMVCC) recordStorageRead(stateKey Key, addr types.Address, foundTxIndex, foundIncarnation int) {
-	t.readSet = append(t.readSet, mvReadRecord{
-		key: stateKey, observedTxIndex: foundTxIndex, observedIncarnation: foundIncarnation, epochAddr: &addr,
-	})
+	return val, foundTxIndex, found
 }
 
 func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
@@ -544,22 +506,30 @@ func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
 		return v.value.(types.Hash) //nolint:forcetypeassert
 	}
 
-	val, foundTxIndex, foundIncarnation, found, blockedOn, blocked := t.resolveStorageRead(addr, stateKey)
-	if blocked {
-		panic(&EstimateAbort{BlockedOn: blockedOn})
-	}
+	val, storageTxIndex, storageFound := t.readVersioned(stateKey)
+	_, epochTxIndex, epochFound := t.readVersioned(accountEpochKey(addr))
 
 	var result types.Hash
 
-	if found {
+	switch {
+	case storageFound && (!epochFound || storageTxIndex >= epochTxIndex):
+		// a surviving in-block write: either no account reset happened below us, or this write
+		// is at/after it (a tx that creates and writes in one go lands on the same index)
 		result, _ = val.(types.Hash) //nolint:forcetypeassert
-		t.recordStorageRead(stateKey, addr, foundTxIndex, foundIncarnation)
-	} else {
+
+	case epochFound:
+		// The account was reset (suicided and/or recreated) by a lower-indexed tx in this same
+		// batch, after any write that would otherwise be visible. Its pre-block storage is dead:
+		// falling through to base here would resurrect it. Sequential Txn gets this for free -
+		// a recreated account carries Root == emptyStateHash, so its snapshot lookup finds
+		// nothing - but the batch's base view (dstReadSnapshot) resolves the address against
+		// dst's own radix and ignores the caller's root, so the emptiness has to be explicit.
+		result = types.Hash{}
+
+	default:
 		if obj, exists := t.getStateObject(addr); exists {
 			result = t.snapshot.GetStorage(addr, obj.Account.Root, key)
 		}
-
-		t.recordStorageRead(stateKey, addr, -1, 0)
 	}
 
 	t.setLocal(stateKey, result, false)

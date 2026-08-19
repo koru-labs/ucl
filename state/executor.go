@@ -320,14 +320,19 @@ func (e *Executor) applyAllowBlockLists(txn *Transition) {
 // number incarnation) within an STM batch. Its reads fall through, in order: this
 // incarnation's own local writes -> mv (the batch's speculative multi-version memory) ->
 // dst's state as already merged from earlier batches/txs in this block -> the true base trie
-// snapshot dst was built from. gasPool is shared across every incarnation racing within the
-// same batch - see state/stm's gas-accounting design for why that's safe (every reservation
-// is released before Write returns, win or lose, so no aborted incarnation can permanently
-// starve the pool).
+// snapshot dst was built from.
+//
+// Each incarnation gets its own private gas pool sized to the block gas limit, rather than
+// sharing one pool across the batch. Sharing would be wrong twice over: apply() debits the pool
+// by gasUsed and never returns it, so every speculative incarnation - including the ones later
+// discarded by validation - would permanently drain it, and the caller separately debits the
+// authoritative block-wide counter by the finalized total, double-counting every included tx.
+// A private pool makes subGasPool a per-tx sanity bound only ("this tx alone cannot exceed the
+// block limit", already enforced when candidates are pulled); deciding what actually fits in the
+// block is finalize's cumulative walk, which is the single authoritative gas accounting point.
 func (e *Executor) BeginTxnSTM(
 	header *types.Header,
 	coinbaseReceiver types.Address,
-	gasPool *uint64,
 	dst *TxnVerifier,
 	mv MVMemoryAccess,
 	txIndex, incarnation int,
@@ -351,15 +356,18 @@ func (e *Executor) BeginTxnSTM(
 		Number:     int64(header.Number),
 		Difficulty: types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
 		BaseFee:    new(big.Int).SetUint64(header.BaseFee),
-		// gasPool is shared and concurrently mutated (via atomic CAS in subGasPool/addGasPool)
-		// by every other incarnation racing in this batch; load it atomically rather than
-		// dereferencing directly, or the race detector (correctly) flags a torn read.
-		GasLimit:     int64(atomic.LoadUint64(gasPool)),
+		// The GASLIMIT opcode must observe the block's gas limit, exactly as the sequential
+		// builder and the verifier both do - never a running remainder, which would vary with
+		// batch position and diverge from what verifiers compute for the same block.
+		GasLimit:     int64(header.GasLimit),
 		ChainID:      e.config.ChainID,
 		BurnContract: burnContract,
 	}
 
 	txnState := newTxnMVCC(dstReadSnapshot{dst: dst}, dst.snapshot, mv, txIndex, incarnation)
+
+	gasPool := new(uint64)
+	*gasPool = header.GasLimit
 
 	tran := &Transition{
 		logger:      e.logger,

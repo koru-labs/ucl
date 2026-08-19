@@ -503,10 +503,8 @@ batchLoop:
 			break batchLoop
 		}
 
-		remainingGas := *tranGasLimit
-
 		outcome, err := i.stmEngine.RunBatch(
-			writeCtx, i.executor, header, coinbase, dst, tranGasLimit, remainingGas, batch,
+			writeCtx, i.executor, header, coinbase, dst, *tranGasLimit, batch,
 		)
 		if err != nil {
 			return nil, nil, 0, err
@@ -588,8 +586,15 @@ batchLoop:
 // bookkeeping (Pop/Drop/Demote) is deferred until the batch's STM results are known, so nothing
 // here mutates the pool beyond the same size/gas pre-filter writeTransaction used to apply
 // inline.
+//
+// The RLP-size budget has to be tracked as the batch is assembled, not just against
+// i.buildBlockTxsRlpSize: that counter only advances once a batch's results come back, so
+// checking every candidate against the same starting value would let a single batch admit an
+// unbounded number of txs past types.MaxTxsRlpSize. Candidates that later drop out (failed or
+// past the gas cutoff) leave the projection conservative, never over-permissive.
 func (i *backendIBFT) pullCandidateBatch(gasLimit uint64, batchSize int) []*types.Transaction {
 	batch := make([]*types.Transaction, 0, batchSize)
+	projectedRlpSize := i.buildBlockTxsRlpSize
 
 	for len(batch) < batchSize {
 		tx := i.txpool.Peek()
@@ -597,11 +602,13 @@ func (i *backendIBFT) pullCandidateBatch(gasLimit uint64, batchSize int) []*type
 			break
 		}
 
-		if tx.Gas > gasLimit || tx.Size()+i.buildBlockTxsRlpSize > types.MaxTxsRlpSize {
+		if tx.Gas > gasLimit || tx.Size()+projectedRlpSize > types.MaxTxsRlpSize {
 			i.txpool.Drop(tx)
 
 			continue
 		}
+
+		projectedRlpSize += tx.Size()
 
 		batch = append(batch, tx)
 	}

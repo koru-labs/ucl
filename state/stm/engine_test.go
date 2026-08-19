@@ -91,10 +91,7 @@ func runSTM(
 
 	engine := stm.NewEngine(stm.EngineConfig{Workers: workers}, hclog.NewNullLogger())
 
-	batchGasPool := new(uint64)
-	*batchGasPool = header.GasLimit
-
-	outcome, err := engine.RunBatch(context.Background(), executor, header, coinbase, dst, batchGasPool, header.GasLimit, txs)
+	outcome, err := engine.RunBatch(context.Background(), executor, header, coinbase, dst, header.GasLimit, txs)
 	require.NoError(t, err)
 
 	tran.AddPendingBalances()
@@ -133,12 +130,10 @@ func runSTMChunked(
 
 	engine := stm.NewEngine(stm.EngineConfig{Workers: workers}, hclog.NewNullLogger())
 
-	batchGasPool := new(uint64)
-	*batchGasPool = header.GasLimit
-
 	depsBuilder := blockstm.NewDepsBuilder()
 	nextDAGIndex := 0
 	blockGasUsed := uint64(0)
+	remainingBlockGas := header.GasLimit
 
 	var included []*types.Transaction
 
@@ -148,7 +143,7 @@ func runSTMChunked(
 		end := min(i+chunkSize, len(txs))
 		chunk := txs[i:end]
 
-		outcome, err := engine.RunBatch(context.Background(), executor, header, coinbase, dst, batchGasPool, *batchGasPool, chunk)
+		outcome, err := engine.RunBatch(context.Background(), executor, header, coinbase, dst, remainingBlockGas, chunk)
 		require.NoError(t, err)
 		require.Len(t, outcome.Included, len(chunk), "chunk [%d:%d): every tx must be included", i, end)
 
@@ -164,7 +159,7 @@ func runSTMChunked(
 		included = append(included, outcome.Included...)
 		receipts = append(receipts, outcome.Receipts...)
 		blockGasUsed += outcome.GasUsed
-		*batchGasPool -= outcome.GasUsed
+		remainingBlockGas -= outcome.GasUsed
 	}
 
 	tran.AddPendingBalances()
@@ -361,6 +356,194 @@ func TestEngine_RandomizedWorkload(t *testing.T) {
 					"numTxs=%d workers=%d: DAG-driven verify must reproduce the STM-built root", numTxs, workers)
 			}
 		}
+	}
+}
+
+// TestEngine_TightGasBudgetFillsBlock pins down that speculative execution never consumes the
+// block's gas budget - only finalize's deterministic walk does. Every incarnation apply()s
+// against a gas pool and permanently debits it by gasUsed; if that pool were shared across a
+// batch (or were the caller's own block-wide counter), then discarded incarnations would drain
+// it and every included tx would be charged twice - once during execution, once when the caller
+// subtracts outcome.GasUsed. The workload is plain transfers so each tx's gas reservation equals
+// what it actually burns, making the budget exact: it is set to precisely what the block needs
+// plus one tx of slack, so any double-charging starves later chunks and truncates the block.
+// Many senders paying into a few shared receivers keeps genuine write-write conflicts (and hence
+// discarded incarnations) in the mix.
+func TestEngine_TightGasBudgetFillsBlock(t *testing.T) {
+	const (
+		numTxs      = 40
+		transferGas = 21000
+		roomyGas    = 30_000_000
+	)
+
+	coinbase := types.StringToAddress("cccccccccccccccccccccccccccccccccccccccc")
+
+	senders := make([]types.Address, numTxs)
+	for i := range senders {
+		senders[i] = types.StringToAddress(fmt.Sprintf("%02x11111111111111111111111111111111111111", i))
+	}
+
+	receivers := make([]types.Address, 3)
+	for i := range receivers {
+		receivers[i] = types.StringToAddress(fmt.Sprintf("%02x33333333333333333333333333333333333333", i))
+	}
+
+	alloc := statetesthelper.FundedAlloc(append(append([]types.Address{}, senders...), coinbase)...)
+
+	txs := make([]*types.Transaction, numTxs)
+
+	for i := range txs {
+		to := receivers[i%len(receivers)]
+		txs[i] = &types.Transaction{
+			Hash: types.BytesToHash([]byte{byte(i + 1)}), From: senders[i], To: &to,
+			Value: big.NewInt(int64(100 + i)), Gas: transferGas, GasPrice: ethgo.Gwei(2),
+			Nonce: 0, Type: types.LegacyTx, Input: []byte{},
+		}
+	}
+
+	newParent := func(t *testing.T) (*state.Executor, types.Hash) {
+		t.Helper()
+
+		executor := newSTMTestExecutor(t)
+		root, err := executor.WriteGenesis(alloc, types.ZeroHash)
+		require.NoError(t, err)
+
+		return executor, root
+	}
+
+	// what the block genuinely costs, measured with a budget that cannot bind
+	probeExecutor, probeParent := newParent(t)
+	_, probeReceipts := runSequential(t, probeExecutor, probeParent,
+		&types.Header{Number: 1, GasLimit: roomyGas, Timestamp: 1}, coinbase, txs)
+
+	trueTotal := probeReceipts[len(probeReceipts)-1].CumulativeGasUsed
+	require.Equal(t, uint64(numTxs*transferGas), trueTotal, "plain transfers burn exactly their reservation")
+
+	// exactly enough for the block, plus one tx of slack - nowhere near enough to pay twice
+	tightGas := trueTotal + transferGas
+	header := &types.Header{Number: 1, GasLimit: tightGas, Timestamp: 1}
+
+	seqExecutor, seqParent := newParent(t)
+	seqRoot, seqReceipts := runSequential(t, seqExecutor, seqParent, header, coinbase, txs)
+
+	for _, chunkSize := range []int{8, numTxs} {
+		stmExecutor, stmParent := newParent(t)
+		require.Equal(t, seqParent, stmParent)
+
+		stmRoot, _, included, receipts := runSTMChunked(
+			t, stmExecutor, 4, chunkSize, stmParent, header, coinbase, txs)
+
+		require.Len(t, included, len(txs),
+			"chunkSize=%d: the block needs %d gas and has %d, so nothing may be truncated",
+			chunkSize, trueTotal, tightGas)
+		requireReceiptsEqual(t, seqReceipts, receipts)
+		require.Equal(t, seqRoot, stmRoot, "chunkSize=%d: state root must match sequential", chunkSize)
+	}
+}
+
+// TestEngine_ResurrectPreExistingContract covers the case TestEngine_MetamorphicCreate2Redeploy
+// cannot: the contract is CREATE2-deployed and given storage in an EARLIER block, then within one
+// block is selfdestructed, redeployed at the same address, and written again. Because the address
+// already carries storage in the parent trie, any read of the resurrected instance that falls
+// through to base state resurrects the dead slot (x reads as 42 instead of 0), which shows up as
+// a different SSTORE cost (modify vs. add) and a different state root. The metamorphic test's
+// child address is created fresh inside its block, so base state is empty there and the same bug
+// stays invisible - only a pre-existing address exposes it.
+func TestEngine_ResurrectPreExistingContract(t *testing.T) {
+	deployer := types.StringToAddress("d0000000000000000000000000000000000000")
+	caller0 := types.StringToAddress("c0000000000000000000000000000000000000")
+	caller1 := types.StringToAddress("c1000000000000000000000000000000000000")
+	caller2 := types.StringToAddress("c2000000000000000000000000000000000000")
+	beneficiary := types.StringToAddress("be000000000000000000000000000000000000")
+	coinbase := types.StringToAddress("cccccccccccccccccccccccccccccccccccccccc")
+
+	alloc := statetesthelper.FundedAlloc(deployer, caller0, caller1, caller2, coinbase)
+	salt := [32]byte{0x07}
+
+	// parent block: deploy the factory, CREATE2 the child, and give it storage (x = 42), so the
+	// child's slot 0 is non-zero in the parent trie before the tested block starts.
+	setupParent := func(t *testing.T) (*state.Executor, types.Hash, types.Address) {
+		t.Helper()
+
+		executor := newSTMTestExecutor(t)
+		genesisRoot, err := executor.WriteGenesis(alloc, types.ZeroHash)
+		require.NoError(t, err)
+
+		header := &types.Header{Number: 1, GasLimit: 5_000_000, Timestamp: 1}
+
+		tran, err := executor.BeginTxn(genesisRoot, header, types.ZeroAddress)
+		require.NoError(t, err)
+
+		factoryRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 0,
+			statetesthelper.MustDecodeHex(t, statetesthelper.Create2FactoryInitHex)))
+		require.NoError(t, err)
+		require.NoError(t, factoryRes.Err)
+
+		childAddr := crypto.CreateAddress2(factoryRes.Address, salt,
+			statetesthelper.MustDecodeHex(t, statetesthelper.KillableInitHex))
+
+		makeRes, err := tran.Apply(statetesthelper.CallTx(0xA0, caller0, factoryRes.Address, 0,
+			statetesthelper.CallData("make2(bytes32)", salt[:])))
+		require.NoError(t, err)
+		require.NoError(t, makeRes.Err)
+
+		setRes, err := tran.Apply(statetesthelper.CallTx(0xA1, caller1, childAddr, 0,
+			statetesthelper.CallData("setX(uint256)", statetesthelper.ContractPaddUint256(42))))
+		require.NoError(t, err)
+		require.NoError(t, setRes.Err)
+
+		_, root, err := tran.Commit()
+		require.NoError(t, err)
+
+		return executor, root, factoryRes.Address
+	}
+
+	header := &types.Header{Number: 2, GasLimit: 5_000_000, Timestamp: 2}
+
+	_, seqParent, factoryAddr := setupParent(t)
+	childAddr := crypto.CreateAddress2(factoryAddr, salt,
+		statetesthelper.MustDecodeHex(t, statetesthelper.KillableInitHex))
+
+	txs := []*types.Transaction{
+		statetesthelper.CallTx(0xB0, caller0, childAddr, 1,
+			statetesthelper.CallData("boom(address)", statetesthelper.ContractPaddAddress(beneficiary))),
+		statetesthelper.CallTx(0xB1, caller1, factoryAddr, 1,
+			statetesthelper.CallData("make2(bytes32)", salt[:])),
+		statetesthelper.CallTx(0xB2, caller2, childAddr, 0,
+			statetesthelper.CallData("setX(uint256)", statetesthelper.ContractPaddUint256(7))),
+	}
+
+	seqExecutor, _, _ := setupParent(t)
+	seqRoot, seqReceipts := runSequential(t, seqExecutor, seqParent, header, coinbase, txs)
+
+	for i, r := range seqReceipts {
+		require.Equal(t, types.ReceiptSuccess, *r.Status, "sequential reference: tx %d must succeed", i)
+	}
+
+	for _, workers := range []int{1, 2, 4, 8} {
+		for iter := 0; iter < 10; iter++ {
+			stmExecutor, stmParent, _ := setupParent(t)
+			require.Equal(t, seqParent, stmParent)
+
+			stmRoot, outcome := runSTM(t, stmExecutor, workers, stmParent, header, coinbase, txs)
+
+			require.Len(t, outcome.Included, len(txs), "workers=%d iter=%d: every tx must be included", workers, iter)
+			requireReceiptsEqual(t, seqReceipts, outcome.Receipts)
+			require.Equal(t, seqRoot, stmRoot, "workers=%d iter=%d: state root must match sequential", workers, iter)
+		}
+	}
+
+	// same scenario split across batch boundaries, so the suicide, the redeploy and the write
+	// each land in a different RunBatch call and have to survive the dst merge in between
+	for _, workers := range []int{1, 4} {
+		stmExecutor, stmParent, _ := setupParent(t)
+		require.Equal(t, seqParent, stmParent)
+
+		stmRoot, _, included, receipts := runSTMChunked(t, stmExecutor, workers, 1, stmParent, header, coinbase, txs)
+
+		require.Len(t, included, len(txs), "workers=%d chunked: every tx must be included", workers)
+		requireReceiptsEqual(t, seqReceipts, receipts)
+		require.Equal(t, seqRoot, stmRoot, "workers=%d chunked: state root must match sequential", workers)
 	}
 }
 

@@ -73,7 +73,6 @@ type env struct {
 	header     *types.Header
 	coinbase   types.Address
 	dst        *state.TxnVerifier
-	gasPool    *uint64
 	mv         *MVMemory
 	candidates []*types.Transaction
 }
@@ -101,13 +100,15 @@ type run struct {
 	fatal   error
 }
 
+// RunBatch executes one fixed-order candidate batch to convergence and finalizes it.
+// remainingBlockGas is how much gas the block still has left for this batch; it is used only by
+// the deterministic finalize pass, never by speculative execution (see Executor.BeginTxnSTM).
 func (e *Engine) RunBatch(
 	ctx context.Context,
 	executor *state.Executor,
 	header *types.Header,
 	coinbase types.Address,
 	dst *state.TxnVerifier,
-	gasPool *uint64,
 	remainingBlockGas uint64,
 	candidates []*types.Transaction,
 ) (*BatchOutcome, error) {
@@ -132,7 +133,6 @@ func (e *Engine) RunBatch(
 		header:     header,
 		coinbase:   coinbase,
 		dst:        dst,
-		gasPool:    gasPool,
 		mv:         NewMVMemory(),
 		candidates: candidates,
 	}
@@ -289,7 +289,7 @@ func (r *run) doExecute(e *env, idx int) {
 	incarnation := r.slots[idx].incarnation
 	r.mu.Unlock()
 
-	tran, txn, err := e.executor.BeginTxnSTM(e.header, e.coinbase, e.gasPool, e.dst, e.mv, idx, incarnation)
+	tran, txn, err := e.executor.BeginTxnSTM(e.header, e.coinbase, e.dst, e.mv, idx, incarnation)
 	if err != nil {
 		r.fail(err)
 
