@@ -315,7 +315,12 @@ func (e *Executor) ParallelProcessBlock(
 						return
 					}
 
-					rec := txAccessRecorderPool.Get().(*TxAccessRecorder)
+					rec, ok := txAccessRecorderPool.Get().(*TxAccessRecorder)
+					if !ok {
+						stopWith(fmt.Errorf("invalid type in txAccessRecorderPool"))
+
+						return
+					}
 
 					rec.Reset(uint64(i))
 
