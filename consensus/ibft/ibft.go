@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/state/stm"
 	"github.com/0xPolygon/polygon-edge/syncer"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
@@ -75,6 +76,7 @@ type backendIBFT struct {
 	blockchain     *blockchain.Blockchain // Reference to the blockchain layer
 	network        *network.Server        // Reference to the networking layer
 	executor       *state.Executor        // Reference to the state executor
+	stmEngine      *stm.Engine            // Block-STM parallel executor used to build blocks
 	txpool         txPoolInterface        // Reference to the transaction pool
 	syncer         syncer.Syncer          // Reference to the sync protocol
 	secretsManager secrets.SecretsManager // Reference to the secret manager
@@ -151,6 +153,7 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 		blockchain: params.Blockchain,
 		network:    params.Network,
 		executor:   params.Executor,
+		stmEngine:  stm.NewEngine(stm.EngineConfig{}, logger),
 		txpool:     params.TxPool,
 		syncer: syncer.NewSyncer(
 			params.Logger,

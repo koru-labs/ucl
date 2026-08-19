@@ -279,6 +279,15 @@ func (e *Executor) BeginTxnWithCustomTxn(
 		PostHook:    e.PostHook,
 	}
 
+	e.applyAllowBlockLists(txn)
+
+	return txn, nil
+}
+
+// applyAllowBlockLists wires up any configured contract-deployment/transaction/bridge
+// allow/block lists on txn. Shared by BeginTxnWithCustomTxn and BeginTxnSTM so the two
+// construction paths can never drift apart on this.
+func (e *Executor) applyAllowBlockLists(txn *Transition) {
 	// enable contract deployment allow list (if any)
 	if e.config.ContractDeployerAllowList != nil {
 		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
@@ -305,8 +314,69 @@ func (e *Executor) BeginTxnWithCustomTxn(
 	if e.config.BridgeBlockList != nil {
 		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
 	}
+}
 
-	return txn, nil
+// BeginTxnSTM begins a Transition for one speculative incarnation of tx txIndex (attempt
+// number incarnation) within an STM batch. Its reads fall through, in order: this
+// incarnation's own local writes -> mv (the batch's speculative multi-version memory) ->
+// dst's state as already merged from earlier batches/txs in this block -> the true base trie
+// snapshot dst was built from. gasPool is shared across every incarnation racing within the
+// same batch - see state/stm's gas-accounting design for why that's safe (every reservation
+// is released before Write returns, win or lose, so no aborted incarnation can permanently
+// starve the pool).
+func (e *Executor) BeginTxnSTM(
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	gasPool *uint64,
+	dst *TxnVerifier,
+	mv MVMemoryAccess,
+	txIndex, incarnation int,
+) (*Transition, *TxnMVCC, error) {
+	forkConfig := e.config.Forks.At(header.Number)
+
+	burnContract := types.ZeroAddress
+
+	if forkConfig.London {
+		var err error
+
+		burnContract, err = e.config.CalculateBurnContract(header.Number)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	txCtx := runtime.TxContext{
+		Coinbase:   coinbaseReceiver,
+		Timestamp:  int64(header.Timestamp),
+		Number:     int64(header.Number),
+		Difficulty: types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
+		BaseFee:    new(big.Int).SetUint64(header.BaseFee),
+		// gasPool is shared and concurrently mutated (via atomic CAS in subGasPool/addGasPool)
+		// by every other incarnation racing in this batch; load it atomically rather than
+		// dereferencing directly, or the race detector (correctly) flags a torn read.
+		GasLimit:     int64(atomic.LoadUint64(gasPool)),
+		ChainID:      e.config.ChainID,
+		BurnContract: burnContract,
+	}
+
+	txnState := newTxnMVCC(dstReadSnapshot{dst: dst}, dst.snapshot, mv, txIndex, incarnation)
+
+	tran := &Transition{
+		logger:      e.logger,
+		ctx:         txCtx,
+		state:       txnState,
+		getHash:     e.GetHash(header),
+		auxState:    e.state,
+		config:      forkConfig,
+		gasPool:     gasPool,
+		evm:         evm.NewEVM(),
+		precompiles: precompiled.NewPrecompiled(),
+		PostHook:    e.PostHook,
+	}
+
+	e.applyAllowBlockLists(tran)
+
+	return tran, txnState, nil
 }
 
 func (e *Executor) areTxDependenciesGood(txDependancy [][]uint64, txsLen int) bool {
@@ -761,6 +831,21 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 		return nil, NewGasLimitReachedTransitionApplicationError(err)
 	}
 
+	// Guards the reservation above against ever being silently kept if this call exits before
+	// reaching the normal "return gas to the pool" line below - whether via an early error
+	// return or a panic unwinding through it. The latter matters for state/stm: an incarnation
+	// aborted mid-execution by a *state.EstimateAbort (see state/txn_mvcc.go) never reaches
+	// that line, which would otherwise leak this reservation out of the batch's shared gas pool
+	// on every single conflict-driven abort. The sequential/verifier paths never panic here and
+	// always reach the normal return, so gasReserved is always false by the time they return -
+	// this is a no-op for them.
+	gasReserved := true
+	defer func() {
+		if gasReserved {
+			t.addGasPool(msg.Gas)
+		}
+	}()
+
 	if t.ctx.Tracer != nil {
 		t.ctx.Tracer.TxStart(msg.Gas)
 	}
@@ -838,6 +923,7 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
+	gasReserved = false
 
 	return result, nil
 }
