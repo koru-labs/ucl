@@ -40,7 +40,7 @@ var (
 	ErrInvalidGasUsed         = errors.New("invalid block gas used")
 	ErrInvalidReceiptsRoot    = errors.New("invalid block receipts root")
 	ErrInvalidBlockRlpSize    = errors.New("invalid block rlp size")
-	ErrBarMissingForTrustMode = errors.New("cannot apply block from block access record: block access record is empty")
+	ErrBARMissingForTrustMode = errors.New("cannot apply block from block access record: block access record is empty")
 
 	EmptyBALHash = types.StringToHash("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
 )
@@ -865,67 +865,43 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, err
 	}
 
-	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		if b.parallelVerificationWorkers > 1 {
-			b.logger.Info("parallel verificaion")
+	fork := b.config.Params.Forks.At(block.Number())
 
-			bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(
-				parent.StateRoot,
-				block,
-				blockCreator,
-				b.parallelVerificationWorkers)
-			if err != nil {
-				return nil, err
-			}
+	// Parallel path: different lifecycle, root comes from ApplyBlockAccessRecord
+	if fork.EIP7928 && b.parallelVerificationWorkers > 1 {
+		b.logger.Info("parallel verification")
 
-			packedBar := bar.Pack()
-
-			if packedBar.Hash() != block.Header.BlockAccessRecordHash {
-				return nil, fmt.Errorf("block access record hash mismatch")
-			}
-
-			root, err := b.executor.ApplyBlockAccessRecord(block.Header.Number, parent.StateRoot, packedBar)
-			if err != nil {
-				return nil, err
-			}
-
-			// Append the receipts to the receipts cache
-			b.receiptsCache.Add(header.Hash, receipts)
-
-			return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
-		}
-
-		txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
+		bar, receipts, totalGas, err := b.executor.ParallelProcessBlock(
+			parent.StateRoot, block, blockCreator, b.parallelVerificationWorkers)
 		if err != nil {
 			return nil, err
 		}
 
-		computedBAR := txn.GetBlockAccessRecord()
-		if computedBAR.Hash() != block.Header.BlockAccessRecordHash {
+		packedBAR := bar.Pack()
+		if packedBAR.Hash() != block.Header.BlockAccessRecordHash {
 			return nil, fmt.Errorf("block access record hash mismatch")
 		}
 
-		if err := b.consensus.PreCommitState(block, txn); err != nil {
-			return nil, err
-		}
-
-		_, root, err := txn.Commit()
+		root, err := b.executor.ApplyBlockAccessRecord(block.Header.Number, parent.StateRoot, packedBAR)
 		if err != nil {
 			return nil, err
 		}
 
-		b.receiptsCache.Add(header.Hash, txn.Receipts())
+		b.receiptsCache.Add(header.Hash, receipts)
 
-		return &BlockResult{
-			Root:     root,
-			Receipts: txn.Receipts(),
-			TotalGas: txn.TotalGas(),
-		}, nil
+		return &BlockResult{Root: root, Receipts: receipts, TotalGas: totalGas}, nil
 	}
 
+	// Sequential path: shared by pre and post-EIP7928, BAR check only under the fork
 	txn, err := b.executor.ProcessBlock(parent.StateRoot, block, blockCreator)
 	if err != nil {
 		return nil, err
+	}
+
+	if fork.EIP7928 {
+		if txn.GetBlockAccessRecord().Hash() != block.Header.BlockAccessRecordHash {
+			return nil, fmt.Errorf("block access record hash mismatch")
+		}
 	}
 
 	if err := b.consensus.PreCommitState(block, txn); err != nil {
@@ -937,7 +913,6 @@ func (b *Blockchain) executeBlockTransactions(block *types.Block) (*BlockResult,
 		return nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
-	// Append the receipts to the receipts cache
 	b.receiptsCache.Add(header.Hash, txn.Receipts())
 
 	return &BlockResult{
@@ -995,7 +970,7 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
+		batchWriter.PutBlockAccessRecord(block.Number(), block.BlockAccessRecord)
 
 		b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 	}
@@ -1072,7 +1047,7 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
 	if b.config.Params.Forks.At(block.Number()).EIP7928 {
-		batchWriter.PutBlockAccessList(block.Number(), block.BlockAccessRecord)
+		batchWriter.PutBlockAccessRecord(block.Number(), block.BlockAccessRecord)
 
 		b.AddBlockAccessRecordToCache(block.Number(), block.BlockAccessRecord)
 	}
@@ -1652,7 +1627,7 @@ func (b *Blockchain) GetBlockAccessRecord(bn uint64) (types.BlockAccessRecord, e
 		}
 	}
 
-	return b.db.ReadBlockAccessList(bn)
+	return b.db.ReadBlockAccessRecord(bn)
 }
 
 type Syncer interface {
@@ -1710,7 +1685,7 @@ func (b *Blockchain) ApplyFinalizedBlockFromBAL(
 	}
 
 	if len(block.BlockAccessRecord) == 0 {
-		return nil, ErrBarMissingForTrustMode
+		return nil, ErrBARMissingForTrustMode
 	}
 
 	blockAccessListHash := block.BlockAccessRecord.Hash()

@@ -403,7 +403,7 @@ func (s *syncer) applyBlock(syncBlock *SyncBlock, getReceipts bool) (*types.Full
 		return fullBlock, err
 	}
 
-	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAL(
+	fullBlock, err := s.blockchain.ApplyFinalizedBlockFromBAR(
 		syncBlock.Block,
 		s,
 	)

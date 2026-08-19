@@ -121,10 +121,10 @@ func (s *Storage) ReadLastSyncedReceipts() (uint64, bool) {
 	return common.EncodeBytesToUint64(data), true
 }
 
-// BLOCK ACCESS LIST //
+// BLOCK ACCESS RECORD //
 
-// ReadBlockAccessList reads the EIP-7928 block access list for the given block.
-func (s *Storage) ReadBlockAccessList(bn uint64) (types.BlockAccessRecord, error) {
+// ReadBlockAccessRecord reads the EIP-7928 block access record for the given block.
+func (s *Storage) ReadBlockAccessRecord(bn uint64) (types.BlockAccessRecord, error) {
 	accessList := &types.BlockAccessRecord{}
 	err := s.readRLP(BLOCK_ACCESS_RECORD, common.EncodeUint64ToBytes(bn), accessList)
 

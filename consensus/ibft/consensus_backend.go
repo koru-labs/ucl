@@ -314,8 +314,6 @@ func (i *backendIBFT) buildBlock(
 		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
-	var bar types.BlockAccessRecord
-
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
 	if err != nil {
@@ -392,7 +390,7 @@ func (i *backendIBFT) buildBlock(
 	}
 
 	if i.config.Params.Forks.At(header.Number).EIP7928 {
-		bar = transition.GetBlockAccessRecord()
+		bar := transition.GetBlockAccessRecord()
 		header.BlockAccessRecordHash = bar.Hash()
 		buildBlockParams.BlockAccessRecord = bar
 	}

@@ -82,7 +82,7 @@ func (m *mockBlockchain) GetBlockAccessRecord(bn uint64) (types.BlockAccessRecor
 	return nil, nil
 }
 
-func (m *mockBlockchain) ApplyFinalizedBlockFromBAL(block *types.Block, syncer blockchain.Syncer) (*types.FullBlock, error) {
+func (m *mockBlockchain) ApplyFinalizedBlockFromBAR(block *types.Block, syncer blockchain.Syncer) (*types.FullBlock, error) {
 	return nil, nil
 }
 

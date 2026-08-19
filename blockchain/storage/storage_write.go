@@ -38,8 +38,8 @@ func (w *Writer) PutReceipts(bn uint64, bh types.Hash, receipts []*types.Receipt
 	w.putRlp(RECEIPTS, getKey(bn, bh), &rs)
 }
 
-// PutBlockAccessList persists the EIP-7928 block access list for a block
-func (w *Writer) PutBlockAccessList(bn uint64, blockAccessRecord types.BlockAccessRecord) {
+// PutBlockAccessRecord persists the EIP-7928 block access record for a block
+func (w *Writer) PutBlockAccessRecord(bn uint64, blockAccessRecord types.BlockAccessRecord) {
 	w.putRlp(BLOCK_ACCESS_RECORD, common.EncodeUint64ToBytes(bn), blockAccessRecord)
 }
 
