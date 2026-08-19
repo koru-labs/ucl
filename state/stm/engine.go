@@ -2,7 +2,9 @@ package stm
 
 import (
 	"context"
+	"fmt"
 	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/hashicorp/go-hclog"
@@ -281,10 +283,31 @@ func (r *run) fail(err error) {
 	r.cond.Broadcast()
 }
 
-// doExecute runs one incarnation of candidate idx to completion (or to an ESTIMATE-triggered
-// abort) and records the outcome. See state.EstimateAbort for why a panic/recover is used
-// here: an mv dependency can only be discovered arbitrarily deep inside EVM execution, and
-// this codebase's EVM interpreter has no other abort channel for that.
+// writeTx executes one transaction, converting a panic anywhere beneath it into an ordinary
+// error. Execution runs on a worker goroutine, where an escaping panic would take the whole
+// process down with no chance for the caller to recover - so a bug in EVM or state handling
+// would kill a validator outright instead of merely failing one block proposal. Nothing shared
+// has been published at this point (an incarnation's writes reach mv only after this returns
+// cleanly), so unwinding here discards exactly this attempt and leaves the batch consistent.
+func writeTx(
+	tran *state.Transition, tx *types.Transaction, idx, incarnation int,
+) (receipt *types.Receipt, execErr, panicErr error) {
+	defer func() {
+		if p := recover(); p != nil {
+			receipt, execErr = nil, nil
+			panicErr = fmt.Errorf("stm: panic executing tx %d (incarnation %d): %v\n%s",
+				idx, incarnation, p, debug.Stack())
+		}
+	}()
+
+	receipt, execErr = tran.Write(tx)
+
+	return receipt, execErr, nil
+}
+
+// doExecute runs one incarnation of candidate idx and records the outcome. An incarnation that
+// read a not-yet-final value is parked behind the transaction it depends on instead of being
+// recorded (see state.EstimateAbortError).
 func (r *run) doExecute(e *env, idx int) {
 	r.mu.Lock()
 	incarnation := r.slots[idx].incarnation
@@ -297,26 +320,19 @@ func (r *run) doExecute(e *env, idx int) {
 		return
 	}
 
-	var (
-		receipt   *types.Receipt
-		execErr   error
-		blockedOn = -1
-	)
+	receipt, execErr, panicErr := writeTx(tran, e.candidates[idx], idx, incarnation)
+	if panicErr != nil {
+		r.fail(panicErr)
 
-	func() {
-		defer func() {
-			if p := recover(); p != nil {
-				abort, ok := p.(*state.EstimateAbortError)
-				if !ok {
-					panic(p) //nolint:gocritic
-				}
+		return
+	}
 
-				blockedOn = abort.BlockedOn
-			}
-		}()
-
-		receipt, execErr = tran.Write(e.candidates[idx])
-	}()
+	// a read that landed on a not-yet-final value means this incarnation ran on state that does
+	// not exist; its receipt and error are meaningless, so check this before either of them
+	blockedOn := -1
+	if bo, ok := txn.BlockedOn(); ok {
+		blockedOn = bo
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

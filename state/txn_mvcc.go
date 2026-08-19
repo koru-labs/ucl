@@ -147,6 +147,26 @@ func newTxnMVCC(snapshot, trueBase readSnapshot, mv MVMemoryAccess, txIndex, inc
 	}
 }
 
+// markBlocked latches an unresolved-dependency read. Only the first one is kept: it is the one
+// this incarnation must wait on, and later reads are already running on garbage.
+func (t *TxnMVCC) markBlocked(blockedOn int) {
+	if t.blocked == nil {
+		t.blocked = &EstimateAbortError{BlockedOn: blockedOn}
+	}
+}
+
+// BlockedOn reports the transaction this incarnation must wait for, if any read of its landed on
+// a value that transaction has not finalized yet. When ok is true the incarnation's receipt,
+// error, write-set and read-set are all meaningless and must be discarded; the caller re-runs it
+// once that transaction has produced a real result.
+func (t *TxnMVCC) BlockedOn() (blockedOn int, ok bool) {
+	if t.blocked == nil {
+		return 0, false
+	}
+
+	return t.blocked.BlockedOn, true
+}
+
 func (t *TxnMVCC) recordRead(key Key, foundTxIndex, foundIncarnation int) {
 	t.readSet = append(t.readSet, mvReadRecord{
 		key:                 key,
@@ -157,9 +177,7 @@ func (t *TxnMVCC) recordRead(key Key, foundTxIndex, foundIncarnation int) {
 
 // WriteSet returns the keys this incarnation wrote (isWritten entries of local), ready for
 // installation into the batch's multi-version memory.
-func (t *TxnMVCC) WriteSet() []KeyValue {
-	var out []KeyValue
-
+func (t *TxnMVCC) WriteSet() (out []KeyValue) {
 	for key, val := range t.local {
 		if !val.isWritten {
 			continue
@@ -182,6 +200,15 @@ func (t *TxnMVCC) PendingCredits() map[types.Address]*big.Int {
 // version (or still falls through to base) as when this incarnation actually executed. A
 // false result means this incarnation is stale and must be discarded and re-executed.
 func (t *TxnMVCC) Validate() bool {
+	// A blocked incarnation ran on values that were never real, so it can never be valid - this
+	// backstops the driver's own BlockedOn check rather than relying on it alone. The read-set
+	// cannot stand in for it: a blocked read is recorded as having resolved to base, so once the
+	// transaction it was waiting on re-executes without that key, every recorded version matches
+	// again and the garbage incarnation would validate clean.
+	if t.blocked != nil {
+		return false
+	}
+
 	for _, r := range t.readSet {
 		_, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(r.key, t.txIndex)
 		if found && isEstimate {
@@ -295,7 +322,8 @@ func (t *TxnMVCC) RevertToSnapshot(id int) error {
 
 // getStateObject resolves an account through local -> mv -> base, in that order, caching the
 // result locally (isWritten:false) so repeated reads within this incarnation stay consistent
-// and cheap. Panics with *EstimateAbort if mv holds an unresolved placeholder for this key.
+// and cheap. Landing on an unresolved placeholder latches EstimateAbortError and falls through
+// to base, so execution stays on well-formed values until the driver discards it.
 func (t *TxnMVCC) getStateObject(addr types.Address) (*StateObject, bool) {
 	addrKey := NewAddressKey(addr)
 
@@ -308,10 +336,7 @@ func (t *TxnMVCC) getStateObject(addr types.Address) (*StateObject, bool) {
 		return obj.Copy(false), true
 	}
 
-	val, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(addrKey, t.txIndex)
-	if found && isEstimate {
-		panic(&EstimateAbortError{BlockedOn: foundTxIndex}) //nolint:gocritic
-	}
+	val, foundTxIndex, foundIncarnation, found := t.readMV(addrKey)
 
 	var (
 		obj    *StateObject
@@ -487,15 +512,30 @@ func accountEpochKey(addr types.Address) Key {
 	return NewSubpathKey(addr, SuicidePath)
 }
 
-// readVersioned resolves one key against mv, recording the observed version in the read-set
-// (observedTxIndex -1 == "resolved to base") and aborting this incarnation if it lands on an
-// estimate. Recording every underlying key a result is derived from is what lets Validate stay
-// a plain per-key version comparison (see mvReadRecord).
-func (t *TxnMVCC) readVersioned(key Key) (val any, foundTxIndex int, found bool) {
+// readMV looks one key up in mv, translating an unresolved placeholder into a latched
+// EstimateAbortError plus a plain "not found" so callers can carry on against base state instead
+// of having to unwind. Once latched it stops consulting mv at all: this incarnation is already
+// discarded, so further lookups would only add contention on the shared store.
+func (t *TxnMVCC) readMV(key Key) (val any, foundTxIndex, foundIncarnation int, found bool) {
+	if t.blocked != nil {
+		return nil, 0, 0, false
+	}
+
 	val, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(key, t.txIndex)
 	if found && isEstimate {
-		panic(&EstimateAbortError{BlockedOn: foundTxIndex}) //nolint:gocritic
+		t.markBlocked(foundTxIndex)
+
+		return nil, 0, 0, false
 	}
+
+	return val, foundTxIndex, foundIncarnation, found
+}
+
+// readVersioned resolves one key against mv and records the observed version in the read-set
+// (observedTxIndex -1 == "resolved to base"). Recording every underlying key a result is derived
+// from is what lets Validate stay a plain per-key version comparison (see mvReadRecord).
+func (t *TxnMVCC) readVersioned(key Key) (val any, foundTxIndex int, found bool) {
+	val, foundTxIndex, foundIncarnation, found := t.readMV(key)
 
 	if found {
 		t.recordRead(key, foundTxIndex, foundIncarnation)
@@ -506,7 +546,7 @@ func (t *TxnMVCC) readVersioned(key Key) (val any, foundTxIndex int, found bool)
 	return val, foundTxIndex, found
 }
 
-func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
+func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) (result types.Hash) {
 	t.dagTracker.AddStorageRead(addr, key)
 
 	stateKey := NewStateKey(addr, key)
@@ -517,8 +557,6 @@ func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
 
 	val, storageTxIndex, storageFound := t.readVersioned(stateKey)
 	_, epochTxIndex, epochFound := t.readVersioned(accountEpochKey(addr))
-
-	var result types.Hash
 
 	switch {
 	case storageFound && (!epochFound || storageTxIndex >= epochTxIndex):
@@ -546,9 +584,7 @@ func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
 	return result
 }
 
-func (t *TxnMVCC) IncrNonce(addr types.Address) error {
-	var err error
-
+func (t *TxnMVCC) IncrNonce(addr types.Address) (err error) {
 	t.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Account.Nonce+1 < object.Account.Nonce {
 			err = ErrNonceUintOverflow
@@ -645,9 +681,7 @@ func (t *TxnMVCC) GetCodeHash(addr types.Address) types.Hash {
 	return types.BytesToHash(object.Account.CodeHash)
 }
 
-func (t *TxnMVCC) Suicide(addr types.Address) bool {
-	var suicided bool
-
+func (t *TxnMVCC) Suicide(addr types.Address) (suicided bool) {
 	t.upsertAccount(addr, false, func(object *StateObject) {
 		if object == nil || object.Suicide {
 			suicided = false
