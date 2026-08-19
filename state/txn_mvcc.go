@@ -28,17 +28,22 @@ type MVMemoryAccess interface {
 	Read(key Key, txIndex int) (val any, foundTxIndex, foundIncarnation int, isEstimate, found bool)
 }
 
-// EstimateAbort is panicked from deep inside EVM execution (mirroring how this codebase's
-// EVM interpreter already signals reverts/out-of-gas via ExecutionResult, just one level
-// higher up the stack) when a read observes a placeholder left by an incarnation that is
-// being re-executed. The recovering caller (state/stm's executor) must discard this
-// incarnation's work entirely and retry once BlockedOn's transaction has produced a fresh
-// result.
-type EstimateAbort struct {
+// EstimateAbortError records that a read landed on a placeholder left behind by a transaction
+// that is currently being re-executed, so this incarnation is reading state that does not exist
+// yet and its results must be thrown away.
+//
+// It is a sticky error rather than a returned one: the read that discovers it happens arbitrarily
+// deep inside EVM execution, behind ITransitionTxn/runtime.Host getters that have no error
+// return (GetState(addr, key) types.Hash and friends), so there is nowhere to return it to.
+// Instead TxnMVCC latches it, lets the doomed execution run itself out on well-formed values, and
+// the driver checks BlockedOn once Write returns - the same shape as bufio.Scanner.Err. Latching
+// also poisons Validate, so a blocked incarnation can never be mistaken for a valid one even if a
+// caller forgets to check.
+type EstimateAbortError struct {
 	BlockedOn int
 }
 
-func (e *EstimateAbort) Error() string {
+func (e *EstimateAbortError) Error() string {
 	return fmt.Sprintf("state: stm read blocked on uncommitted tx %d", e.BlockedOn)
 }
 
@@ -95,6 +100,10 @@ type TxnMVCC struct {
 	local          map[Key]txLocalValue
 	readSet        []mvReadRecord
 	pendingCredits map[types.Address]*big.Int
+
+	// blocked latches the first unresolved-dependency read this incarnation hit; see
+	// EstimateAbortError. Non-nil means every result produced here is garbage.
+	blocked *EstimateAbortError
 
 	// dagTracker records reads/writes at the exact call sites the sequential Txn's real
 	// ITxAccessTracker does (see tx_access_tracker.go and txn.go) - e.g. TouchAccount and the
@@ -291,7 +300,7 @@ func (t *TxnMVCC) getStateObject(addr types.Address) (*StateObject, bool) {
 	addrKey := NewAddressKey(addr)
 
 	if v, ok := t.local[addrKey]; ok {
-		obj, _ := v.value.(*StateObject) //nolint:forcetypeassert
+		obj := v.value.(*StateObject) //nolint:forcetypeassert
 		if obj == nil || obj.Suicide {
 			return nil, false
 		}
@@ -301,7 +310,7 @@ func (t *TxnMVCC) getStateObject(addr types.Address) (*StateObject, bool) {
 
 	val, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(addrKey, t.txIndex)
 	if found && isEstimate {
-		panic(&EstimateAbort{BlockedOn: foundTxIndex})
+		panic(&EstimateAbortError{BlockedOn: foundTxIndex}) //nolint:gocritic
 	}
 
 	var (
@@ -310,7 +319,7 @@ func (t *TxnMVCC) getStateObject(addr types.Address) (*StateObject, bool) {
 	)
 
 	if found {
-		srcObj, _ := val.(*StateObject) //nolint:forcetypeassert
+		srcObj := val.(*StateObject) //nolint:forcetypeassert
 		if srcObj != nil && !srcObj.Suicide {
 			obj, exists = srcObj.Copy(false), true
 		}
@@ -485,7 +494,7 @@ func accountEpochKey(addr types.Address) Key {
 func (t *TxnMVCC) readVersioned(key Key) (val any, foundTxIndex int, found bool) {
 	val, foundTxIndex, foundIncarnation, isEstimate, found := t.mv.Read(key, t.txIndex)
 	if found && isEstimate {
-		panic(&EstimateAbort{BlockedOn: foundTxIndex})
+		panic(&EstimateAbortError{BlockedOn: foundTxIndex}) //nolint:gocritic
 	}
 
 	if found {
@@ -515,7 +524,7 @@ func (t *TxnMVCC) GetState(addr types.Address, key types.Hash) types.Hash {
 	case storageFound && (!epochFound || storageTxIndex >= epochTxIndex):
 		// a surviving in-block write: either no account reset happened below us, or this write
 		// is at/after it (a tx that creates and writes in one go lands on the same index)
-		result, _ = val.(types.Hash) //nolint:forcetypeassert
+		result = val.(types.Hash) //nolint:forcetypeassert
 
 	case epochFound:
 		// The account was reset (suicided and/or recreated) by a lower-indexed tx in this same

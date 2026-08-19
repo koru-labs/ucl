@@ -848,6 +848,7 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	// always reach the normal return, so gasReserved is always false by the time they return -
 	// this is a no-op for them.
 	gasReserved := true
+
 	defer func() {
 		if gasReserved {
 			t.addGasPool(msg.Gas)
@@ -931,6 +932,7 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
+
 	gasReserved = false
 
 	return result, nil

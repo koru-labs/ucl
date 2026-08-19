@@ -222,34 +222,14 @@ func TestEngine_SmartContractCalls(t *testing.T) {
 	alloc, deployTx, callTxs, _, _ := statetesthelper.SetupParallelVerificationData(t)
 	coinbase := types.StringToAddress("fffaaafffaaafffaffccbbaa3454772")
 
-	setupParent := func(t *testing.T) (*state.Executor, types.Hash) {
-		t.Helper()
-
-		executor := newSTMTestExecutor(t)
-		genesisRoot, err := executor.WriteGenesis(alloc, types.ZeroHash)
-		require.NoError(t, err)
-
-		header := &types.Header{Number: 1, GasLimit: 5_000_000, Timestamp: 1}
-
-		tran, err := executor.BeginTxn(genesisRoot, header, types.ZeroAddress)
-		require.NoError(t, err)
-		_, err = tran.Write(deployTx)
-		require.NoError(t, err)
-
-		_, root, err := tran.Commit()
-		require.NoError(t, err)
-
-		return executor, root
-	}
-
 	header := &types.Header{Number: 2, GasLimit: 5_000_000, Timestamp: 2}
 
-	seqExecutor, seqParent := setupParent(t)
+	seqExecutor, seqParent, _ := setupParent(t, deployTx.From, alloc)
 	seqRoot, seqReceipts := runSequential(t, seqExecutor, seqParent, header, coinbase, callTxs)
 
 	for _, workers := range []int{1, 2, 4, 8} {
 		for iter := 0; iter < 20; iter++ {
-			stmExecutor, stmParent := setupParent(t)
+			stmExecutor, stmParent, _ := setupParent(t, deployTx.From, alloc)
 			require.Equal(t, seqParent, stmParent)
 
 			stmRoot, outcome := runSTM(t, stmExecutor, workers, stmParent, header, coinbase, callTxs)
@@ -286,59 +266,16 @@ func TestEngine_RandomizedWorkload(t *testing.T) {
 
 	alloc := statetesthelper.FundedAlloc(append(append([]types.Address{deployer}, senders...), coinbase)...)
 
-	setupParent := func(t *testing.T) (*state.Executor, types.Hash, statetesthelper.RandomizedWorkloadContracts) {
-		t.Helper()
-
-		executor := newSTMTestExecutor(t)
-		genesisRoot, err := executor.WriteGenesis(alloc, types.ZeroHash)
-		require.NoError(t, err)
-
-		header := &types.Header{Number: 1, GasLimit: 30_000_000, Timestamp: 1}
-
-		tran, err := executor.BeginTxn(genesisRoot, header, types.ZeroAddress)
-		require.NoError(t, err)
-
-		balRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 0,
-			statetesthelper.MustDecodeHex(t, statetesthelper.BalancesInitHex)))
-		require.NoError(t, err)
-		require.NoError(t, balRes.Err)
-
-		router1Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 1,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, router1Res.Err)
-
-		router2Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 2,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, router2Res.Err)
-
-		proxyRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 3,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.ProxyInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, proxyRes.Err)
-
-		_, root, err := tran.Commit()
-		require.NoError(t, err)
-
-		return executor, root, statetesthelper.RandomizedWorkloadContracts{
-			Balances: balRes.Address,
-			Router1:  router1Res.Address,
-			Router2:  router2Res.Address,
-			Proxy:    proxyRes.Address,
-		}
-	}
-
 	header := &types.Header{Number: 2, GasLimit: 30_000_000, Timestamp: 2}
 
 	for _, numTxs := range []int{1, 5, 40} {
-		seqExecutor, seqParent, contracts := setupParent(t)
+		seqExecutor, seqParent, contracts := setupParent(t, deployer, alloc)
 		txs := statetesthelper.RandomizedWorkload(1337, numTxs, senders, targets, receivers, contracts)
 
 		seqRoot, seqReceipts := runSequential(t, seqExecutor, seqParent, header, coinbase, txs)
 
 		for _, workers := range []int{1, 2, 4, 8} {
-			stmExecutor, stmParent, _ := setupParent(t)
+			stmExecutor, stmParent, _ := setupParent(t, deployer, alloc)
 			require.Equal(t, seqParent, stmParent)
 
 			stmRoot, outcome := runSTM(t, stmExecutor, workers, stmParent, header, coinbase, txs)
@@ -348,7 +285,7 @@ func TestEngine_RandomizedWorkload(t *testing.T) {
 			requireReceiptsEqual(t, seqReceipts, outcome.Receipts)
 
 			if numTxs > 1 {
-				verifyExecutor, verifyParent, _ := setupParent(t)
+				verifyExecutor, verifyParent, _ := setupParent(t, deployer, alloc)
 				require.Equal(t, seqParent, verifyParent)
 
 				verifyRoot := verifyViaDAG(t, verifyExecutor, workers, verifyParent, header, coinbase, outcome)
@@ -636,53 +573,9 @@ func TestEngine_RandomizedWorkload_Chunked(t *testing.T) {
 	deployer := types.StringToAddress("d0000000000000000000000000000000000000")
 
 	alloc := statetesthelper.FundedAlloc(append(append([]types.Address{deployer}, senders...), coinbase)...)
-
-	setupParent := func(t *testing.T) (*state.Executor, types.Hash, statetesthelper.RandomizedWorkloadContracts) {
-		t.Helper()
-
-		executor := newSTMTestExecutor(t)
-		genesisRoot, err := executor.WriteGenesis(alloc, types.ZeroHash)
-		require.NoError(t, err)
-
-		header := &types.Header{Number: 1, GasLimit: 30_000_000, Timestamp: 1}
-
-		tran, err := executor.BeginTxn(genesisRoot, header, types.ZeroAddress)
-		require.NoError(t, err)
-
-		balRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 0,
-			statetesthelper.MustDecodeHex(t, statetesthelper.BalancesInitHex)))
-		require.NoError(t, err)
-		require.NoError(t, balRes.Err)
-
-		router1Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 1,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, router1Res.Err)
-
-		router2Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 2,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, router2Res.Err)
-
-		proxyRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 3,
-			statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.ProxyInitHex), balRes.Address)))
-		require.NoError(t, err)
-		require.NoError(t, proxyRes.Err)
-
-		_, root, err := tran.Commit()
-		require.NoError(t, err)
-
-		return executor, root, statetesthelper.RandomizedWorkloadContracts{
-			Balances: balRes.Address,
-			Router1:  router1Res.Address,
-			Router2:  router2Res.Address,
-			Proxy:    proxyRes.Address,
-		}
-	}
-
 	header := &types.Header{Number: 2, GasLimit: 30_000_000, Timestamp: 2}
 
-	seqExecutor, seqParent, contracts := setupParent(t)
+	seqExecutor, seqParent, contracts := setupParent(t, deployer, alloc)
 	txs := statetesthelper.RandomizedWorkload(1337, 40, senders, targets, receivers, contracts)
 
 	seqRoot, seqReceipts := runSequential(t, seqExecutor, seqParent, header, coinbase, txs)
@@ -690,7 +583,7 @@ func TestEngine_RandomizedWorkload_Chunked(t *testing.T) {
 	for _, workers := range []int{1, 2, 4, 8} {
 		chunkSize := min(max(4*workers, 32), 256)
 
-		stmExecutor, stmParent, _ := setupParent(t)
+		stmExecutor, stmParent, _ := setupParent(t, deployer, alloc)
 		require.Equal(t, seqParent, stmParent)
 
 		stmRoot, depsBuilder, included, receipts := runSTMChunked(
@@ -703,7 +596,7 @@ func TestEngine_RandomizedWorkload_Chunked(t *testing.T) {
 		graph := depsBuilder.GetDeps()
 		require.NotNil(t, graph)
 
-		verifyExecutor, verifyParent, _ := setupParent(t)
+		verifyExecutor, verifyParent, _ := setupParent(t, deployer, alloc)
 		require.Equal(t, seqParent, verifyParent)
 
 		pool := state.NewTxDependancyPool(included, graph)
@@ -865,5 +758,50 @@ func TestEngine_MetamorphicCreate2Redeploy(t *testing.T) {
 			require.Equal(t, seqRoot, stmRoot, "workers=%d iter=%d: state root must match sequential", workers, iter)
 			requireReceiptsEqual(t, seqReceipts, outcome.Receipts)
 		}
+	}
+}
+
+func setupParent(
+	t *testing.T, deployer types.Address, alloc map[types.Address]*chain.GenesisAccount,
+) (*state.Executor, types.Hash, statetesthelper.RandomizedWorkloadContracts) {
+	t.Helper()
+
+	executor := newSTMTestExecutor(t)
+	genesisRoot, err := executor.WriteGenesis(alloc, types.ZeroHash)
+	require.NoError(t, err)
+
+	header := &types.Header{Number: 1, GasLimit: 30_000_000, Timestamp: 1}
+
+	tran, err := executor.BeginTxn(genesisRoot, header, types.ZeroAddress)
+	require.NoError(t, err)
+
+	balRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 0,
+		statetesthelper.MustDecodeHex(t, statetesthelper.BalancesInitHex)))
+	require.NoError(t, err)
+	require.NoError(t, balRes.Err)
+
+	router1Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 1,
+		statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
+	require.NoError(t, err)
+	require.NoError(t, router1Res.Err)
+
+	router2Res, err := tran.Apply(statetesthelper.DeployTx(deployer, 2,
+		statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.RouterInitHex), balRes.Address)))
+	require.NoError(t, err)
+	require.NoError(t, router2Res.Err)
+
+	proxyRes, err := tran.Apply(statetesthelper.DeployTx(deployer, 3,
+		statetesthelper.AppendCtorAddr(statetesthelper.MustDecodeHex(t, statetesthelper.ProxyInitHex), balRes.Address)))
+	require.NoError(t, err)
+	require.NoError(t, proxyRes.Err)
+
+	_, root, err := tran.Commit()
+	require.NoError(t, err)
+
+	return executor, root, statetesthelper.RandomizedWorkloadContracts{
+		Balances: balRes.Address,
+		Router1:  router1Res.Address,
+		Router2:  router2Res.Address,
+		Proxy:    proxyRes.Address,
 	}
 }

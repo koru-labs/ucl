@@ -149,6 +149,7 @@ func (e *Engine) RunBatch(
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
+
 			r.worker(batchEnv)
 		}()
 	}
@@ -305,9 +306,9 @@ func (r *run) doExecute(e *env, idx int) {
 	func() {
 		defer func() {
 			if p := recover(); p != nil {
-				abort, ok := p.(*state.EstimateAbort)
+				abort, ok := p.(*state.EstimateAbortError)
 				if !ok {
-					panic(p)
+					panic(p) //nolint:gocritic
 				}
 
 				blockedOn = abort.BlockedOn
@@ -421,5 +422,6 @@ func (r *run) doValidate(e *env, idx int, txn *state.TxnMVCC, epochAtClaim int) 
 	}
 
 	s.validated = true
+
 	r.cond.Broadcast()
 }

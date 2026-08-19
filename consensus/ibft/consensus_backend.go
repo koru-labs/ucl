@@ -375,7 +375,8 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	writeCtx, cancelFn := context.WithTimeout(ctx, i.blockTime)
 	defer cancelFn()
 
-	txs, receipts, blockGasUsed, err := i.buildTransactions(writeCtx, gasLimit, header, signer.Address(), dst, tranGasLimit)
+	txs, receipts, blockGasUsed, err := i.buildTransactions(
+		writeCtx, gasLimit, header, signer.Address(), dst, tranGasLimit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -517,11 +518,13 @@ batchLoop:
 
 		for _, tx := range outcome.Drop {
 			i.txpool.Drop(tx)
+
 			dropped++
 		}
 
 		for _, tx := range outcome.Demote {
 			i.txpool.Demote(tx)
+
 			demoted++
 		}
 

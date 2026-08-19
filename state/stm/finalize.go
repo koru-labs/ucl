@@ -42,7 +42,9 @@ func classifyErr(err error) classification {
 // gas-limit cutoff, assigning sequential CumulativeGasUsed, and classifying every candidate
 // for the caller's txpool bookkeeping. It returns the winning TxnMVCC incarnations for
 // Included, in order, for the caller to merge via state.FlushBatchInto.
-func finalize(candidates []*types.Transaction, slots []slot, remainingBlockGas uint64) (*BatchOutcome, []*state.TxnMVCC) {
+func finalize(
+	candidates []*types.Transaction, slots []slot, remainingBlockGas uint64,
+) (*BatchOutcome, []*state.TxnMVCC) {
 	outcome := &BatchOutcome{}
 
 	var (

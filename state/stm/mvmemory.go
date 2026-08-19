@@ -121,7 +121,9 @@ func (mv *MVMemory) getOrCreate(key state.Key) *mvKey {
 // batch's base state). isEstimate=true means the visible version is a placeholder left by an
 // incarnation that is being re-executed - the caller must treat this as a hard dependency
 // block, not a value.
-func (mv *MVMemory) Read(key state.Key, txIndex int) (val any, foundTxIndex, foundIncarnation int, isEstimate, found bool) {
+func (mv *MVMemory) Read(
+	key state.Key, txIndex int,
+) (val any, foundTxIndex, foundIncarnation int, isEstimate, found bool) {
 	k := mv.get(key)
 	if k == nil {
 		return nil, 0, 0, false, false
