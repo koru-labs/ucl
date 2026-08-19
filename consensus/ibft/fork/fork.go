@@ -17,8 +17,9 @@ const (
 )
 
 var (
-	ErrUndefinedIBFTConfig = errors.New("IBFT config is not defined")
-	errInvalidBlockTime    = errors.New("invalid block time provided")
+	ErrUndefinedIBFTConfig         = errors.New("IBFT config is not defined")
+	ErrUnsupportedBLSValidatorType = errors.New("BLS validator type is no longer supported; use ECDSA")
+	errInvalidBlockTime            = errors.New("invalid block time provided")
 )
 
 // IBFT Fork represents setting in params.engine.ibft of genesis.json
@@ -68,6 +69,10 @@ func (f *IBFTFork) UnmarshalJSON(data []byte) error {
 		f.ValidatorType = *raw.ValidatorType
 	}
 
+	if f.ValidatorType == validators.BLSValidatorType {
+		return ErrUnsupportedBLSValidatorType
+	}
+
 	if raw.Validators == nil {
 		return nil
 	}
@@ -97,6 +102,10 @@ func GetIBFTForks(ibftConfig map[string]interface{}) (IBFTForks, error) {
 			if validatorType, err = validators.ParseValidatorType(rawValType); err != nil {
 				return nil, err
 			}
+		}
+
+		if validatorType == validators.BLSValidatorType {
+			return nil, ErrUnsupportedBLSValidatorType
 		}
 
 		var blockTime *common.Duration = nil
@@ -135,6 +144,12 @@ func GetIBFTForks(ibftConfig map[string]interface{}) (IBFTForks, error) {
 		var forks IBFTForks
 		if err := json.Unmarshal(bytes, &forks); err != nil {
 			return nil, err
+		}
+
+		for _, f := range forks {
+			if f.ValidatorType == validators.BLSValidatorType {
+				return nil, ErrUnsupportedBLSValidatorType
+			}
 		}
 
 		return forks, nil

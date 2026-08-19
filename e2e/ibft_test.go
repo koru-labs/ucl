@@ -38,12 +38,6 @@ func TestIbft_Transfer(t *testing.T) {
 			ibftBaseTimeout: 20,
 			validatorType:   validators.ECDSAValidatorType,
 		},
-		{
-			name:            "with BLS",
-			blockTime:       defaultBlockTime,
-			ibftBaseTimeout: 0, // use default value
-			validatorType:   validators.BLSValidatorType,
-		},
 	}
 
 	var (

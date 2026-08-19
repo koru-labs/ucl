@@ -120,7 +120,7 @@ func StakeAmount(
 	senderKey *ecdsa.PrivateKey,
 	amount *big.Int,
 	srv *TestServer,
-) error {
+) (*ethgo.Receipt, error) {
 	// Stake Balance
 	txn := &PreparedTransaction{
 		From:     from,
@@ -134,12 +134,12 @@ func StakeAmount(
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
 
-	_, err := srv.SendRawTx(ctx, txn, senderKey)
+	receipt, err := srv.SendRawTx(ctx, txn, senderKey)
 	if err != nil {
-		return fmt.Errorf("unable to call Staking contract method stake, %w", err)
+		return nil, fmt.Errorf("unable to call Staking contract method stake, %w", err)
 	}
 
-	return nil
+	return receipt, nil
 }
 
 // UnstakeAmount is a helper function for unstaking the entire amount on the Staking SC

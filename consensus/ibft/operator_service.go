@@ -7,7 +7,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/proto"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
-	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/0xPolygon/polygon-edge/validators/store"
@@ -141,23 +140,7 @@ func (o *operator) parseCandidate(req *proto.Candidate) (validators.Validator, e
 		}, nil
 
 	case validators.BLSValidatorType:
-		// safe check
-		if req.Auth {
-			// BLS public key is necessary but the command is not required
-			if req.BlsPubkey == nil {
-				return nil, errors.New("BLS public key required")
-			}
-
-			if _, err := crypto.UnmarshalBLSPublicKey(req.BlsPubkey); err != nil {
-				return nil, err
-			}
-		}
-
-		// BLS Public Key doesn't have to be given in case of removal
-		return &validators.BLSValidator{
-			Address:      types.StringToAddress(req.Address),
-			BLSPublicKey: req.BlsPubkey,
-		}, nil
+		return nil, errors.New("BLS validator type is no longer supported; use ECDSA")
 	}
 
 	return nil, fmt.Errorf("invalid validator type: %s", signer.Type())

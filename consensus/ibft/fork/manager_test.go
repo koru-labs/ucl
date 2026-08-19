@@ -67,9 +67,6 @@ func TestNewForkManager(t *testing.T) {
 	_, ecdsaKeyBytes, err := crypto.GenerateAndEncodeECDSAPrivateKey()
 	assert.NoError(t, err)
 
-	_, blsKeyBytes, err := crypto.GenerateAndEncodeBLSSecretKey()
-	assert.NoError(t, err)
-
 	logger := hclog.NewNullLogger()
 
 	t.Run("should return error if ibftConfig is empty", func(t *testing.T) {
@@ -113,7 +110,7 @@ func TestNewForkManager(t *testing.T) {
 			epochSize,
 			map[string]interface{}{
 				"type":           "PoS",
-				"validator_type": "bls",
+				"validator_type": "ecdsa",
 			},
 		)
 
@@ -254,7 +251,29 @@ func TestNewForkManager(t *testing.T) {
 		assert.NotNil(t, fm.hooksRegisters[PoA])
 	})
 
-	t.Run("PoS and BLS", func(t *testing.T) {
+	t.Run("PoS and BLS is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		var epochSize uint64 = 10
+
+		fm, err := NewForkManager(
+			logger,
+			nil,
+			nil,
+			localFactory(nil),
+			"",
+			epochSize,
+			map[string]interface{}{
+				"type":           "PoS",
+				"validator_type": "bls",
+			},
+		)
+
+		assert.Nil(t, fm)
+		assert.ErrorIs(t, err, ErrUnsupportedBLSValidatorType)
+	})
+
+	t.Run("PoS and ECDSA", func(t *testing.T) {
 		t.Parallel()
 
 		var (
@@ -262,18 +281,14 @@ func TestNewForkManager(t *testing.T) {
 
 			secretManager = &mockSecretManager{
 				HasSecretFunc: func(name string) bool {
-					assert.True(t, name == secrets.ValidatorKey || name == secrets.ValidatorBLSKey)
+					assert.Equal(t, secrets.ValidatorKey, name)
 
 					return true
 				},
 				GetSecretFunc: func(name string) ([]byte, error) {
-					assert.True(t, name == secrets.ValidatorKey || name == secrets.ValidatorBLSKey)
+					assert.Equal(t, secrets.ValidatorKey, name)
 
-					if name == secrets.ValidatorKey {
-						return ecdsaKeyBytes, nil
-					} else {
-						return blsKeyBytes, nil
-					}
+					return ecdsaKeyBytes, nil
 				},
 			}
 		)
@@ -287,14 +302,14 @@ func TestNewForkManager(t *testing.T) {
 			epochSize,
 			map[string]interface{}{
 				"type":           "PoS",
-				"validator_type": "bls",
+				"validator_type": "ecdsa",
 			},
 		)
 
 		assert.NoError(t, err)
 		assert.NoError(t, fm.Initialize())
 
-		assert.NotNil(t, fm.keyManagers[validators.BLSValidatorType])
+		assert.NotNil(t, fm.keyManagers[validators.ECDSAValidatorType])
 		assert.NotNil(t, fm.validatorStores[store.Contract])
 		assert.NotNil(t, fm.hooksRegisters[PoS])
 	})

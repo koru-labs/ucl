@@ -28,7 +28,6 @@ const (
 	MinValidatorCountFlag = "min-validator-count"
 	MaxValidatorCountFlag = "max-validator-count"
 
-	IBFTValidatorTypeFlag = "ibft-validator-type"
 )
 
 const (
@@ -45,7 +44,7 @@ var (
 
 	ErrValidatorNumberExceedsMax = errors.New("validator number exceeds max validator number")
 	ErrECDSAKeyNotFound          = errors.New("ECDSA key not found in given path")
-	ErrBLSKeyNotFound            = errors.New("BLS key not found in given path")
+	ErrBLSKeyNotSupported        = errors.New("BLS validator keys are no longer supported; use ECDSA")
 )
 
 func ValidateMinMaxValidatorsNumber(minValidatorCount uint64, maxValidatorCount uint64) error {
@@ -108,26 +107,14 @@ func GetValidatorsFromPrefixPath(
 			return nil, err
 		}
 
-		switch validatorType {
-		case validators.ECDSAValidatorType:
-			if err := validatorSet.Add(&validators.ECDSAValidator{
-				Address: address,
-			}); err != nil {
-				return nil, err
-			}
+		if validatorType != validators.ECDSAValidatorType {
+			return nil, ErrBLSKeyNotSupported
+		}
 
-		case validators.BLSValidatorType:
-			blsPublicKey, err := getBLSPublicKeyBytesFromSecretManager(localSecretsManager)
-			if err != nil {
-				return nil, err
-			}
-
-			if err := validatorSet.Add(&validators.BLSValidator{
-				Address:      address,
-				BLSPublicKey: blsPublicKey,
-			}); err != nil {
-				return nil, err
-			}
+		if err := validatorSet.Add(&validators.ECDSAValidator{
+			Address: address,
+		}); err != nil {
+			return nil, err
 		}
 	}
 
@@ -152,30 +139,3 @@ func getValidatorAddressFromSecretManager(manager secrets.SecretsManager) (types
 	return crypto.PubKeyToAddress(&privKey.PublicKey), nil
 }
 
-func getBLSPublicKeyBytesFromSecretManager(manager secrets.SecretsManager) ([]byte, error) {
-	if !manager.HasSecret(secrets.ValidatorBLSKey) {
-		return nil, ErrBLSKeyNotFound
-	}
-
-	keyBytes, err := manager.GetSecret(secrets.ValidatorBLSKey)
-	if err != nil {
-		return nil, err
-	}
-
-	secretKey, err := crypto.BytesToBLSSecretKey(keyBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	pubKey, err := secretKey.GetPublicKey()
-	if err != nil {
-		return nil, err
-	}
-
-	pubKeyBytes, err := pubKey.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	return pubKeyBytes, nil
-}

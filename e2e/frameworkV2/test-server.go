@@ -241,7 +241,7 @@ func (t *TestServer) WaitForNonZeroBalance(address types.Address, dur time.Durat
 }
 
 // IBFTPropose casts a validator vote via the polygon-edge ibft propose command.
-func (t *TestServer) IBFTPropose(addr types.Address, blsPubKey string, auth bool) error {
+func (t *TestServer) IBFTPropose(addr types.Address, auth bool) error {
 	vote := "drop"
 	if auth {
 		vote = "auth"
@@ -252,10 +252,6 @@ func (t *TestServer) IBFTPropose(addr types.Address, blsPubKey string, auth bool
 		"--grpc-address", t.GrpcAddr(),
 		"--addr", addr.String(),
 		"--vote", vote,
-	}
-
-	if blsPubKey != "" {
-		args = append(args, "--bls", blsPubKey)
 	}
 
 	return runCommand(t.clusterConfig.Binary, args, t.clusterConfig.GetStdout("ibft-propose"))

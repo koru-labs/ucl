@@ -93,119 +93,43 @@ func assertEqualAggregatedBLSPublicKeys(t *testing.T, apk1, apk2 *bls_sig.MultiP
 func TestNewBLSKeyManager(t *testing.T) {
 	t.Parallel()
 
-	testECDSAKey, testECDSAKeyEncoded := newTestECDSAKey(t)
-	testBLSKey, testBLSKeyEncoded := newTestBLSKey(t)
+	_, testECDSAKeyEncoded := newTestECDSAKey(t)
 
-	testSecretName := func(name string) {
-		t.Helper()
+	t.Run("should return error if getOrCreateECDSAKey returns error", func(t *testing.T) {
+		t.Parallel()
 
-		// make sure that the correct key is given
-		assert.Contains(
-			t,
-			[]string{secrets.ValidatorKey, secrets.ValidatorBLSKey},
-			name,
-		)
-	}
-
-	//lint:ignore dupl
-	tests := []struct {
-		name              string
-		mockSecretManager *MockSecretManager
-		expectedResult    KeyManager
-		expectedErr       error
-	}{
-		{
-			name: "should initialize BLSKeyManager from the loaded ECDSA and BLS key",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					switch name {
-					case secrets.ValidatorKey:
-						return testECDSAKeyEncoded, nil
-					case secrets.ValidatorBLSKey:
-						return testBLSKeyEncoded, nil
-					}
-
-					return nil, nil
-				},
+		res, err := NewBLSKeyManager(&MockSecretManager{
+			HasSecretFn: func(name string) bool {
+				return true
 			},
-			expectedResult: &BLSKeyManager{
-				ecdsaKey: testECDSAKey,
-				blsKey:   testBLSKey,
-				address:  crypto.PubKeyToAddress(&testECDSAKey.PublicKey),
+			GetSecretFn: func(name string) ([]byte, error) {
+				if name == secrets.ValidatorKey {
+					return nil, errTest
+				}
+
+				return testECDSAKeyEncoded, nil
 			},
-			expectedErr: nil,
-		},
-		{
-			name: "should return error if getOrCreateECDSAKey returns error",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					switch name {
-					case secrets.ValidatorKey:
-						// return error instead of key
-						return nil, errTest
-					case secrets.ValidatorBLSKey:
-						return testBLSKeyEncoded, nil
-					}
-
-					return nil, nil
-				},
-			},
-			expectedResult: nil,
-			expectedErr:    errTest,
-		},
-		{
-			name: "should return error if getOrCreateBLSKey returns error",
-			mockSecretManager: &MockSecretManager{
-				HasSecretFn: func(name string) bool {
-					testSecretName(name)
-
-					return true
-				},
-				GetSecretFn: func(name string) ([]byte, error) {
-					testSecretName(name)
-
-					switch name {
-					case secrets.ValidatorKey:
-						return testECDSAKeyEncoded, nil
-					case secrets.ValidatorBLSKey:
-						// return error instead of key
-						return nil, errTest
-					}
-
-					return nil, nil
-				},
-			},
-			expectedResult: nil,
-			expectedErr:    errTest,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			res, err := NewBLSKeyManager(test.mockSecretManager)
-
-			assert.Equal(t, test.expectedResult, res)
-			assert.ErrorIs(t, test.expectedErr, err)
 		})
-	}
+
+		assert.Nil(t, res)
+		assert.ErrorIs(t, err, errTest)
+	})
+
+	t.Run("should return unsupported error when loading BLS keys", func(t *testing.T) {
+		t.Parallel()
+
+		res, err := NewBLSKeyManager(&MockSecretManager{
+			HasSecretFn: func(name string) bool {
+				return true
+			},
+			GetSecretFn: func(name string) ([]byte, error) {
+				return testECDSAKeyEncoded, nil
+			},
+		})
+
+		assert.Nil(t, res)
+		assert.ErrorIs(t, err, ErrBLSValidatorKeysUnsupported)
+	})
 }
 
 func TestNewECDSAKeyManagerFromKeys(t *testing.T) {

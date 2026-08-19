@@ -17,7 +17,6 @@ const (
 	dataDirFlag   = "data-dir"
 	configFlag    = "config"
 	validatorFlag = "validator"
-	blsFlag       = "bls"
 	nodeIDFlag    = "node-id"
 )
 
@@ -37,13 +36,11 @@ type outputParams struct {
 
 	outputNodeID    bool
 	outputValidator bool
-	outputBLS       bool
 
 	secretsManager secrets.SecretsManager
 	secretsConfig  *secrets.SecretsManagerConfig
 
 	validatorAddress string
-	blsPubkey        string
 
 	nodeID string
 }
@@ -61,16 +58,10 @@ func (op *outputParams) initSecrets() error {
 		return err
 	}
 
-	outputAll := !(op.outputBLS || op.outputValidator || op.outputNodeID)
+	outputAll := !(op.outputValidator || op.outputNodeID)
 
 	if op.outputValidator || outputAll {
 		if err := op.initValidatorAddress(); err != nil || op.outputValidator {
-			return err
-		}
-	}
-
-	if op.outputBLS || outputAll {
-		if err := op.initBLSPublicKey(); err != nil || op.outputBLS {
 			return err
 		}
 	}
@@ -164,17 +155,6 @@ func (op *outputParams) initValidatorAddress() error {
 	return nil
 }
 
-func (op *outputParams) initBLSPublicKey() error {
-	blsPubkey, err := helper.LoadBLSPublicKey(op.secretsManager)
-	if err != nil {
-		return err
-	}
-
-	op.blsPubkey = blsPubkey
-
-	return nil
-}
-
 func (op *outputParams) initNodeID() error {
 	nodeID, err := helper.LoadNodeID(op.secretsManager)
 	if err != nil {
@@ -199,15 +179,8 @@ func (op *outputParams) getResult() command.CommandResult {
 		}
 	}
 
-	if op.outputBLS {
-		return &SecretsOutputBLSResult{
-			BLSPubkey: op.blsPubkey,
-		}
-	}
-
 	return &SecretsOutputAllResult{
-		BLSPubkey: op.blsPubkey,
-		NodeID:    op.nodeID,
-		Address:   op.validatorAddress,
+		NodeID:  op.nodeID,
+		Address: op.validatorAddress,
 	}
 }

@@ -188,6 +188,45 @@ func (t *TestServer) Stop() {
 	}
 }
 
+// StopViaKill9 terminates the validator uncleanly via os.Process.Kill (SIGKILL on Unix,
+// TerminateProcess on Windows), simulating a crash rather than a graceful shutdown. It reaps the
+// process and clears server state like [TestServer.Stop].
+func (t *TestServer) StopViaKill9() {
+	if t.cmd == nil {
+		t.ReleaseReservedPorts()
+
+		return
+	}
+
+	if t.cmd.Process == nil {
+		t.cmd = nil
+		t.ReleaseReservedPorts()
+
+		return
+	}
+
+	t.t.Logf("StopViaKill9: killing pid %d", t.cmd.Process.Pid)
+
+	if err := t.cmd.Process.Kill(); err != nil {
+		t.t.Errorf("StopViaKill9: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = t.cmd.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.t.Log("timeout waiting for server process to exit after kill")
+	}
+
+	t.cmd = nil
+	t.ReleaseReservedPorts()
+}
+
 func (t *TestServer) GetLatestBlockHeight() (uint64, error) {
 	return t.JSONRPC().Eth().BlockNumber()
 }
@@ -250,19 +289,6 @@ func (t *TestServer) SecretsInit() (*InitIBFTResult, error) {
 		return nil, setErr
 	}
 
-	if t.Config.ValidatorType == validators.BLSValidatorType {
-		// Generate the BLS Key
-		_, blsKeyEncoded, keyErr := crypto.GenerateAndEncodeBLSSecretKey()
-		if keyErr != nil {
-			return nil, keyErr
-		}
-
-		// Write the networking private key to the secrets manager storage
-		if setErr := localSecretsManager.SetSecret(secrets.ValidatorBLSKey, blsKeyEncoded); setErr != nil {
-			return nil, setErr
-		}
-	}
-
 	// Get the node ID from the private key
 	nodeID, err := peer.IDFromPrivateKey(libp2pKey)
 	if err != nil {
@@ -299,7 +325,6 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(
 			args,
 			"--consensus", "ibft",
-			"--ibft-validator-type", string(t.Config.ValidatorType),
 		)
 
 		if t.Config.IBFTDirPrefix == "" {
@@ -316,7 +341,6 @@ func (t *TestServer) GenerateGenesis() error {
 		args = append(
 			args,
 			"--consensus", "dev",
-			"--ibft-validator-type", string(t.Config.ValidatorType),
 		)
 
 		// Set up any initial staker addresses for the predeployed Staking SC
@@ -526,9 +550,6 @@ func (t *TestServer) SwitchIBFTType(typ fork.IBFTType, from uint64, to, deployme
 		"--type", string(typ),
 		"--from", strconv.FormatUint(from, 10),
 	)
-
-	// Default ibft validator type for e2e tests is ECDSA
-	args = append(args, "--ibft-validator-type", string(validators.ECDSAValidatorType))
 
 	if to != nil {
 		args = append(args, "--to", strconv.FormatUint(*to, 10))

@@ -29,6 +29,10 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Tests
         type: boolean
         default: true
+      e2e_ibft_liveness_test:
+        description: E2E IBFT Liveness Tests (long-running)
+        type: boolean
+        default: false
       benchmark-test:
         description: Benchmark Tests
         type: boolean
@@ -48,6 +52,10 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Tests
         type: boolean
         required: true
+      e2e_ibft_liveness_test:
+        description: E2E IBFT Liveness Tests (long-running)
+        type: boolean
+        default: false
       benchmark-test:
         description: Benchmark Tests
         type: boolean
@@ -69,6 +77,9 @@ on: # yamllint disable-line rule:truthy
       e2e_ibft_test:
         description: E2E IBFT Tests output
         value: ${{ jobs.e2e_ibft_test.outputs.workflow_output }}
+      e2e_ibft_liveness_test:
+        description: E2E IBFT Liveness Tests output
+        value: ${{ jobs.e2e_ibft_liveness_test.outputs.workflow_output }}
       benchmark-test:
         description: Benchmark Tests output
         value: ${{ jobs.benchmark-test.outputs.workflow_output }}
@@ -123,6 +134,14 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
       github.event_name == 'schedule'
 
+  e2e_ibft_liveness_test:
+    name: E2E IBFT Liveness Tests
+    uses: ./.github/workflows/e2e-liveness.yaml
+    needs: build
+    if: |
+      inputs.e2e_ibft_liveness_test ||
+      github.event_name == 'schedule'
+
   benchmark_test:
     name: Benchmark Tests
     uses: ./.github/workflows/benchmark-test.yml
@@ -136,7 +155,7 @@ jobs:
   notification:
     name: Notification
     uses: ./.github/workflows/ci-notification.yml
-    needs: [build, lint, unit_test, fuzz_test, e2e_ibft_test, benchmark_test]
+    needs: [build, lint, unit_test, fuzz_test, e2e_ibft_test, e2e_ibft_liveness_test, benchmark_test]
     if: (!cancelled() && github.event_name == 'schedule')
     with:
       build_output: ${{ needs.build.outputs.workflow_output }}
@@ -144,6 +163,7 @@ jobs:
       unit_test_output: ${{ needs.unit_test.outputs.workflow_output }}
       fuzz_test_output: ${{ needs.fuzz_test.outputs.workflow_output }}
       e2e_ibft_test_output: ${{ needs.e2e_ibft_test.outputs.workflow_output }}
+      e2e_ibft_liveness_test_output: ${{ needs.e2e_ibft_liveness_test.outputs.workflow_output }}
       benchmark_test_output: ${{ needs.benchmark_test.outputs.workflow_output }}
     secrets:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
