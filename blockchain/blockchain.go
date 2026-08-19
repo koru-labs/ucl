@@ -1634,7 +1634,7 @@ type Syncer interface {
 	AddBlock(header *types.Header)
 }
 
-func (b *Blockchain) ApplyFinalizedBlockFromBAL(
+func (b *Blockchain) ApplyFinalizedBlockFromBAR(
 	block *types.Block,
 	syncer Syncer,
 ) (*types.FullBlock, error) {
