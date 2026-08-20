@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"math/big"
 
 	"github.com/umbracle/fastrlp"
 )
@@ -64,7 +65,27 @@ func (b *Block) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		vv.Set(v1)
 	}
 
+	if b.BlockAccessRecord != nil {
+		if len(b.BlockAccessRecord) == 0 {
+			vv.Set(ar.NewNullArray())
+		} else {
+			vv.Set(b.BlockAccessRecord.MarshalRLPWith(ar))
+		}
+	}
+
 	return vv
+}
+
+// RLPSizeWithoutAccessRecord returns len(b.MarshalRLP()) as if
+// b.BlockAccessRecord were nil, without allocating a buffer.
+func (b *Block) RLPSizeWithoutAccessRecord() uint64 {
+	var payload uint64
+
+	payload += b.Header.RLPSize()
+	payload += transactionsSectionSize(b.Transactions)
+	payload += unclesSectionSize(b.Uncles)
+
+	return rlpListSize(payload)
 }
 
 func (h *Header) MarshalRLP() []byte {
@@ -99,11 +120,44 @@ func (h *Header) MarshalRLPWith(arena *fastrlp.Arena) *fastrlp.Value {
 
 	vv.Set(arena.NewUint(h.BaseFee))
 
-	if h.BlockAccessListHash != ZeroHash {
-		vv.Set(arena.NewCopyBytes(h.BlockAccessListHash.Bytes()))
+	if h.BlockAccessRecordHash != ZeroHash {
+		vv.Set(arena.NewCopyBytes(h.BlockAccessRecordHash.Bytes()))
 	}
 
 	return vv
+}
+
+// RLPSize returns len(h.MarshalRLP()) without allocating a buffer.
+// Field order and conditionals must stay in sync with Header.MarshalRLPWith.
+func (h *Header) RLPSize() uint64 {
+	var payload uint64
+
+	payload += rlpFixedBytesSize(32)  // ParentHash
+	payload += rlpFixedBytesSize(32)  // Sha3Uncles
+	payload += rlpBytesSize(h.Miner)  // Miner (variable length)
+	payload += rlpFixedBytesSize(32)  // StateRoot
+	payload += rlpFixedBytesSize(32)  // TxRoot
+	payload += rlpFixedBytesSize(32)  // ReceiptsRoot
+	payload += rlpFixedBytesSize(256) // LogsBloom
+
+	payload += rlpUintSize(h.Difficulty)
+	payload += rlpUintSize(h.Number)
+	payload += rlpUintSize(h.GasLimit)
+	payload += rlpUintSize(h.GasUsed)
+	payload += rlpUintSize(h.Timestamp)
+
+	payload += rlpBytesSize(h.ExtraData)
+	payload += rlpFixedBytesSize(32) // MixHash
+	payload += rlpFixedBytesSize(8)  // Nonce
+
+	payload += rlpUintSize(h.BaseFee)
+
+	// Optional field, only encoded when BlockAccessRecord is set.
+	if h.BlockAccessRecordHash != ZeroHash {
+		payload += rlpFixedBytesSize(32)
+	}
+
+	return rlpListSize(payload)
 }
 
 func (r Receipts) MarshalRLPTo(dst []byte) []byte {
@@ -279,4 +333,162 @@ func (t *Transaction) MarshalJournal() []byte {
 	copy(result[8:], rlpBytes)
 
 	return result
+}
+
+// RLPSize returns the RLP-encoded size of the transaction body (without the
+// EIP-2718 type prefix byte, which is emitted separately by the caller).
+// Field order and conditionals must stay in sync with Transaction.MarshalRLPWith.
+func (t *Transaction) RLPSize() uint64 {
+	var payload uint64
+
+	// EIP-1559 dynamic-fee txs prepend ChainID.
+	if t.Type == DynamicFeeTx {
+		payload += rlpBigIntSize(t.ChainID)
+	}
+
+	payload += rlpUintSize(t.Nonce)
+
+	// Dynamic-fee txs use tip/fee caps instead of a single gas price.
+	if t.Type == DynamicFeeTx {
+		payload += rlpBigIntSize(t.GasTipCap)
+		payload += rlpBigIntSize(t.GasFeeCap)
+	} else {
+		payload += rlpBigIntSize(t.GasPrice)
+	}
+
+	payload += rlpUintSize(t.Gas)
+
+	// Nil To (contract creation) encodes as the empty string (0x80).
+	if t.To != nil {
+		payload += rlpFixedBytesSize(20)
+	} else {
+		payload += 1
+	}
+
+	payload += rlpBigIntSize(t.Value)
+	payload += rlpBytesSize(t.Input)
+
+	// Access list is always emitted empty for EIP-1559 spec compatibility.
+	if t.Type == DynamicFeeTx {
+		payload += 1 // empty list → 0xc0
+	}
+
+	// Signature fields.
+	payload += rlpBigIntSize(t.V)
+	payload += rlpBigIntSize(t.R)
+	payload += rlpBigIntSize(t.S)
+
+	// StateTx carries an explicit From address after the signature.
+	if t.Type == StateTx {
+		payload += rlpFixedBytesSize(20)
+	}
+
+	return rlpListSize(payload)
+}
+
+// byteLen returns the number of bytes needed to represent v in big-endian
+// with no leading zeros. Returns 0 for v == 0 (RLP encodes zero as an empty string).
+func byteLen(v uint64) uint64 {
+	var n uint64
+
+	for v > 0 {
+		n++
+		v >>= 8
+	}
+
+	return n
+}
+
+// rlpUintSize returns the RLP-encoded size of a uint64, matching
+// fastrlp arena.NewUint(v). Zero is encoded as the empty string (0x80).
+func rlpUintSize(v uint64) uint64 {
+	if v == 0 {
+		return 1
+	}
+
+	if v < 0x80 {
+		return 1
+	}
+
+	return 1 + byteLen(v)
+}
+
+// rlpBytesSize returns the RLP-encoded size of an arbitrary byte string,
+// matching fastrlp arena.NewCopyBytes / NewBytes.
+func rlpBytesSize(b []byte) uint64 {
+	n := uint64(len(b))
+	if n == 1 && b[0] < 0x80 {
+		return 1
+	}
+
+	if n <= 55 {
+		return 1 + n
+	}
+
+	return 1 + byteLen(n) + n
+}
+
+// rlpFixedBytesSize is a fast path for fixed-length byte fields where the
+// single-byte (<0x80) special case can never apply (hashes, bloom, nonce, address).
+func rlpFixedBytesSize(n uint64) uint64 {
+	if n <= 55 {
+		return 1 + n
+	}
+
+	return 1 + byteLen(n) + n
+}
+
+// rlpBigIntSize returns the RLP-encoded size of a *big.Int, matching
+// fastrlp arena.NewBigInt. Nil and zero encode as the empty string (0x80).
+func rlpBigIntSize(i *big.Int) uint64 {
+	if i == nil || i.Sign() == 0 {
+		return 1
+	}
+
+	return rlpBytesSize(i.Bytes())
+}
+
+// rlpListSize wraps a payload of the given size in an RLP list header.
+func rlpListSize(payloadSize uint64) uint64 {
+	if payloadSize <= 55 {
+		return 1 + payloadSize
+	}
+
+	return 1 + byteLen(payloadSize) + payloadSize
+}
+
+// transactionsSectionSize mirrors the transactions slot in Block.MarshalRLPWith:
+// an empty slice serializes as a null array, otherwise each non-legacy tx is
+// preceded by a 1-byte type marker element inside the outer list.
+func transactionsSectionSize(txs []*Transaction) uint64 {
+	if len(txs) == 0 {
+		return 1 // NewNullArray → 0xc0
+	}
+
+	var payload uint64
+
+	for _, tx := range txs {
+		if tx.Type != LegacyTx {
+			// EIP-2718 type is always < 0x80, so it fits in a single byte.
+			payload += 1
+		}
+
+		payload += tx.RLPSize()
+	}
+
+	return rlpListSize(payload)
+}
+
+// unclesSectionSize mirrors the uncles slot in Block.MarshalRLPWith.
+func unclesSectionSize(uncles []*Header) uint64 {
+	if len(uncles) == 0 {
+		return 1 // NewNullArray → 0xc0
+	}
+
+	var payload uint64
+	for _, u := range uncles {
+		payload += u.RLPSize()
+	}
+
+	return rlpListSize(payload)
 }

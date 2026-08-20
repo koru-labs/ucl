@@ -5,7 +5,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 func (w *Writer) PutHeader(h *types.Header) {
@@ -39,9 +38,9 @@ func (w *Writer) PutReceipts(bn uint64, bh types.Hash, receipts []*types.Receipt
 	w.putRlp(RECEIPTS, getKey(bn, bh), &rs)
 }
 
-// PutBlockAccessList persists the EIP-7928 block access list for a block
-func (w *Writer) PutBlockAccessList(bn uint64, accessList bal.BlockAccessList) {
-	w.putRlp(BLOCK_ACCESS_LIST, common.EncodeUint64ToBytes(bn), accessList)
+// PutBlockAccessRecord persists the EIP-7928 block access record for a block
+func (w *Writer) PutBlockAccessRecord(bn uint64, blockAccessRecord types.BlockAccessRecord) {
+	w.putRlp(BLOCK_ACCESS_RECORD, common.EncodeUint64ToBytes(bn), blockAccessRecord)
 }
 
 func (w *Writer) PutCanonicalHeader(h *types.Header, diff *big.Int) {

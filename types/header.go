@@ -30,7 +30,7 @@ type Header struct {
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee uint64 `json:"baseFeePerGas"`
 
-	BlockAccessListHash Hash
+	BlockAccessRecordHash Hash
 }
 
 func (h *Header) Equal(hh *Header) bool {
@@ -103,9 +103,10 @@ type FullBlock struct {
 }
 
 type Block struct {
-	Header       *Header
-	Transactions []*Transaction
-	Uncles       []*Header
+	Header            *Header
+	Transactions      []*Transaction
+	Uncles            []*Header
+	BlockAccessRecord BlockAccessRecord
 
 	// Cache
 	size atomic.Pointer[uint64]
@@ -131,16 +132,15 @@ func (b *Block) Body() *Body {
 }
 
 func (b *Block) Size() uint64 {
-	sizePtr := b.size.Load()
-	if sizePtr == nil {
-		bytes := b.MarshalRLP()
-		size := uint64(len(bytes))
-		b.size.Store(&size)
-
-		return size
+	if sizePtr := b.size.Load(); sizePtr != nil {
+		return *sizePtr
 	}
 
-	return *sizePtr
+	size := b.RLPSizeWithoutAccessRecord()
+
+	b.size.Store(&size)
+
+	return size
 }
 
 func (b *Block) String() string {

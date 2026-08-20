@@ -1,24 +1,23 @@
-package bal
+package types
 
 import (
 	"fmt"
 	"math/big"
 
-	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/umbracle/fastrlp"
 )
 
-func (b *BlockAccessList) UnmarshalRLP(input []byte) error {
-	return types.UnmarshalRlp(b.unmarshalRLPFrom, input)
+func (b *BlockAccessRecord) UnmarshalRLP(input []byte) error {
+	return UnmarshalRlp(b.unmarshalRLPFrom, input)
 }
 
-func (b *BlockAccessList) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (b *BlockAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
 	}
 
-	accounts := make([]AccountAccess, len(elems))
+	accounts := make([]AccountAccessRecord, len(elems))
 	for i, elem := range elems {
 		if err := accounts[i].unmarshalRLPFrom(p, elem); err != nil {
 			return err
@@ -30,18 +29,18 @@ func (b *BlockAccessList) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) 
 	return nil
 }
 
-func (aa *AccountAccess) UnmarshalRLP(input []byte) error {
-	return types.UnmarshalRlp(aa.unmarshalRLPFrom, input)
+func (aa *AccountAccessRecord) UnmarshalRLP(input []byte) error {
+	return UnmarshalRlp(aa.unmarshalRLPFrom, input)
 }
 
-func (aa *AccountAccess) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (aa *AccountAccessRecord) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
 	}
 
-	if len(elems) != 6 {
-		return fmt.Errorf("incorrect number of elements to decode account access, expected 6 but found %d", len(elems))
+	if len(elems) != 5 {
+		return fmt.Errorf("incorrect number of elements to decode account access, expected 5 but found %d", len(elems))
 	}
 
 	if err = elems[0].GetAddr(aa.Address[:]); err != nil {
@@ -53,55 +52,47 @@ func (aa *AccountAccess) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) e
 		return err
 	}
 
-	aa.StorageChanges = make([]SlotChanges, len(scElems))
+	aa.StorageChanges = make([]StorageChange, len(scElems))
+
 	for i, scElem := range scElems {
 		if err = aa.StorageChanges[i].unmarshalRLPFrom(p, scElem); err != nil {
 			return err
 		}
 	}
 
-	srElems, err := elems[2].GetElems()
-	if err != nil {
-		return err
-	}
-
-	aa.StorageReads = make([]types.Hash, len(srElems))
-	for i, srElem := range srElems {
-		if err = srElem.GetHash(aa.StorageReads[i][:]); err != nil {
-			return err
-		}
-	}
-
-	bcElems, err := elems[3].GetElems()
+	bcElems, err := elems[2].GetElems()
 	if err != nil {
 		return err
 	}
 
 	aa.BalanceChanges = make([]BalanceChange, len(bcElems))
+
 	for i, bcElem := range bcElems {
 		if err = aa.BalanceChanges[i].unmarshalRLPFrom(p, bcElem); err != nil {
 			return err
 		}
 	}
 
-	ncElems, err := elems[4].GetElems()
+	ncElems, err := elems[3].GetElems()
 	if err != nil {
 		return err
 	}
 
 	aa.NonceChanges = make([]NonceChange, len(ncElems))
+
 	for i, ncElem := range ncElems {
 		if err = aa.NonceChanges[i].unmarshalRLPFrom(p, ncElem); err != nil {
 			return err
 		}
 	}
 
-	ccElems, err := elems[5].GetElems()
+	ccElems, err := elems[4].GetElems()
 	if err != nil {
 		return err
 	}
 
 	aa.CodeChanges = make([]CodeChange, len(ccElems))
+
 	for i, ccElem := range ccElems {
 		if err = aa.CodeChanges[i].unmarshalRLPFrom(p, ccElem); err != nil {
 			return err
@@ -111,7 +102,7 @@ func (aa *AccountAccess) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) e
 	return nil
 }
 
-func (sc *SlotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
+func (sc *StorageChange) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
@@ -130,7 +121,7 @@ func (sc *SlotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) err
 		return err
 	}
 
-	sc.SlotChanges = make([]StorageWrite, len(writeElems))
+	sc.SlotChanges = make([]SlotChange, len(writeElems))
 	for i, we := range writeElems {
 		if err = sc.SlotChanges[i].unmarshalRLPFrom(p, we); err != nil {
 			return err
@@ -140,7 +131,7 @@ func (sc *SlotChanges) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) err
 	return nil
 }
 
-func (sw *StorageWrite) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
+func (sw *SlotChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 	elems, err := v.GetElems()
 	if err != nil {
 		return err
@@ -150,14 +141,14 @@ func (sw *StorageWrite) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) er
 		return fmt.Errorf("incorrect number of elements to decode storage write, expected 2 but found %d", len(elems))
 	}
 
-	idx, err := elems[0].GetUint64()
+	id, err := elems[0].GetUint64()
 	if err != nil {
 		return err
 	}
 
-	sw.BlockAccessIndex = uint32(idx)
+	sw.TxIndex = id
 
-	return elems[1].GetHash(sw.PostValue[:])
+	return elems[1].GetHash(sw.Value[:])
 }
 
 func (bc *BalanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
@@ -170,16 +161,16 @@ func (bc *BalanceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) e
 		return fmt.Errorf("incorrect number of elements to decode balance change, expected 2 but found %d", len(elems))
 	}
 
-	idx, err := elems[0].GetUint64()
+	id, err := elems[0].GetUint64()
 	if err != nil {
 		return err
 	}
 
-	bc.BlockAccessIndex = uint32(idx)
+	bc.TxIndex = id
 
-	bc.PostBalance = new(big.Int)
+	bc.Balance = new(big.Int)
 
-	return elems[1].GetBigInt(bc.PostBalance)
+	return elems[1].GetBigInt(bc.Balance)
 }
 
 func (nc *NonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
@@ -192,14 +183,14 @@ func (nc *NonceChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) err
 		return fmt.Errorf("incorrect number of elements to decode nonce change, expected 2 but found %d", len(elems))
 	}
 
-	idx, err := elems[0].GetUint64()
+	id, err := elems[0].GetUint64()
 	if err != nil {
 		return err
 	}
 
-	nc.BlockAccessIndex = uint32(idx)
+	nc.TxIndex = id
 
-	nc.PostNonce, err = elems[1].GetUint64()
+	nc.Nonce, err = elems[1].GetUint64()
 
 	return err
 }
@@ -214,14 +205,14 @@ func (cc *CodeChange) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) erro
 		return fmt.Errorf("incorrect number of elements to decode code change, expected 2 but found %d", len(elems))
 	}
 
-	idx, err := elems[0].GetUint64()
+	id, err := elems[0].GetUint64()
 	if err != nil {
 		return err
 	}
 
-	cc.BlockAccessIndex = uint32(idx)
+	cc.TxIndex = id
 
-	cc.NewCode, err = elems[1].GetBytes(cc.NewCode[:0])
+	cc.Code, err = elems[1].GetBytes(cc.Code[:0])
 
 	return err
 }

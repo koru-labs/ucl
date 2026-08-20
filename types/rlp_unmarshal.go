@@ -95,7 +95,7 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 	}
 
 	if len(elems) < 3 {
-		return fmt.Errorf("incorrect number of elements to decode block, expected 3 but found %d", len(elems))
+		return fmt.Errorf("incorrect number of elements to decode block, expected 3 or 4 but found %d", len(elems))
 	}
 
 	// header
@@ -138,6 +138,16 @@ func (b *Block) unmarshalRLPFrom(p *fastrlp.Parser, v *fastrlp.Value) error {
 		b.Uncles = append(b.Uncles, bUncle)
 	}
 
+	if len(elems) > 3 {
+		bRecord := BlockAccessRecord{}
+
+		if err := bRecord.unmarshalRLPFrom(p, elems[3]); err != nil {
+			return err
+		}
+
+		b.BlockAccessRecord = bRecord
+	}
+
 	return nil
 }
 
@@ -151,7 +161,7 @@ func (b *Block) unmarshalRLPHeaderFrom(p *fastrlp.Parser, v *fastrlp.Value) erro
 		return err
 	}
 
-	if len(blockElements) != 3 {
+	if len(blockElements) < 3 {
 		return fmt.Errorf("incorrect number of elements to decode block, expected 3 but found %d", len(blockElements))
 	}
 
@@ -255,7 +265,7 @@ func (h *Header) unmarshalRLPFrom(_ *fastrlp.Parser, v *fastrlp.Value) error {
 			return err
 		}
 
-		h.BlockAccessListHash = balHash
+		h.BlockAccessRecordHash = balHash
 	}
 	// compute the hash after the decoding
 	h.ComputeHash()

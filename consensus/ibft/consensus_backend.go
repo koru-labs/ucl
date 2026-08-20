@@ -14,9 +14,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
-	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -109,7 +107,7 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
-	block, receipts, blockAccessList, err := i.buildBlock(ctx, latestHeader)
+	block, receipts, err := i.buildBlock(ctx, latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)
 
@@ -121,10 +119,6 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 	}
 
 	i.blockchain.AddReceiptsToCache(block.Hash(), receipts)
-
-	if i.config.Params.Forks.At(view.Height).EIP7928 {
-		i.blockchain.AddBlockAccessListToCache(block.Number(), blockAccessList)
-	}
 
 	i.sealTimes.store(view.Height, block.Hash(), sealEntry{start: start, span: rootSpan})
 
@@ -301,7 +295,6 @@ func (i *backendIBFT) buildBlock(
 	parent *types.Header) (
 	*types.Block,
 	[]*types.Receipt,
-	bal.BlockAccessList,
 	error) {
 	ctx, buildSpan := observability.Tracer().Start(ctx, "build")
 	defer buildSpan.End()
@@ -321,13 +314,10 @@ func (i *backendIBFT) buildBlock(
 		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
-	// finalBal is used to store the final block access list for the block, which will be returned to the caller.
-	var finalBAL bal.BlockAccessList
-
 	// calculate gas limit based on parent header
 	gasLimit, err := i.blockchain.CalculateGasLimit(header.Number)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	header.GasLimit = gasLimit
@@ -337,11 +327,11 @@ func (i *backendIBFT) buildBlock(
 	if err != nil {
 		i.logger.Error("cannot get modules from fork manager for", "block number", header.Number, "err", err)
 
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	if err := hooks.ModifyHeader(header, signer.Address()); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Set the header timestamp
@@ -350,7 +340,7 @@ func (i *backendIBFT) buildBlock(
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	signer.InitIBFTExtra(header, validators, parentCommittedSeals)
@@ -359,7 +349,7 @@ func (i *backendIBFT) buildBlock(
 
 	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Get the block transactions
@@ -376,12 +366,12 @@ func (i *backendIBFT) buildBlock(
 	// provide dummy block instance to the PreCommitState
 	// (for the IBFT consensus, it is correct to have just a header, as only it is used)
 	if err := i.PreCommitState(&types.Block{Header: header}, transition); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	_, root, err := transition.Commit()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
+		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
 	}
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
@@ -393,25 +383,25 @@ func (i *backendIBFT) buildBlock(
 	header.StateRoot = root
 	header.GasUsed = transition.TotalGas()
 
-	if i.config.Params.Forks.At(header.Number).EIP7928 {
-		finalBAL = transition.BlockAccessList()
-		if finalBAL != nil {
-			balHash := finalBAL.Hash()
-			header.BlockAccessListHash = balHash
-		}
-	}
-
-	// build the block
-	block := consensus.BuildBlock(consensus.BuildBlockParams{
+	buildBlockParams := consensus.BuildBlockParams{
 		Header:   header,
 		Txns:     txs,
 		Receipts: transition.Receipts(),
-	})
+	}
+
+	if i.config.Params.Forks.At(header.Number).EIP7928 {
+		bar := transition.GetBlockAccessRecord()
+		header.BlockAccessRecordHash = bar.Hash()
+		buildBlockParams.BlockAccessRecord = bar
+	}
+
+	// build the block
+	block := consensus.BuildBlock(buildBlockParams)
 
 	// write the seal of the block after all the fields are completed
 	header, err = signer.WriteProposerSeal(header)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	block.Header = header
@@ -422,7 +412,7 @@ func (i *backendIBFT) buildBlock(
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, transition.Receipts(), finalBAL, nil
+	return block, transition.Receipts(), nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based
@@ -453,14 +443,6 @@ type txExeResult struct {
 	status status
 }
 
-type transitionInterface interface {
-	Write(txn *types.Transaction) error
-	SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder)
-	BlockAccessListRecorder() runtime.BlockAccessListRecorder
-	SetBlockAccessList(b bal.BlockAccessList)
-	BlockAccessList() bal.BlockAccessList
-}
-
 func (i *backendIBFT) writeTransactions(
 	writeCtx context.Context,
 	gasLimit,
@@ -478,10 +460,7 @@ func (i *backendIBFT) writeTransactions(
 		successful = 0
 		failed     = 0
 		skipped    = 0
-		balCounter = 1
 	)
-
-	blockBAL := bal.NewBlockAccessListRecord()
 
 	defer func() {
 		i.logger.Info(
@@ -491,15 +470,22 @@ func (i *backendIBFT) writeTransactions(
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
 		)
-
-		transition.SetBlockAccessList(blockBAL.ToEncodingObj())
-
-		encoded := blockBAL.ToEncodingObj()
-		transition.SetBlockAccessList(encoded)
 	}()
 
 	i.txpool.Prepare()
 	i.buildBlockTxsRlpSize = 0
+
+	var txRecorder *state.TxAccessRecorder
+
+	var bar state.BlockAccessRecord
+
+	if i.config.Params.Forks.At(blockNumber).EIP7928 {
+		bar = state.NewBlockAccessRecord()
+
+		defer func() {
+			transition.SetBlockAccessRecord(bar.Pack())
+		}()
+	}
 
 write:
 	for {
@@ -507,7 +493,10 @@ write:
 		case <-writeCtx.Done():
 			return
 		default:
-			transition.BalIndex = uint(balCounter)
+			if i.config.Params.Forks.At(blockNumber).EIP7928 {
+				txRecorder = state.NewTxAccessRecorder(uint64(len(executed)))
+				transition.SetTxAccessRecorder(txRecorder)
+			}
 
 			// execute transactions one by one
 			result, ok := i.writeTransaction(
@@ -525,15 +514,13 @@ write:
 			switch result.status {
 			case success:
 				executed = append(executed, tx)
-
-				blockBAL.Merge(transition.BlockAccessListRecorder().GetBlockAccessListRecord())
 			case fail:
 				failed++
 			case skip:
 				skipped++
 			}
 
-			balCounter++
+			bar.Insert(txRecorder)
 		}
 	}
 

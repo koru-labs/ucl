@@ -12,7 +12,10 @@ import (
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
+)
+
+var (
+	contractAddr = types.StringToAddress("dd")
 )
 
 func TestOverride(t *testing.T) {
@@ -194,7 +197,6 @@ func newSelfdestructTransition(
 	snap := newStateWithCode(preState, map[types.Address][]byte{contractAddr: contractCode})
 
 	transition := NewTransition(forks, snap, newTxn(snap))
-	transition.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
 
 	return transition
 }
@@ -321,53 +323,6 @@ func TestSelfdestruct_EIP6780(t *testing.T) {
 	})
 }
 
-func TestSelfdestruct_EIP6780_BALRecording(t *testing.T) {
-	t.Parallel()
-
-	forks := chain.ForksInTime{EIP150: true, EIP158: true, EIP6780: true, EIP7928: true}
-
-	t.Run("transfer-only path records post-state balances", func(t *testing.T) {
-		t.Parallel()
-
-		tr := newSelfdestructTransition(t, forks, 100, 5)
-		tr.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), 0))
-
-		tr.Selfdestruct(contractAddr, beneficiaryAddr)
-
-		record := tr.BlockAccessListRecorder().GetBlockAccessListRecord()
-
-		contractRec, ok := record.Accounts[contractAddr]
-		require.True(t, ok)
-		require.Equal(t, big.NewInt(0), contractRec.BalanceChanges[0])
-
-		beneficiaryRec, ok := record.Accounts[beneficiaryAddr]
-		require.True(t, ok)
-		require.Equal(t, big.NewInt(105), beneficiaryRec.BalanceChanges[0])
-
-		// nothing is deleted, so no code or nonce changes may be recorded
-		require.Empty(t, contractRec.CodeChanges)
-		require.Empty(t, contractRec.NonceChanges)
-	})
-
-	t.Run("self beneficiary records no balance change", func(t *testing.T) {
-		t.Parallel()
-
-		tr := newSelfdestructTransition(t, forks, 100, 0)
-		tr.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), 0))
-
-		tr.Selfdestruct(contractAddr, contractAddr)
-
-		record := tr.BlockAccessListRecorder().GetBlockAccessListRecord()
-
-		contractRec, ok := record.Accounts[contractAddr]
-		require.True(t, ok)
-
-		// the balance did not change, so recording a balance change would make the BAL
-		// hash diverge from a node that skips the no-op transfer
-		require.Empty(t, contractRec.BalanceChanges)
-	})
-}
-
 func TestCreatedContractMarkers(t *testing.T) {
 	t.Parallel()
 
@@ -477,7 +432,6 @@ func TestSelfdestruct_EIP6780_InConstructor(t *testing.T) {
 		snap,
 		newTxn(snap),
 	)
-	tr.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
 
 	// init code: PUSH20 <beneficiary> ; SELFDESTRUCT
 	initCode := append([]byte{0x73}, beneficiaryAddr.Bytes()...)
@@ -491,4 +445,105 @@ func TestSelfdestruct_EIP6780_InConstructor(t *testing.T) {
 	require.True(t, tr.state.IsContractCreatedInTx(created))
 	require.True(t, tr.state.HasSuicided(created))
 	require.Equal(t, uint64(50), tr.state.GetBalance(beneficiaryAddr).Uint64())
+}
+
+// newSelfdestructTransitionWithBAL is the same as newSelfdestructTransition but
+// adds a recorder to simulate a worker under EIP-7928.
+func newSelfdestructTransitionWithBAL(
+	t *testing.T,
+	forks chain.ForksInTime,
+	contractBalance, beneficiaryBalance uint64,
+) *Transition {
+	t.Helper()
+
+	tr := newSelfdestructTransition(t, forks, contractBalance, beneficiaryBalance)
+	tr.state.recorder = NewTxAccessRecorder(0)
+	tr.state.bar = types.BlockAccessRecord{}
+
+	return tr
+}
+
+func TestSelfdestruct_EIP7928_CreatedInTx_RecordsEmptyState(t *testing.T) {
+	// CREATE + SELFDESTRUCT in the same tx: the destruction branch executes,
+	// Suicide records an empty account in the recorder so that the verifier
+	// removes the account via empty-account clearing during Commit.
+	t.Parallel()
+
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, London: true,
+		EIP6780: true, EIP7928: true,
+	}
+
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 5)
+	tr.state.MarkContractCreated(contractAddr)
+
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+
+	require.Zero(t, tr.state.GetBalance(contractAddr).Uint64())
+	require.Equal(t, uint64(105), tr.state.GetBalance(beneficiaryAddr).Uint64())
+
+	require.True(t, tr.state.HasSuicided(contractAddr))
+
+	acc := tr.state.recorder.current[contractAddr]
+	require.NotNil(t, acc, "recorder must have an entry for the suicided contract")
+	require.Zero(t, acc.Balance.Sign(), "recorder Balance must be 0")
+	require.NotNil(t, acc.Nonce)
+	require.Zero(t, *acc.Nonce, "recorder Nonce must be 0")
+	require.NotNil(t, acc.Code)
+	require.Empty(t, acc.Code, "recorder Code must be empty")
+}
+
+func TestSelfdestruct_EIP7928_NotCreatedInTx_BalanceOnly(t *testing.T) {
+	// Pre-existing contract under EIP-6780 + EIP-7928: only transfer the
+	// balance, no Suicide call. The recorder holds the balance change; nonce
+	// and code stay untouched because the account remains alive.
+	t.Parallel()
+
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, London: true,
+		EIP6780: true, EIP7928: true,
+	}
+
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 5)
+	// Do NOT call MarkContractCreated → NOT created in this tx
+
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+
+	require.Zero(t, tr.state.GetBalance(contractAddr).Uint64())
+	require.Equal(t, uint64(105), tr.state.GetBalance(beneficiaryAddr).Uint64())
+
+	require.False(t, tr.state.HasSuicided(contractAddr))
+	require.True(t, tr.state.Exist(contractAddr))
+
+	acc := tr.state.recorder.current[contractAddr]
+	require.NotNil(t, acc, "recorder must have an entry (balance transfer)")
+	require.Zero(t, acc.Balance.Sign(),
+		"recorder Balance must be 0 (after transfer)")
+	require.Nil(t, acc.Nonce,
+		"recorder Nonce must be nil (untouched, account remains alive)")
+	require.Nil(t, acc.Code,
+		"recorder Code must be nil (untouched, account remains alive)")
+
+	require.Zero(t, tr.state.GetRefund())
+}
+
+func TestSelfdestruct_PreLondon_GivesRefundOnce(t *testing.T) {
+	// Legacy pre-London fork: the 24000 refund is given once per suicide,
+	// and does not accumulate on repeated calls.
+	t.Parallel()
+
+	forks := chain.ForksInTime{
+		EIP150: true, EIP155: true, // London: false
+		EIP6780: true, EIP7928: true,
+	}
+
+	tr := newSelfdestructTransitionWithBAL(t, forks, 100, 5)
+	tr.state.MarkContractCreated(contractAddr)
+
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+	require.Equal(t, uint64(24000), tr.state.GetRefund())
+
+	tr.Selfdestruct(contractAddr, beneficiaryAddr)
+	require.Equal(t, uint64(24000), tr.state.GetRefund(),
+		"refund must not accumulate on repeated calls")
 }

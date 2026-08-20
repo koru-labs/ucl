@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/validators"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -267,10 +268,16 @@ func TestFilterValue(t *testing.T) {
 			return
 		}
 
-		res, err := jsonRPCClient.Eth().GetFilterChanges(filterID)
+		var res []*ethgo.Log
 
-		assert.NoError(t, err)
-		assert.Len(t, res, 1)
+		require.Eventually(t, func() bool {
+			var err error
+
+			res, err = jsonRPCClient.Eth().GetFilterChanges(filterID)
+
+			return err == nil && len(res) == 1
+		}, 10*time.Second, 200*time.Millisecond, "expected 1 log from filter")
+
 		assert.Equal(t, "0x000000000000000000000000000000000000000000000000000000000000002a", hex.EncodeToHex(res[0].Data))
 	}
 

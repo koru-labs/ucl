@@ -9,7 +9,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/grpc"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/hashicorp/go-metrics"
 )
@@ -70,17 +69,7 @@ func (s *syncPeerService) GetBlocks(
 			return ErrBlockNotFound
 		}
 
-		var (
-			blockAccessList bal.BlockAccessList
-		)
-
-		if req.IsValidator {
-			if b, err := s.blockchain.GetBlockAccessList(block.Number()); err == nil {
-				blockAccessList = b
-			}
-		}
-
-		resp := toProtoBlock(block, blockAccessList)
+		resp := toProtoBlock(block)
 		metrics.SetGauge([]string{syncerMetrics, "egress_bytes"}, float32(len(resp.Block)))
 
 		// if client closes stream, context.Canceled is given
@@ -184,13 +173,9 @@ func sendTxPoolBatch(txs types.Transactions, stream proto.SyncPeer_GetTxPoolServ
 }
 
 // toProtoBlock converts type.Block -> proto.Block
-func toProtoBlock(block *types.Block, blockAccessList bal.BlockAccessList) *proto.Block {
+func toProtoBlock(block *types.Block) *proto.Block {
 	resp := &proto.Block{
 		Block: block.MarshalRLP(),
-	}
-
-	if len(blockAccessList) > 0 {
-		resp.BlockAccessList = blockAccessList.MarshalRLP()
 	}
 
 	return resp

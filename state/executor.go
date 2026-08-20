@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -20,7 +22,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime/precompiled"
 	"github.com/0xPolygon/polygon-edge/state/runtime/tracer"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 const (
@@ -30,6 +31,12 @@ const (
 	TxGas                 uint64 = 21000 // Per transaction not creating a contract
 	TxGasContractCreation uint64 = 53000 // Per transaction that creates a contract
 )
+
+var txAccessRecorderPool = sync.Pool{
+	New: func() any {
+		return NewTxAccessRecorder(0)
+	},
+}
 
 // GetHashByNumber returns the hash function of a block number
 type GetHashByNumber = func(i uint64) types.Hash
@@ -164,11 +171,25 @@ func (e *Executor) ProcessBlock(
 		return nil, err
 	}
 
-	blockBAL := bal.NewBlockAccessListRecord()
+	eip7928 := e.config.Forks.At(block.Number()).EIP7928
+
+	var bar BlockAccessRecord
+
+	var recorder *TxAccessRecorder
+
+	if eip7928 {
+		bar = NewBlockAccessRecord()
+		recorder = NewTxAccessRecorder(0)
+		txn.SetTxAccessRecorder(recorder)
+	}
 
 	for i, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
 			return nil, runtime.ErrOutOfGas
+		}
+
+		if eip7928 {
+			recorder.Reset(uint64(i))
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -177,18 +198,217 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		txn.BalIndex = uint(i + 1)
-
 		if err = txn.Write(t); err != nil {
 			return nil, err
 		}
 
-		blockBAL.Merge(txn.balRecorder.GetBlockAccessListRecord())
+		if eip7928 {
+			bar.Insert(recorder)
+		}
 	}
 
-	txn.blockBAL = blockBAL.ToEncodingObj()
+	if eip7928 {
+		txn.SetBlockAccessRecord(bar.Pack())
+	}
 
 	return txn, nil
+}
+
+func (e *Executor) ParallelProcessBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+	numOfWorkers uint64,
+) (BlockAccessRecord, []*types.Receipt, uint64, error) {
+	// chunkSize controls how many consecutive tx indices each worker grabs per nextIdx bump.
+	// Higher = less atomic contention but worse tail latency (one slow chunk blocks its worker).
+	const chunkSize = 10
+
+	n := len(block.Transactions)
+
+	// slot bundles per-tx state so the worker's writes and the aggregator's reads for
+	// the same tx land in the same cache line. `ready` doubles as the fence: publishing
+	// it with atomic Store makes receipt+recorder visible to the aggregator's atomic Load.
+	type slot struct {
+		receipt  *types.Receipt
+		recorder *TxAccessRecorder
+		ready    atomic.Bool
+	}
+
+	var (
+		receipts = make([]*types.Receipt, n)
+		results  = make([]slot, n)
+
+		nextIdx  atomic.Uint64
+		firstErr atomic.Pointer[error]
+
+		stopOnce   sync.Once
+		stopCh     = make(chan struct{})
+		executedCh = make(chan struct{}, int(numOfWorkers))
+
+		wg sync.WaitGroup
+	)
+
+	stopWith := func(err error) {
+		stopOnce.Do(func() {
+			if err != nil {
+				firstErr.CompareAndSwap(nil, &err)
+			}
+
+			close(stopCh)
+		})
+	}
+
+	bar := NewBlockAccessRecord()
+	gasRemaining := block.Header.GasLimit
+
+	// One Precompiled per worker; its mutable `buf` scratch is only touched by
+	// its owning worker's Run calls, never shared across goroutines.
+	precompilesPerWorker := make([]*precompiled.Precompiled, numOfWorkers)
+	for i := range precompilesPerWorker {
+		precompilesPerWorker[i] = precompiled.NewPrecompiled()
+	}
+
+	for w := uint64(0); w < numOfWorkers; w++ {
+		wg.Add(1)
+
+		go func(workerID uint64) {
+			defer wg.Done()
+
+			myPrecompiled := precompilesPerWorker[workerID]
+
+			for {
+				if firstErr.Load() != nil {
+					return
+				}
+
+				start := int(nextIdx.Add(chunkSize)) - chunkSize
+				if start >= n {
+					return
+				}
+
+				end := start + chunkSize
+				if end > n {
+					end = n
+				}
+
+				for i := start; i < end; i++ {
+					tx := block.Transactions[i]
+
+					if tx.Gas > block.Header.GasLimit {
+						stopWith(fmt.Errorf("tx %d: gas %d exceeds block gas limit", i, tx.Gas))
+
+						return
+					}
+
+					if tx.From == emptyFrom && tx.Type != types.StateTx {
+						if poolTx, ok := e.GetPendingTxHook(tx.Hash); ok {
+							tx.From = poolTx.From
+						}
+					}
+
+					txn, err := e.BeginTxnWithPrecompiled(
+						parentRoot, block.Header, blockCreator, myPrecompiled)
+					if err != nil {
+						stopWith(err)
+
+						return
+					}
+
+					rec, ok := txAccessRecorderPool.Get().(*TxAccessRecorder)
+					if !ok {
+						stopWith(fmt.Errorf("invalid type in txAccessRecorderPool"))
+
+						return
+					}
+
+					rec.Reset(uint64(i))
+
+					txn.SetBlockAccessRecord(block.BlockAccessRecord)
+					txn.SetTxAccessRecorder(rec)
+
+					if err := txn.Write(tx); err != nil {
+						txAccessRecorderPool.Put(rec)
+						stopWith(err)
+
+						return
+					}
+
+					results[i].receipt = txn.receipts[0]
+					results[i].recorder = rec
+					results[i].ready.Store(true)
+				}
+
+				select {
+				case executedCh <- struct{}{}:
+				default:
+				}
+			}
+		}(w)
+	}
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		current := 0
+
+		// Cleanup any ready-but-unconsumed results on any exit path. Normal
+		// completion sets current==n so this is a no-op; error/gas-exhaust exits
+		// return recorders to the pool that would otherwise leak.
+		defer func() {
+			for i := current; i < n; i++ {
+				if results[i].ready.Load() && results[i].recorder != nil {
+					txAccessRecorderPool.Put(results[i].recorder)
+					results[i].recorder = nil
+				}
+			}
+		}()
+
+		for current < n {
+			select {
+			case <-stopCh:
+				return
+			case <-executedCh:
+			}
+
+			for current < n {
+				if !results[current].ready.Load() {
+					break
+				}
+
+				tx := block.Transactions[current]
+				receipt := results[current].receipt
+
+				if gasRemaining < tx.Gas {
+					stopWith(fmt.Errorf("tx %d: not enough block gas remaining", current))
+
+					return
+				}
+
+				gasRemaining -= receipt.GasUsed
+				receipt.CumulativeGasUsed = block.Header.GasLimit - gasRemaining
+				receipts[current] = receipt
+
+				rec := results[current].recorder
+				bar.Insert(rec)
+				txAccessRecorderPool.Put(rec)
+
+				current++
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	gasUsed := block.Header.GasLimit - gasRemaining
+
+	if err := firstErr.Load(); err != nil {
+		return bar, receipts, gasUsed, *err
+	}
+
+	return bar, receipts, gasUsed, nil
 }
 
 // GetForksInTime returns the active forks at the given block height
@@ -245,8 +465,6 @@ func (e *Executor) BeginTxn(
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
 		PostHook:    e.PostHook,
-
-		balRecorder: runtime.NoopBALRecorder{},
 	}
 
 	// enable contract deployment allow list (if any)
@@ -279,14 +497,208 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
-func (e *Executor) ApplyBlockAccessList(
+func (e *Executor) BeginTxnWithCustomTxn(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	gasLimit uint64,
+	txnFactory func(Snapshot) *Txn,
+) (*Transition, error) {
+	forkConfig := e.config.Forks.At(header.Number)
+
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	burnContract := types.ZeroAddress
+	if forkConfig.London {
+		burnContract, err = e.config.CalculateBurnContract(header.Number)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	txCtx := runtime.TxContext{
+		Coinbase:     coinbaseReceiver,
+		Timestamp:    int64(header.Timestamp),
+		Number:       int64(header.Number),
+		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
+		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
+		GasLimit:     int64(gasLimit),
+		ChainID:      e.config.ChainID,
+		BurnContract: burnContract,
+	}
+
+	txn := &Transition{
+		logger:   e.logger,
+		ctx:      txCtx,
+		state:    txnFactory(auxSnap2),
+		snap:     auxSnap2,
+		getHash:  e.GetHash(header),
+		auxState: e.state,
+		config:   forkConfig,
+		gasPool:  gasLimit,
+
+		totalGas: 0,
+
+		evm:         evm.NewEVM(),
+		precompiles: precompiled.NewPrecompiled(),
+		PostHook:    e.PostHook,
+	}
+
+	// enable contract deployment allow list (if any)
+	if e.config.ContractDeployerAllowList != nil {
+		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
+	}
+
+	if e.config.ContractDeployerBlockList != nil {
+		txn.deploymentBlockList = addresslist.NewAddressList(txn, contracts.BlockListContractsAddr)
+	}
+
+	// enable transactions allow list (if any)
+	if e.config.TransactionsAllowList != nil {
+		txn.txnAllowList = addresslist.NewAddressList(txn, contracts.AllowListTransactionsAddr)
+	}
+
+	if e.config.TransactionsBlockList != nil {
+		txn.txnBlockList = addresslist.NewAddressList(txn, contracts.BlockListTransactionsAddr)
+	}
+
+	// enable transactions allow list (if any)
+	if e.config.BridgeAllowList != nil {
+		txn.bridgeAllowList = addresslist.NewAddressList(txn, contracts.AllowListBridgeAddr)
+	}
+
+	if e.config.BridgeBlockList != nil {
+		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
+	}
+
+	return txn, nil
+}
+
+func (e *Executor) BeginTxnWithPrecompiled(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	prec *precompiled.Precompiled,
+) (*Transition, error) {
+	forkConfig := e.config.Forks.At(header.Number)
+
+	auxSnap2, err := e.state.NewSnapshot(parentRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	burnContract := types.ZeroAddress
+	if forkConfig.London {
+		burnContract, err = e.config.CalculateBurnContract(header.Number)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	newTxn := NewTxn(auxSnap2)
+
+	txCtx := runtime.TxContext{
+		Coinbase:     coinbaseReceiver,
+		Timestamp:    int64(header.Timestamp),
+		Number:       int64(header.Number),
+		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
+		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
+		GasLimit:     int64(header.GasLimit),
+		ChainID:      e.config.ChainID,
+		BurnContract: burnContract,
+	}
+
+	txn := &Transition{
+		logger:   e.logger,
+		ctx:      txCtx,
+		state:    newTxn,
+		snap:     auxSnap2,
+		getHash:  e.GetHash(header),
+		auxState: e.state,
+		config:   forkConfig,
+		gasPool:  uint64(txCtx.GasLimit),
+
+		receipts: []*types.Receipt{},
+		totalGas: 0,
+
+		evm:         evm.NewEVM(),
+		precompiles: prec,
+		PostHook:    e.PostHook,
+	}
+
+	if e.config.ContractDeployerAllowList != nil {
+		txn.deploymentAllowList = addresslist.NewAddressList(txn, contracts.AllowListContractsAddr)
+	}
+
+	if e.config.ContractDeployerBlockList != nil {
+		txn.deploymentBlockList = addresslist.NewAddressList(txn, contracts.BlockListContractsAddr)
+	}
+
+	if e.config.TransactionsAllowList != nil {
+		txn.txnAllowList = addresslist.NewAddressList(txn, contracts.AllowListTransactionsAddr)
+	}
+
+	if e.config.TransactionsBlockList != nil {
+		txn.txnBlockList = addresslist.NewAddressList(txn, contracts.BlockListTransactionsAddr)
+	}
+
+	if e.config.BridgeAllowList != nil {
+		txn.bridgeAllowList = addresslist.NewAddressList(txn, contracts.AllowListBridgeAddr)
+	}
+
+	if e.config.BridgeBlockList != nil {
+		txn.bridgeBlockList = addresslist.NewAddressList(txn, contracts.BlockListBridgeAddr)
+	}
+
+	return txn, nil
+}
+
+func (e *Executor) ApplyBlockAccessRecord(
 	blockNumber uint64,
 	parentRoot types.Hash,
-	accessList bal.BlockAccessList,
+	accessList types.BlockAccessRecord,
 ) (types.Hash, error) {
 	snap, err := e.state.NewSnapshot(parentRoot)
 	if err != nil {
 		return types.Hash{}, err
+	}
+
+	// prefetch: warm the account cache before the serial SetX loop
+	// so trie reads happen in parallel, not sequentially inside SetX
+	const prefetchWorkers = 8
+
+	if len(accessList) > 100 {
+		var pfWg sync.WaitGroup
+
+		chunkSize := (len(accessList) + prefetchWorkers - 1) / prefetchWorkers
+
+		for w := 0; w < prefetchWorkers; w++ {
+			start := w * chunkSize
+
+			end := start + chunkSize
+			if end > len(accessList) {
+				end = len(accessList)
+			}
+
+			if start >= end {
+				break
+			}
+
+			pfWg.Add(1)
+
+			go func(from, to int) {
+				defer pfWg.Done()
+
+				for i := from; i < to; i++ {
+					_, _ = snap.GetAccount(accessList[i].Address) // warm cache
+				}
+			}(start, end)
+		}
+
+		pfWg.Wait()
 	}
 
 	txn := newTxn(snap)
@@ -298,19 +710,19 @@ func (e *Executor) ApplyBlockAccessList(
 			}
 
 			final := slotChanges.SlotChanges[len(slotChanges.SlotChanges)-1]
-			txn.SetState(account.Address, slotChanges.Slot, final.PostValue)
+			txn.SetState(account.Address, slotChanges.Slot, final.Value)
 		}
 
 		if n := len(account.BalanceChanges); n > 0 {
-			txn.SetBalance(account.Address, account.BalanceChanges[n-1].PostBalance)
+			txn.SetBalance(account.Address, account.BalanceChanges[n-1].Balance)
 		}
 
 		if n := len(account.NonceChanges); n > 0 {
-			txn.SetNonce(account.Address, account.NonceChanges[n-1].PostNonce)
+			txn.SetNonce(account.Address, account.NonceChanges[n-1].Nonce)
 		}
 
 		if n := len(account.CodeChanges); n > 0 {
-			txn.SetCode(account.Address, account.CodeChanges[n-1].NewCode)
+			txn.SetCode(account.Address, account.CodeChanges[n-1].Code)
 		}
 	}
 
@@ -359,17 +771,6 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
-
-	// balRecorder is used to record the block access list for the current transaction
-	// one per transaction
-	balRecorder runtime.BlockAccessListRecorder
-
-	// marshalable block access list for the block,
-	// which is used to generate the final block access list after the block execution
-	// one per block
-	blockBAL bal.BlockAccessList
-
-	BalIndex uint
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -379,8 +780,23 @@ func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transit
 		snap:        snap,
 		evm:         evm.NewEVM(),
 		precompiles: precompiled.NewPrecompiled(),
-		balRecorder: runtime.NoopBALRecorder{},
 	}
+}
+
+func (t *Transition) SetTxAccessRecorder(recorder *TxAccessRecorder) {
+	t.state.recorder = recorder
+}
+
+func (t *Transition) GetTxAccessRecorder() *TxAccessRecorder {
+	return t.state.recorder
+}
+
+func (t *Transition) SetBlockAccessRecord(bar types.BlockAccessRecord) {
+	t.state.bar = bar
+}
+
+func (t *Transition) GetBlockAccessRecord() types.BlockAccessRecord {
+	return t.state.bar
 }
 
 // GetTransientState gets a value from transient storage for the given address and slot.
@@ -559,11 +975,17 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 
 	s := t.state.Snapshot()
 
+	t.state.recorder.Snapshot()
+
 	result, err := t.apply(msg)
 	if err != nil {
+		t.state.recorder.Revert()
+
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
+	} else {
+		t.state.recorder.Commit()
 	}
 
 	if t.PostHook != nil {
@@ -725,12 +1147,6 @@ func NewGasLimitReachedTransitionApplicationError(err error) *GasLimitReachedTra
 func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionResult, err error) {
 	start := time.Now().UTC()
 
-	t.SetBlockAccessListRecorder(&runtime.NoopBALRecorder{})
-
-	if t.config.EIP7928 {
-		t.SetBlockAccessListRecorder(NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), uint32(t.BalIndex)))
-	}
-
 	defer func() {
 		metrics.MeasureSince([]string{"state", "tx_apply"}, start)
 		// "invocations" avoids colliding with the Prometheus summary's *_count series.
@@ -792,8 +1208,6 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 			return nil, err
 		}
 
-		t.balRecorder.NonceChange(msg.From, t.state.GetNonce(msg.From))
-
 		result = t.Call2(msg.From, *msg.To, msg.Input, value, gasLeft)
 	}
 
@@ -829,23 +1243,15 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
-	if coinbaseFee.Sign() > 0 {
-		t.balRecorder.BalanceChange(t.ctx.Coinbase, t.state.GetBalance(t.ctx.Coinbase))
-	}
-
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
-
-		t.balRecorder.BalanceChange(t.ctx.BurnContract, t.state.GetBalance(t.ctx.BurnContract))
 	}
 
 	// return gas to the pool
 	t.addGasPool(result.GasLeft)
-
-	t.balRecorder.BalanceChange(msg.From, t.state.GetBalance(msg.From))
 
 	return result, nil
 }
@@ -959,37 +1365,17 @@ func (t *Transition) applyCall(
 	}
 
 	snapshot := t.state.Snapshot()
+	t.state.recorder.Snapshot()
+
 	t.state.TouchAccount(c.Address)
-
-	t.balRecorder.AccountRead(c.Address)
-	balIndex := t.balRecorder.GetIndex()
-
-	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
-
-	oldBalRecorder := t.balRecorder
-
-	if t.config.EIP7928 {
-		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), balIndex)
-
-		callBalRecorder.AccountRead(c.Address)
-
-		t.balRecorder = callBalRecorder
-	}
 
 	if callType == runtime.Call {
 		// Transfers only allowed on calls
 		if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
-			t.balRecorder = oldBalRecorder
-
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
-		}
-
-		if c.Value != nil && c.Value.Sign() != 0 {
-			t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
-			t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 		}
 	}
 
@@ -998,18 +1384,18 @@ func (t *Transition) applyCall(
 	t.captureCallStart(c, callType)
 
 	result = t.run(c, host)
-	t.balRecorder = oldBalRecorder
-
 	if result.Failed() {
+		t.state.recorder.Revert()
+
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				GasLeft: c.Gas,
 				Err:     err,
 			}
 		}
-	} else {
-		t.balRecorder.Merge(callBalRecorder)
 	}
+
+	t.state.recorder.Commit()
 
 	t.captureCallEnd(c, result)
 
@@ -1022,6 +1408,19 @@ func (t *Transition) hasCodeOrNonce(addr types.Address) bool {
 	}
 
 	codeHash := t.state.GetCodeHash(addr)
+
+	if t.state.recorder != nil {
+		if _, ok := t.state.recorder.current[addr]; ok &&
+			len(t.state.recorder.current[addr].Storage) > 0 {
+			return true
+		}
+	}
+
+	if t.state.bar != nil {
+		if _, ok := t.state.bar.CodeBefore(addr, t.state.recorder.txIndex); ok {
+			return true
+		}
+	}
 
 	// EIP-7610 change - rejects the contract deployment if the destination has non-empty storage.
 	storageRoot := t.state.GetStorageRoot(addr)
@@ -1048,12 +1447,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		}
 	}
 
-	t.balRecorder.NonceChange(c.Caller, t.state.GetNonce(c.Caller))
-
 	// Check if there is a collision and the address already exists
 	if t.hasCodeOrNonce(c.Address) {
-		t.balRecorder.AccountRead(c.Address)
-
 		return &runtime.ExecutionResult{
 			GasLeft: 0,
 			Err:     runtime.ErrContractAddressCollision,
@@ -1062,6 +1457,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Take snapshot of the current state
 	snapshot := t.state.Snapshot()
+	t.state.recorder.Snapshot()
 
 	if t.config.EIP6780 {
 		t.state.MarkContractCreated(c.Address)
@@ -1074,32 +1470,14 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 		if err := t.state.IncrNonce(c.Address); err != nil {
 			return &runtime.ExecutionResult{Err: err}
 		}
-
-		t.balRecorder.NonceChange(c.Address, t.state.GetNonce(c.Address))
-	}
-
-	callBalRecorder := runtime.BlockAccessListRecorder(&runtime.NoopBALRecorder{})
-	oldBalRecorder := t.balRecorder
-
-	if t.config.EIP7928 {
-		callBalRecorder = NewBlockAccessListRecorder(bal.NewBlockAccessListRecord(), t.balRecorder.GetIndex())
-
-		t.balRecorder = callBalRecorder
 	}
 
 	// Transfer the value
 	if err := t.Transfer(c.Caller, c.Address, c.Value); err != nil {
-		t.balRecorder = oldBalRecorder
-
 		return &runtime.ExecutionResult{
 			GasLeft: gasLimit,
 			Err:     err,
 		}
-	}
-
-	if t.config.EIP7928 && c.Value != nil && c.Value.Sign() != 0 {
-		t.balRecorder.BalanceChange(c.Caller, t.state.GetBalance(c.Caller))
-		t.balRecorder.BalanceChange(c.Address, t.state.GetBalance(c.Address))
 	}
 
 	var result *runtime.ExecutionResult
@@ -1122,9 +1500,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
-			t.balRecorder = oldBalRecorder
-			t.balRecorder.Merge(callBalRecorder)
-
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1140,9 +1515,6 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 				"contract.Address", c.Address,
 			)
 
-			t.balRecorder = oldBalRecorder
-			t.balRecorder.Merge(callBalRecorder)
-
 			return &runtime.ExecutionResult{
 				GasLeft: 0,
 				Err:     runtime.ErrNotAuth,
@@ -1151,9 +1523,9 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 	}
 
 	result = t.run(c, host)
-	t.balRecorder = oldBalRecorder
-
 	if result.Failed() {
+		t.state.recorder.Revert()
+
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1165,6 +1537,7 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// skip check for max code size for ucl node
 	if t.config.EIP158 && !t.config.Ucl && len(result.ReturnValue) > SpuriousDragonMaxCodeSize {
+		t.state.recorder.Revert()
 		// Contract size exceeds 'SpuriousDragon' size limit
 		if err := t.state.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
@@ -1180,6 +1553,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
 	if result.Err == nil && len(result.ReturnValue) >= 1 && result.ReturnValue[0] == 0xEF && t.config.London {
+		t.state.recorder.Revert()
+
 		if err := t.RevertToSnapshot(snapshot); err != nil {
 			return &runtime.ExecutionResult{
 				Err: err,
@@ -1200,6 +1575,8 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 
 		// Out of gas creating the contract
 		if t.config.Homestead {
+			t.state.recorder.Revert()
+
 			if err := t.state.RevertToSnapshot(snapshot); err != nil {
 				return &runtime.ExecutionResult{
 					Err: err,
@@ -1211,18 +1588,16 @@ func (t *Transition) applyCreate(c *runtime.Contract, host runtime.Host) *runtim
 			return result
 		}
 
-		t.balRecorder.Merge(callBalRecorder)
+		t.state.recorder.Commit()
 
 		return result
 	}
 
+	t.state.recorder.Commit()
+
 	result.GasLeft -= gasCost
 	result.Address = c.Address
 	t.state.SetCode(c.Address, result.ReturnValue)
-
-	t.balRecorder.Merge(callBalRecorder)
-
-	t.balRecorder.CodeChange(c.Address, result.ReturnValue)
 
 	return result
 }
@@ -1319,19 +1694,16 @@ func (t *Transition) GetNonce(addr types.Address) uint64 {
 	return t.state.GetNonce(addr)
 }
 
+// Selfdestruct handles SELFDESTRUCT opcode with EIP-6780 semantics.
+// Under EIP-6780, account is only deleted if it was created within the same tx.
+// Under EIP-7928 (BAL), account deletion is represented in the BAL by the
+// Suicide function recording empty balance/nonce/code, which triggers EIP-158
+// empty-account clearing during ApplyBlockAccessRecord on the verifier side.
 func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address) {
 	// EIP-6780: outside of the creating transaction SELFDESTRUCT only moves the
 	// balance to the beneficiary and does not delete code, storage or the account.
 	if t.config.EIP6780 && !t.state.IsContractCreatedInTx(addr) {
 		balance := t.state.GetBalance(addr)
-
-		// nothing moves when the contract targets itself, or when it holds no balance
-		if addr == beneficiary || balance.Sign() == 0 {
-			t.balRecorder.AccountRead(addr)
-			t.balRecorder.AccountRead(beneficiary)
-
-			return
-		}
 
 		if err := t.state.SubBalance(addr, balance); err != nil {
 			t.logger.Error("failed to subtract balance on selfdestruct", "address", addr, "err", err)
@@ -1340,9 +1712,6 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 		}
 
 		t.state.AddBalance(beneficiary, balance)
-
-		t.balRecorder.BalanceChange(addr, t.state.GetBalance(addr))
-		t.balRecorder.BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
 
 		return
 	}
@@ -1356,12 +1725,10 @@ func (t *Transition) Selfdestruct(addr types.Address, beneficiary types.Address)
 	t.state.AddBalance(beneficiary, balance)
 	t.state.Suicide(addr)
 
-	if balance.Sign() != 0 {
-		t.BlockAccessListRecorder().BalanceChange(addr, big.NewInt(0))
-		t.BlockAccessListRecorder().BalanceChange(beneficiary, t.state.GetBalance(beneficiary))
-	} else {
-		t.BlockAccessListRecorder().AccountRead(addr)
-		t.BlockAccessListRecorder().AccountRead(beneficiary)
+	if t.config.EIP7928 && t.state.recorder != nil {
+		t.state.recorder.RecordBalanceChange(addr, new(big.Int))
+		t.state.recorder.RecordNonceChange(addr, 0)
+		t.state.recorder.RecordCodeChange(addr, []byte{})
 	}
 }
 
@@ -1591,20 +1958,4 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
-}
-
-func (t *Transition) BlockAccessListRecorder() runtime.BlockAccessListRecorder {
-	return t.balRecorder
-}
-
-func (t *Transition) BlockAccessList() bal.BlockAccessList {
-	return t.blockBAL
-}
-
-func (t *Transition) SetBlockAccessListRecorder(recorder runtime.BlockAccessListRecorder) {
-	t.balRecorder = recorder
-}
-
-func (t *Transition) SetBlockAccessList(b bal.BlockAccessList) {
-	t.blockBAL = b
 }

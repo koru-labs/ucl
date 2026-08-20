@@ -5,7 +5,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 )
 
 // -- canonical hash --
@@ -122,12 +121,12 @@ func (s *Storage) ReadLastSyncedReceipts() (uint64, bool) {
 	return common.EncodeBytesToUint64(data), true
 }
 
-// BLOCK ACCESS LIST //
+// BLOCK ACCESS RECORD //
 
-// ReadBlockAccessList reads the EIP-7928 block access list for the given block.
-func (s *Storage) ReadBlockAccessList(bn uint64) (bal.BlockAccessList, error) {
-	accessList := &bal.BlockAccessList{}
-	err := s.readRLP(BLOCK_ACCESS_LIST, common.EncodeUint64ToBytes(bn), accessList)
+// ReadBlockAccessRecord reads the EIP-7928 block access record for the given block.
+func (s *Storage) ReadBlockAccessRecord(bn uint64) (types.BlockAccessRecord, error) {
+	accessList := &types.BlockAccessRecord{}
+	err := s.readRLP(BLOCK_ACCESS_RECORD, common.EncodeUint64ToBytes(bn), accessList)
 
 	return *accessList, err
 }

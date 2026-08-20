@@ -1,19 +1,18 @@
-package bal
+package types
 
 import (
-	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/umbracle/fastrlp"
 )
 
-func (b BlockAccessList) MarshalRLP() []byte {
+func (b BlockAccessRecord) MarshalRLP() []byte {
 	return b.MarshalRLPTo(nil)
 }
 
-func (b BlockAccessList) MarshalRLPTo(dst []byte) []byte {
-	return types.MarshalRLPTo(b.MarshalRLPWith, dst)
+func (b BlockAccessRecord) MarshalRLPTo(dst []byte) []byte {
+	return MarshalRLPTo(b.MarshalRLPWith, dst)
 }
 
-func (b BlockAccessList) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (b BlockAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	if len(b) == 0 {
 		return ar.NewNullArray()
 	}
@@ -27,15 +26,15 @@ func (b BlockAccessList) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (aa *AccountAccess) MarshalRLP() []byte {
+func (aa *AccountAccessRecord) MarshalRLP() []byte {
 	return aa.MarshalRLPTo(nil)
 }
 
-func (aa *AccountAccess) MarshalRLPTo(dst []byte) []byte {
-	return types.MarshalRLPTo(aa.MarshalRLPWith, dst)
+func (aa *AccountAccessRecord) MarshalRLPTo(dst []byte) []byte {
+	return MarshalRLPTo(aa.MarshalRLPWith, dst)
 }
 
-func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (aa *AccountAccessRecord) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 
 	vv.Set(ar.NewCopyBytes(aa.Address.Bytes()))
@@ -50,18 +49,6 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 		}
 
 		vv.Set(scArr)
-	}
-
-	if len(aa.StorageReads) == 0 {
-		vv.Set(ar.NewNullArray())
-	} else {
-		srArr := ar.NewArray()
-
-		for i := range aa.StorageReads {
-			srArr.Set(ar.NewCopyBytes(aa.StorageReads[i].Bytes()))
-		}
-
-		vv.Set(srArr)
 	}
 
 	if len(aa.BalanceChanges) == 0 {
@@ -103,7 +90,7 @@ func (aa *AccountAccess) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (sc *SlotChanges) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (sc *StorageChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
 	vv.Set(ar.NewCopyBytes(sc.Slot.Bytes()))
 
@@ -118,34 +105,38 @@ func (sc *SlotChanges) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	return vv
 }
 
-func (sw *StorageWrite) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
+func (sw *SlotChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(sw.BlockAccessIndex)))
-	vv.Set(ar.NewCopyBytes(sw.PostValue.Bytes()))
+
+	vv.Set(ar.NewUint(sw.TxIndex))
+	vv.Set(ar.NewCopyBytes(sw.Value.Bytes()))
 
 	return vv
 }
 
 func (bc *BalanceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(bc.BlockAccessIndex)))
-	vv.Set(ar.NewBigInt(bc.PostBalance))
+
+	vv.Set(ar.NewUint(bc.TxIndex))
+	vv.Set(ar.NewBigInt(bc.Balance))
 
 	return vv
 }
 
 func (nc *NonceChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(nc.BlockAccessIndex)))
-	vv.Set(ar.NewUint(nc.PostNonce))
+
+	vv.Set(ar.NewUint(nc.TxIndex))
+	vv.Set(ar.NewUint(nc.Nonce))
 
 	return vv
 }
 
 func (cc *CodeChange) MarshalRLPWith(ar *fastrlp.Arena) *fastrlp.Value {
 	vv := ar.NewArray()
-	vv.Set(ar.NewUint(uint64(cc.BlockAccessIndex)))
-	vv.Set(ar.NewCopyBytes(cc.NewCode))
+
+	vv.Set(ar.NewUint(cc.TxIndex))
+	vv.Set(ar.NewCopyBytes(cc.Code))
 
 	return vv
 }

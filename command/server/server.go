@@ -384,6 +384,13 @@ func setFlags(cmd *cobra.Command) {
 		"enable block access list",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.ParallelVerificationWorkers,
+		parallelVerificationWorkersFlag,
+		defaultConfig.ParallelVerificationWorkers,
+		"number of workers for parallel verification",
+	)
+
 	setLegacyFlags(cmd)
 
 	setDevFlags(cmd)

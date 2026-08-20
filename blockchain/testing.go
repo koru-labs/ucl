@@ -11,7 +11,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/0xPolygon/polygon-edge/types"
@@ -90,8 +89,8 @@ func HeadersToBlocks(headers []*types.Header) []*types.Block {
 }
 
 // NewTestBlockchain creates a new dummy blockchain for testing
-func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
-	t.Helper()
+func NewTestBlockchain(tb testing.TB, headers []*types.Header) *Blockchain {
+	tb.Helper()
 
 	genesis := &chain.Genesis{
 		Number:   0,
@@ -113,7 +112,7 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 
 	b, err := newBlockChain(config, state.NewExecutor(config.Params, st, hclog.NewNullLogger()))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	if len(headers) > 0 {
@@ -123,11 +122,11 @@ func NewTestBlockchain(t *testing.T, headers []*types.Header) *Blockchain {
 		batchWriter.PutCanonicalHeader(headers[0], td)
 
 		if err := b.writeBatchAndUpdate(batchWriter, headers[0], td, true); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 
 		if err := b.WriteHeadersWithBodies(headers[1:]); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 	}
 
@@ -307,10 +306,10 @@ func (m *mockExecutor) ProcessBlock(
 	return nil, nil
 }
 
-func (m *mockExecutor) ApplyBlockAccessList(
+func (m *mockExecutor) ApplyBlockAccessRecord(
 	blockNumber uint64,
 	parentRoot types.Hash,
-	accessList bal.BlockAccessList) (
+	bar types.BlockAccessRecord) (
 	types.Hash,
 	error) {
 	return types.Hash{}, nil
@@ -318,6 +317,15 @@ func (m *mockExecutor) ApplyBlockAccessList(
 
 func (m *mockExecutor) HookProcessBlock(fn processBlockDelegate) {
 	m.processBlockFn = fn
+}
+
+func (m *mockExecutor) ParallelProcessBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+	numOfWorkers uint64) (
+	state.BlockAccessRecord, []*types.Receipt, uint64, error) {
+	return nil, nil, 0, nil
 }
 
 type mockSigner struct {
@@ -362,7 +370,7 @@ func newBlockChain(config *chain.Chain, executor Executor) (*Blockchain, error) 
 		return nil, err
 	}
 
-	b, err := NewBlockchain(hclog.NewNullLogger(), db, config, &MockVerifier{}, executor, &mockSigner{}, false)
+	b, err := NewBlockchain(hclog.NewNullLogger(), db, config, &MockVerifier{}, executor, &mockSigner{}, false, 1)
 	if err != nil {
 		return nil, err
 	}

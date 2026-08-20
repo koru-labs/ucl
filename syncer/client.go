@@ -14,7 +14,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/event"
 	"github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -28,8 +27,7 @@ const (
 )
 
 type SyncBlock struct {
-	Block           *types.Block
-	BlockAccessList bal.BlockAccessList
+	Block *types.Block
 }
 
 type ReceiptsMsg struct {
@@ -460,15 +458,6 @@ func fromProto(protoBlock *proto.Block) (*SyncBlock, error) {
 
 	result := &SyncBlock{
 		Block: block,
-	}
-
-	if len(protoBlock.BlockAccessList) > 0 {
-		var accessList bal.BlockAccessList
-		if err := accessList.UnmarshalRLP(protoBlock.BlockAccessList); err != nil {
-			return nil, fmt.Errorf("failed to decode block access list: %w", err)
-		}
-
-		result.BlockAccessList = accessList
 	}
 
 	return result, nil

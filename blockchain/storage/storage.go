@@ -35,7 +35,7 @@ const (
 	DIFFICULTY           = uint8(4)
 	HEADER               = uint8(6)
 	RECEIPTS             = uint8(8)
-	BLOCK_ACCESS_LIST    = uint8(10)
+	BLOCK_ACCESS_RECORD  = uint8(10)
 	LAST_SYNCED_RECEIPTS = uint8(12)
 )
 

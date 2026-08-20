@@ -7,9 +7,10 @@ import (
 
 // BuildBlockParams are parameters passed into the BuildBlock helper method
 type BuildBlockParams struct {
-	Header   *types.Header
-	Txns     []*types.Transaction
-	Receipts []*types.Receipt
+	Header            *types.Header
+	Txns              []*types.Transaction
+	Receipts          []*types.Receipt
+	BlockAccessRecord types.BlockAccessRecord
 }
 
 // BuildBlock is a utility function that builds a block, based on the passed in header, transactions and receipts
@@ -33,7 +34,8 @@ func BuildBlock(params BuildBlockParams) *types.Block {
 	header.ComputeHash()
 
 	return &types.Block{
-		Header:       header,
-		Transactions: txs,
+		Header:            header,
+		Transactions:      txs,
+		BlockAccessRecord: params.BlockAccessRecord,
 	}
 }

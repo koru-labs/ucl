@@ -66,14 +66,13 @@ func (h *benchHost) EmitLog(types.Address, []types.Hash, []byte)    {}
 func (h *benchHost) Callx(*runtime.Contract, runtime.Host) *runtime.ExecutionResult {
 	return &runtime.ExecutionResult{}
 }
-func (h *benchHost) Empty(types.Address) bool                                 { return false }
-func (h *benchHost) GetNonce(types.Address) uint64                            { return 0 }
-func (h *benchHost) Transfer(types.Address, types.Address, *big.Int) error    { return nil }
-func (h *benchHost) GetTracer() runtime.VMTracer                              { return nil }
-func (h *benchHost) GetRefund() uint64                                        { return 0 }
-func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash   { return types.Hash{} }
-func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash)  {}
-func (h *benchHost) BlockAccessListRecorder() runtime.BlockAccessListRecorder { return nil }
+func (h *benchHost) Empty(types.Address) bool                                { return false }
+func (h *benchHost) GetNonce(types.Address) uint64                           { return 0 }
+func (h *benchHost) Transfer(types.Address, types.Address, *big.Int) error   { return nil }
+func (h *benchHost) GetTracer() runtime.VMTracer                             { return nil }
+func (h *benchHost) GetRefund() uint64                                       { return 0 }
+func (h *benchHost) GetTransientState(types.Address, types.Hash) types.Hash  { return types.Hash{} }
+func (h *benchHost) SetTransientState(types.Address, types.Hash, types.Hash) {}
 
 func benchmarkRun(b *testing.B, codeSize int, cacheSize int) {
 	b.Helper()

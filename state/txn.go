@@ -59,6 +59,10 @@ type Txn struct {
 	// createdContracts maps a contract created in the current transaction (EIP-6780) to the
 	// snapshot depth at which it was created (the number of live snapshots at that moment).
 	createdContracts map[types.Address]int
+
+	recorder *TxAccessRecorder
+
+	bar types.BlockAccessRecord
 }
 
 func NewTxn(snapshot Snapshot) *Txn {
@@ -361,9 +365,32 @@ func (txn *Txn) AddSealingReward(addr types.Address, balance *big.Int) {
 
 // AddBalance adds balance
 func (txn *Txn) AddBalance(addr types.Address, balance *big.Int) {
+	if txn.recorder == nil || txn.bar == nil {
+		txn.addBalanceState(addr, balance)
+	} else {
+		txn.addBalanceNonState(addr, balance)
+	}
+}
+
+func (txn *Txn) addBalanceState(addr types.Address, balance *big.Int) {
+	var newBalance *big.Int
+
 	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Add(object.Account.Balance, balance)
+		newBalance = big.NewInt(0).Add(object.Account.Balance, balance)
+		object.Account.Balance = newBalance
 	})
+
+	if txn.recorder != nil {
+		txn.recorder.RecordBalanceChange(addr, newBalance)
+	}
+}
+
+func (txn *Txn) addBalanceNonState(addr types.Address, balance *big.Int) {
+	oldBalance := txn.GetBalance(addr)
+
+	newBalance := big.NewInt(0).Add(oldBalance, balance)
+
+	txn.recorder.RecordBalanceChange(addr, newBalance)
 }
 
 // SubBalance reduces the balance at address addr by amount
@@ -374,13 +401,20 @@ func (txn *Txn) SubBalance(addr types.Address, amount *big.Int) error {
 	}
 
 	// Check if we have enough balance to deduce amount from
-	if balance := txn.GetBalance(addr); balance.Cmp(amount) < 0 {
+	balance := txn.GetBalance(addr)
+	if balance.Cmp(amount) < 0 {
 		return runtime.ErrNotEnoughFunds
 	}
 
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.Balance.Sub(object.Account.Balance, amount)
-	})
+	if txn.recorder == nil || txn.bar == nil {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			object.Account.Balance.Sub(object.Account.Balance, amount)
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordBalanceChange(addr, big.NewInt(0).Sub(balance, amount))
+	}
 
 	return nil
 }
@@ -394,6 +428,18 @@ func (txn *Txn) SetBalance(addr types.Address, balance *big.Int) {
 
 // GetBalance returns the balance of an address
 func (txn *Txn) GetBalance(addr types.Address) *big.Int {
+	if txn.recorder != nil {
+		if balance, ok := txn.recorder.GetBalance(addr); ok {
+			return balance
+		}
+	}
+
+	if txn.bar != nil {
+		if balance, ok := txn.bar.BalanceBefore(addr, txn.recorder.txIndex); ok {
+			return balance
+		}
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return big.NewInt(0)
@@ -509,21 +555,39 @@ func (txn *Txn) SetState(
 	key,
 	value types.Hash,
 ) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		if object.Txn == nil {
-			object.Txn = iradix.New().Txn()
-		}
+	if txn.recorder == nil || txn.bar == nil {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			if object.Txn == nil {
+				object.Txn = iradix.New().Txn()
+			}
 
-		if value == types.ZeroHash {
-			object.Txn.Insert(key.Bytes(), nil)
-		} else {
-			object.Txn.Insert(key.Bytes(), value.Bytes())
-		}
-	})
+			if value == types.ZeroHash {
+				object.Txn.Insert(key.Bytes(), nil)
+			} else {
+				object.Txn.Insert(key.Bytes(), value.Bytes())
+			}
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordStorageChange(addr, key, value)
+	}
 }
 
 // GetState returns the state of the address at a given key
 func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
+	if txn.recorder != nil {
+		if value, ok := txn.recorder.GetStorage(addr, key); ok {
+			return value
+		}
+	}
+
+	if txn.bar != nil {
+		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
+			return value
+		}
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -553,7 +617,21 @@ func (txn *Txn) GetState(addr types.Address, key types.Hash) types.Hash {
 
 // IncrNonce increases the nonce of the address
 func (txn *Txn) IncrNonce(addr types.Address) error {
-	var err error
+	// We work directly with the state in two cases:
+	// 1. when EIP-7928 is off; in this case txn.recorder is nil
+	// 2. when the executor is the block proposer; in this case txn.bar is nil
+	if txn.recorder == nil || txn.bar == nil {
+		return txn.incrNonceState(addr)
+	}
+
+	return txn.incrNonceNonState(addr)
+}
+
+func (txn *Txn) incrNonceState(addr types.Address) error {
+	var (
+		err   error
+		nonce uint64
+	)
 
 	txn.upsertAccount(addr, true, func(object *StateObject) {
 		if object.Account.Nonce+1 < object.Account.Nonce {
@@ -563,9 +641,38 @@ func (txn *Txn) IncrNonce(addr types.Address) error {
 		}
 
 		object.Account.Nonce++
+
+		nonce = object.Account.Nonce
 	})
 
+	// If EIP-7928 is enabled, txn.recorder must NOT be nil.
+	if err == nil && txn.recorder != nil {
+		txn.recorder.RecordNonceChange(addr, nonce)
+	}
+
 	return err
+}
+
+func (txn *Txn) incrNonceNonState(addr types.Address) error {
+	nonce, ok := txn.recorder.GetNonce(addr)
+
+	if !ok && txn.bar != nil {
+		nonce, ok = txn.bar.NonceBefore(addr, txn.recorder.txIndex)
+	}
+
+	if !ok {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			nonce = object.Account.Nonce
+		})
+	}
+
+	if nonce+1 < nonce {
+		return ErrNonceUintOverflow
+	}
+
+	txn.recorder.RecordNonceChange(addr, nonce+1)
+
+	return nil
 }
 
 // SetNonce reduces the balance
@@ -577,6 +684,18 @@ func (txn *Txn) SetNonce(addr types.Address, nonce uint64) {
 
 // GetNonce returns the nonce of an addr
 func (txn *Txn) GetNonce(addr types.Address) uint64 {
+	if txn.recorder != nil {
+		if nonce, ok := txn.recorder.GetNonce(addr); ok {
+			return nonce
+		}
+	}
+
+	if txn.bar != nil {
+		if nonce, ok := txn.bar.NonceBefore(addr, txn.recorder.txIndex); ok {
+			return nonce
+		}
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return 0
@@ -589,11 +708,21 @@ func (txn *Txn) GetNonce(addr types.Address) uint64 {
 
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr types.Address, code []byte) {
-	txn.upsertAccount(addr, true, func(object *StateObject) {
-		object.Account.CodeHash = crypto.Keccak256(code)
-		object.DirtyCode = true
-		object.Code = code
-	})
+	// In parallel-verifier worker mode (recorder+bar both set), we skip
+	// the state-trie write entirely - the worker's trie is discarded,
+	// and ApplyBlockAccessRecord will re-apply this code via SetCode on
+	// a fresh Txn (both nil), setting DirtyCode there.
+	if txn.recorder == nil || txn.bar == nil {
+		txn.upsertAccount(addr, true, func(object *StateObject) {
+			object.Account.CodeHash = crypto.Keccak256(code)
+			object.DirtyCode = true
+			object.Code = code
+		})
+	}
+
+	if txn.recorder != nil {
+		txn.recorder.RecordCodeChange(addr, code)
+	}
 }
 
 // GetCode gets the code on a given address.
@@ -609,6 +738,18 @@ func (txn *Txn) SetCode(addr types.Address, code []byte) {
 //     `WithStateOverride`) returns in-memory bytes and bypasses the LRU and
 //     storage.
 func (txn *Txn) GetCode(addr types.Address) []byte {
+	if txn.recorder != nil {
+		if code, ok := txn.recorder.GetCode(addr); ok {
+			return code
+		}
+	}
+
+	if txn.bar != nil {
+		if code, ok := txn.bar.CodeBefore(addr, txn.recorder.txIndex); ok {
+			return code
+		}
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return nil
@@ -644,6 +785,18 @@ func (txn *Txn) GetCodeSize(addr types.Address) int {
 }
 
 func (txn *Txn) GetCodeHash(addr types.Address) types.Hash {
+	if txn.recorder != nil {
+		if code, ok := txn.recorder.GetCode(addr); ok {
+			return types.BytesToHash(code)
+		}
+	}
+
+	if txn.bar != nil {
+		if code, ok := txn.bar.CodeBefore(addr, txn.recorder.txIndex); ok {
+			return types.BytesToHash(code)
+		}
+	}
+
 	object, exists := txn.getStateObject(addr)
 	if !exists {
 		return types.Hash{}
@@ -714,9 +867,37 @@ func (txn *Txn) GetRefund() uint64 {
 
 // GetCommittedState returns the state of the address in the trie
 func (txn *Txn) GetCommittedState(addr types.Address, key types.Hash) types.Hash {
-	obj, ok := txn.getStateObject(addr)
-	if !ok {
+	if txn.bar != nil {
+		if value, ok := txn.bar.SlotBefore(addr, key, txn.recorder.txIndex); ok {
+			return value
+		}
+	} else if len(txn.snapshots) > 0 {
+		val, exists := txn.snapshots[0].Get(addr.Bytes())
+		if exists {
+			object := val.(*StateObject) //nolint:forcetypeassert
+			if object.Deleted || object.Suicide {
+				return types.Hash{}
+			}
+
+			if object.Txn != nil {
+				if val, ok := object.Txn.Get(key.Bytes()); ok {
+					if val == nil {
+						return types.Hash{}
+					}
+					//nolint:forcetypeassert
+					return types.BytesToHash(val.([]byte))
+				}
+			}
+		}
+	}
+
+	account, err := txn.snapshot.GetAccount(addr)
+	if account == nil || err != nil {
 		return types.Hash{}
+	}
+
+	obj := &StateObject{
+		Account: account.Copy(),
 	}
 
 	return txn.snapshot.GetStorage(addr, obj.Account.Root, key)
@@ -777,6 +958,14 @@ func newStateObject() *StateObject {
 }
 
 func (txn *Txn) CreateAccount(addr types.Address) {
+	if txn.recorder == nil || txn.bar == nil {
+		txn.createAccountState(addr)
+	} else {
+		txn.createAccountNonState(addr)
+	}
+}
+
+func (txn *Txn) createAccountState(addr types.Address) {
 	obj := &StateObject{
 		Account: &Account{
 			Balance:  big.NewInt(0),
@@ -791,6 +980,44 @@ func (txn *Txn) CreateAccount(addr types.Address) {
 	}
 
 	txn.txn.Insert(addr.Bytes(), obj)
+
+	if txn.recorder != nil {
+		txn.recorder.RecordBalanceChange(addr, obj.Account.Balance)
+		txn.recorder.RecordNonceChange(addr, 0)
+		txn.recorder.RecordCodeChange(addr, []byte{})
+	}
+}
+
+func (txn *Txn) createAccountNonState(addr types.Address) {
+	var balance *big.Int
+
+	_, ok := txn.recorder.current[addr]
+
+	if ok {
+		balance = txn.recorder.current[addr].Balance
+	}
+
+	if balance == nil {
+		if txn.bar != nil {
+			if b, ok := txn.bar.BalanceBefore(addr, txn.recorder.txIndex); ok {
+				balance = b
+			}
+		}
+	}
+
+	if balance == nil {
+		if prev, ok := txn.getStateObject(addr); ok {
+			balance = prev.Account.Balance
+		}
+	}
+
+	if balance == nil {
+		balance = big.NewInt(0)
+	}
+
+	txn.recorder.RecordBalanceChange(addr, balance)
+	txn.recorder.RecordNonceChange(addr, 0)
+	txn.recorder.RecordCodeChange(addr, []byte{})
 }
 
 // cleanDeleteObjects cleans all suicided or empty blocks (if deleteEmptyObjects) from radix

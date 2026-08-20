@@ -13,7 +13,6 @@ import (
 	"github.com/0xPolygon/polygon-edge/network/event"
 	syncProto "github.com/0xPolygon/polygon-edge/syncer/proto"
 	"github.com/0xPolygon/polygon-edge/types"
-	"github.com/0xPolygon/polygon-edge/types/bal"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,14 +37,9 @@ type Blockchain interface {
 	// GetReceiptsByHash returns the receipts for the given block, if retained
 	GetReceiptsByHash(uint64, types.Hash) ([]*types.Receipt, error)
 	// GetBlockAccessList returns the EIP-7928 BLockAccessList for the given block
-	GetBlockAccessList(uint64) (bal.BlockAccessList, error)
-	// ApplyFInalizedBlockFromBAL applies a finalized block's state directrly
-	ApplyFinalizedBlockFromBAL(
-		block *types.Block,
-		accessList bal.BlockAccessList,
-		syncer blockchain.Syncer) (
-		*types.FullBlock,
-		error)
+	GetBlockAccessRecord(uint64) (types.BlockAccessRecord, error)
+	// ApplyFInalizedBlockFromBAR applies a finalized block's state directrly
+	ApplyFinalizedBlockFromBAR(block *types.Block, syncer blockchain.Syncer) (*types.FullBlock, error)
 	// VerifyAndApplyReceipts
 	VerifyAndApplyReceipts(header *types.Header, receipts types.Receipts) error
 	// GetLastReceiptsSyncBlock
