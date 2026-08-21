@@ -56,6 +56,9 @@ nav:
           - Upgrade your chain:
               - Upgrade using hardfork:  operate/deploy/upgrades/hardfork.md
               - Edge v1.1 upgrade requirements:  operate/deploy/upgrades/v1.1.md
+          - Recover a stuck chain:
+              - Txpool journal:  operate/txpool-journal.md
+              - Unwind committed blocks:  operate/blockchain-unwind.md
   - Reference:
       #- Contracts:
       #   - Checkpoint manager: contracts/checkpoint-manager.md

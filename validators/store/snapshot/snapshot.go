@@ -88,7 +88,6 @@ func NewSnapshotValidatorStore(
 // initialize setup the snapshots to catch up latest header in blockchain
 func (s *SnapshotValidatorStore) initialize() error {
 	header := s.blockchain.Header()
-	meta := s.GetSnapshotMetadata()
 
 	if header.Number == 0 {
 		// Genesis header needs to be set by hand, all the other
@@ -97,6 +96,15 @@ func (s *SnapshotValidatorStore) initialize() error {
 			return err
 		}
 	}
+
+	// LastBlock / snapshots can sit ahead of HEAD after a failed write or an unwind.
+	if last := s.store.getLastBlock(); last > header.Number {
+		s.logger.Info("clamping snapshots to chain head", "from", last, "to", header.Number)
+		s.store.deleteAbove(header.Number)
+		s.store.updateLastBlock(header.Number)
+	}
+
+	meta := s.GetSnapshotMetadata()
 
 	// If the snapshot is not found, or the latest snapshot belongs to a previous epoch,
 	// we need to start rebuilding the snapshot from the beginning of the current epoch
@@ -157,7 +165,7 @@ func (s *SnapshotValidatorStore) GetSnapshotMetadata() *SnapshotMetadata {
 
 // GetSnapshots returns all Snapshots
 func (s *SnapshotValidatorStore) GetSnapshots() []*Snapshot {
-	return s.store.list
+	return s.store.copyList()
 }
 
 // Candidates returns the current candidates
@@ -415,7 +423,7 @@ func (s *SnapshotValidatorStore) addHeaderSnap(header *types.Header) error {
 	}
 
 	// Create the first snapshot from the genesis
-	s.store.add(&Snapshot{
+	s.store.putByNumber(&Snapshot{
 		Hash:   header.Hash.String(),
 		Number: header.Number,
 		Votes:  []*store.Vote{},
@@ -432,7 +440,7 @@ func (s *SnapshotValidatorStore) getSnapshot(height uint64) *Snapshot {
 
 // getLatestSnapshot returns a snapshot for latest height
 func (s *SnapshotValidatorStore) getLatestSnapshot() *Snapshot {
-	return s.getSnapshot(s.store.lastNumber)
+	return s.getSnapshot(s.store.getLastBlock())
 }
 
 // getNextCandidate returns a possible candidate from candidates list
@@ -503,17 +511,21 @@ func (s *SnapshotValidatorStore) saveSnapshotIfChanged(
 	snapshot.Number = header.Number
 	snapshot.Hash = header.Hash.String()
 
-	s.store.add(snapshot)
+	s.store.putByNumber(snapshot)
 }
 
-// resetSnapshot is a helper method to save a snapshot that clears votes
+// resetSnapshot saves a snapshot that clears votes at an epoch boundary.
+// Always persisted so later lookups do not reuse votes from the previous epoch.
 func (s *SnapshotValidatorStore) resetSnapshot(
-	parentSnapshot, snapshot *Snapshot,
+	_ *Snapshot,
+	snapshot *Snapshot,
 	header *types.Header,
 ) {
 	snapshot.Votes = nil
+	snapshot.Number = header.Number
+	snapshot.Hash = header.Hash.String()
 
-	s.saveSnapshotIfChanged(parentSnapshot, snapshot, header)
+	s.store.putByNumber(snapshot)
 }
 
 // removeLowerSnapshots is a helper function to removes old snapshots

@@ -158,9 +158,31 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, error) {
+	return e.processBlock(parentRoot, block, blockCreator, false)
+}
+
+// ProcessBlockWithOutcomes executes a block and records per-tx local fingerprints.
+func (e *Executor) ProcessBlockWithOutcomes(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+) (*Transition, error) {
+	return e.processBlock(parentRoot, block, blockCreator, true)
+}
+
+func (e *Executor) processBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+	traceOutcomes bool,
+) (*Transition, error) {
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
 		return nil, err
+	}
+
+	if traceOutcomes {
+		txn.EnableOutcomeTrace()
 	}
 
 	for _, t := range block.Transactions {
@@ -298,6 +320,26 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
+
+	traceOutcomes bool
+	outcomes      []TxExecOutcome
+}
+
+// TxExecOutcome is this node's local result for one transaction in a block.
+type TxExecOutcome struct {
+	Hash       types.Hash
+	Status     types.ReceiptStatus
+	GasUsed    uint64
+	ReturnHash types.Hash
+	DeltaHash  types.Hash
+}
+
+func (t *Transition) EnableOutcomeTrace() {
+	t.traceOutcomes = true
+}
+
+func (t *Transition) Outcomes() []TxExecOutcome {
+	return t.outcomes
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -422,6 +464,25 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	receipt.Logs = logs
 	receipt.LogsBloom = types.CreateBloom([]*types.Receipt{receipt})
 	t.receipts = append(t.receipts, receipt)
+
+	if t.traceOutcomes {
+		status := types.ReceiptSuccess
+		if result.Failed() {
+			status = types.ReceiptFailed
+		}
+
+		if txn.Hash == types.ZeroHash {
+			txn.ComputeHash(uint64(t.ctx.Number))
+		}
+
+		t.outcomes = append(t.outcomes, TxExecOutcome{
+			Hash:       txn.Hash,
+			Status:     status,
+			GasUsed:    result.GasUsed,
+			ReturnHash: crypto.Keccak256Hash(result.ReturnValue),
+			DeltaHash:  t.state.DirtyFingerprint(),
+		})
+	}
 
 	return nil
 }

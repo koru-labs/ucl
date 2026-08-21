@@ -24,6 +24,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/command/signer"
 	"github.com/0xPolygon/polygon-edge/command/status"
 	"github.com/0xPolygon/polygon-edge/command/txpool"
+	"github.com/0xPolygon/polygon-edge/command/unwind"
 	"github.com/0xPolygon/polygon-edge/command/version"
 )
 
@@ -65,6 +66,7 @@ func (rc *RootCommand) registerSubCommands() {
 		regenesis.GetCommand(),
 		loadtest.GetCommand(),
 		signer.GetCommand(),
+		unwind.GetCommand(),
 	)
 }
 

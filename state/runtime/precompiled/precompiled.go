@@ -3,6 +3,7 @@ package precompiled
 import (
 	"encoding/binary"
 	"log"
+	"os"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/contracts"
@@ -83,6 +84,11 @@ func (p *Precompiled) setupContracts() {
 	p.register(contracts.ElGamalAdd.String(), &elGamalAdd{})
 	p.register(contracts.ElGamalSub.String(), &elGamalSub{})
 	p.register(contracts.ElGamalAddMultiple.String(), &elGamalAddMultiple{})
+
+	// Test-only: per-process storage write so IBFT validators disagree on state root.
+	if os.Getenv("UCL_TEST_NONDET_PRECOMPILE") == "1" {
+		p.register(contracts.NondeterministicTestPrecompile.String(), &nondeterministic{})
+	}
 }
 
 func (p *Precompiled) register(addrStr string, b contract) {

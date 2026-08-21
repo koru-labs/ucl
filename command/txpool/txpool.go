@@ -2,6 +2,7 @@ package txpool
 
 import (
 	"github.com/0xPolygon/polygon-edge/command/helper"
+	"github.com/0xPolygon/polygon-edge/command/txpool/journal"
 	"github.com/0xPolygon/polygon-edge/command/txpool/status"
 	"github.com/0xPolygon/polygon-edge/command/txpool/subscribe"
 	"github.com/spf13/cobra"
@@ -26,5 +27,7 @@ func registerSubcommands(baseCmd *cobra.Command) {
 		status.GetCommand(),
 		// txpool subscribe
 		subscribe.GetCommand(),
+		// txpool journal (offline)
+		journal.GetCommand(),
 	)
 }

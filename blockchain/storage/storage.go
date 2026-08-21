@@ -17,6 +17,7 @@ type Database interface {
 type Batch interface {
 	Write() error
 	Put(t uint8, k []byte, v []byte)
+	Delete(t uint8, k []byte)
 }
 
 type Storage struct {

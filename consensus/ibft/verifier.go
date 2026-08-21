@@ -9,6 +9,7 @@ import (
 	protoIBFT "github.com/0xPolygon/go-ibft/messages/proto"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/crypto"
+	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 )
 
@@ -92,23 +93,63 @@ func (i *backendIBFT) IsValidProposal(rawProposal []byte) bool {
 
 	if err := i.verifyHeaderImpl(latestHeader, newBlock.Header, signer, validators, hooks, true); err != nil {
 		i.logger.Error("block header verification failed", "err", err)
+		i.recordRejected(newBlock, err)
 
 		return false
 	}
 
 	if err := i.blockchain.VerifyPotentialBlock(newBlock); err != nil {
 		i.logger.Error("block verification failed", "err", err)
+		i.recordRejected(newBlock, err)
 
 		return false
 	}
 
 	if err := hooks.VerifyBlock(newBlock); err != nil {
 		i.logger.Error("additional block verification failed", "err", err)
+		i.recordRejected(newBlock, err)
 
 		return false
 	}
 
 	return true
+}
+
+func (i *backendIBFT) recordRejected(block *types.Block, err error) {
+	if i.rejectedBlocks == nil {
+		return
+	}
+
+	localRoot, outcomes := i.traceRejected(block)
+	i.rejectedBlocks.record(block, err.Error(), localRoot, outcomes)
+}
+
+func (i *backendIBFT) traceRejected(block *types.Block) (types.Hash, []state.TxExecOutcome) {
+	if i.executor == nil || i.blockchain == nil || block == nil || block.Header == nil {
+		return types.ZeroHash, nil
+	}
+
+	parent, ok := i.blockchain.GetHeaderByHash(block.ParentHash())
+	if !ok {
+		return types.ZeroHash, nil
+	}
+
+	creator, creatorErr := i.GetBlockCreator(block.Header)
+	if creatorErr != nil {
+		return types.ZeroHash, nil
+	}
+
+	txn, procErr := i.executor.ProcessBlockWithOutcomes(parent.StateRoot, block, creator)
+	if procErr != nil {
+		return types.ZeroHash, nil
+	}
+
+	_, root, commitErr := txn.Commit()
+	if commitErr != nil {
+		return types.ZeroHash, txn.Outcomes()
+	}
+
+	return root, txn.Outcomes()
 }
 
 func (i *backendIBFT) IsValidValidator(msg *protoIBFT.IbftMessage) bool {

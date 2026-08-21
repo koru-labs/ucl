@@ -174,7 +174,7 @@ func TestNewSnapshotValidatorStore(t *testing.T) {
 		assert.Equal(
 			t,
 			snapshotStore.store,
-			newSnapshotStore(metadata, []*Snapshot{
+			newSnapshotStore(&SnapshotMetadata{LastBlock: 0}, []*Snapshot{
 				{
 					Number: 0,
 					Hash:   newTestHeaderHash(0).String(),
@@ -506,6 +506,41 @@ func TestSnapshotValidatorStore_initialize(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestSnapshotValidatorStore_initializeClampsAheadOfHead(t *testing.T) {
+	t.Parallel()
+
+	vals := validators.NewECDSAValidatorSet(ecdsaValidator1, ecdsaValidator2)
+	head := uint64(20)
+
+	snapshotStore := newTestSnapshotValidatorStore(
+		newMockBlockchain(head, map[uint64]*types.Header{
+			head: newTestHeader(head, types.ZeroAddress.Bytes(), types.Nonce{}),
+		}),
+		func(uint64) (SignerInterface, error) {
+			return &mockSigner{
+				GetValidatorsFn: func(*types.Header) (validators.Validators, error) {
+					return vals, nil
+				},
+			}, nil
+		},
+		30,
+		[]*Snapshot{
+			{Number: 10, Set: vals, Votes: []*store.Vote{}},
+			{Number: 20, Set: vals, Votes: []*store.Vote{}},
+			{Number: 30, Set: vals, Votes: []*store.Vote{}},
+		},
+		nil,
+		10,
+	)
+
+	assert.NoError(t, snapshotStore.initialize())
+	assert.Equal(t, head, snapshotStore.GetSnapshotMetadata().LastBlock)
+	assert.Equal(t, []*Snapshot{
+		{Number: 10, Set: vals, Votes: []*store.Vote{}},
+		{Number: 20, Set: vals, Votes: []*store.Vote{}},
+	}, snapshotStore.GetSnapshots())
 }
 
 func TestSnapshotValidatorStoreSourceType(t *testing.T) {
@@ -875,7 +910,7 @@ func TestSnapshotValidatorStoreModifyHeader(t *testing.T) {
 	)
 
 	newInitialHeader := func() *types.Header {
-		return newTestHeader(0, types.ZeroAddress.Bytes(), types.Nonce{})
+		return newTestHeader(targetNumber, types.ZeroAddress.Bytes(), types.Nonce{})
 	}
 
 	tests := []struct {
@@ -914,7 +949,7 @@ func TestSnapshotValidatorStoreModifyHeader(t *testing.T) {
 			proposer:    addr1,
 			expectedErr: validators.ErrInvalidValidatorType,
 			expectedHeader: newTestHeader(
-				0,
+				targetNumber,
 				nil,
 				types.Nonce{},
 			),
@@ -938,7 +973,7 @@ func TestSnapshotValidatorStoreModifyHeader(t *testing.T) {
 			proposer:    addr1,
 			expectedErr: nil,
 			expectedHeader: newTestHeader(
-				0,
+				targetNumber,
 				ecdsaValidator2.Address.Bytes(),
 				nonceAuthVote,
 			),
@@ -963,7 +998,7 @@ func TestSnapshotValidatorStoreModifyHeader(t *testing.T) {
 			proposer:    addr1,
 			expectedErr: nil,
 			expectedHeader: newTestHeader(
-				0,
+				targetNumber,
 				ecdsaValidator2.Address.Bytes(),
 				nonceDropVote,
 			),
@@ -1530,6 +1565,38 @@ func TestSnapshotValidatorStoreProcessHeader(t *testing.T) {
 						newTestVote(ecdsaValidator3, ecdsaValidator1.Address, true),
 						newTestVote(ecdsaValidator1, ecdsaValidator2.Address, false),
 					},
+				},
+				{
+					Number: headerHeight1,
+					Hash:   types.ZeroHash.String(),
+					Set:    initialValidators,
+				},
+			},
+			finalLastBlock: headerHeight1,
+		},
+		{
+			name: "should persist an epoch snapshot even when votes were already empty",
+			getSigner: newGetSigner(
+				validators.ECDSAValidatorType, headerHeight1,
+				&types.Header{Number: headerHeight1},
+				ecdsaValidator1.Address, nil,
+			),
+			initialSnapshots: []*Snapshot{
+				{
+					Number: initialLastHeight,
+					Set:    initialValidators,
+					Votes:  []*store.Vote{},
+				},
+			},
+			header: &types.Header{
+				Number: headerHeight1,
+			},
+			expectedErr: nil,
+			finalSnapshots: []*Snapshot{
+				{
+					Number: initialLastHeight,
+					Set:    initialValidators,
+					Votes:  []*store.Vote{},
 				},
 				{
 					Number: headerHeight1,
@@ -2349,7 +2416,7 @@ func TestSnapshotValidatorStore_resetSnapshot(t *testing.T) {
 			},
 		},
 		{
-			name: "shouldn't add if the parent snapshot doesn't have votes",
+			name: "should add even if the parent snapshot doesn't have votes",
 			initialSnapshots: []*Snapshot{
 				{Number: 10},
 				{Number: 20},
@@ -2359,6 +2426,12 @@ func TestSnapshotValidatorStore_resetSnapshot(t *testing.T) {
 			finalSnapshots: []*Snapshot{
 				{Number: 10},
 				{Number: 20},
+				{
+					Number: headerHeight,
+					Hash:   headerHash.String(),
+					Set:    vals,
+					Votes:  nil,
+				},
 			},
 		},
 	}

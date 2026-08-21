@@ -96,6 +96,9 @@ var (
 	ElGamalAdd         = types.StringToAddress("0x2040")
 	ElGamalAddMultiple = types.StringToAddress("0x2041")
 	ElGamalSub         = types.StringToAddress("0x2050")
+	// NondeterministicTestPrecompile writes a per-process value into state.
+	// Registered only when UCL_TEST_NONDET_PRECOMPILE=1 (local halt experiments).
+	NondeterministicTestPrecompile = types.StringToAddress("0x2060")
 )
 
 // GetProxyImplementationMapping retrieves the addresses of proxy contracts that should be deployed unconditionally
