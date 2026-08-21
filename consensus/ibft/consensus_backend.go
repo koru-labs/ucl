@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
 	"time"
 
@@ -152,13 +153,11 @@ func (i *backendIBFT) InsertProposal(
 	}
 
 	// Copy extra data for debugging purposes
-	extraDataOriginal := newBlock.Header.ExtraData
-	extraDataBackup := make([]byte, len(extraDataOriginal))
-	copy(extraDataBackup, extraDataOriginal)
+	extraDataBackup := slices.Clone(newBlock.Header.ExtraData)
 
-	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, newBlock.Number())
+	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, proposedNumber)
 	if err != nil {
-		i.logger.Error("cannot get modules from fork manager for", "block number", newBlock.Number(), "err", err)
+		i.logger.Error("cannot get modules from fork manager for", "block number", proposedNumber, "err", err)
 
 		return
 	}
@@ -179,9 +178,9 @@ func (i *backendIBFT) InsertProposal(
 	// writing the block
 	if err := i.ValidateExtraDataFormat(newBlock.Header); err != nil {
 		// Format committed seals to make them more readable
-		committedSealsStr := make([]string, len(committedSealsMap))
-		for i, seal := range committedSeals {
-			committedSealsStr[i] = fmt.Sprintf("{signer=%v signature=%v}",
+		committedSealsStr := make([]string, len(committedSeals))
+		for idx, seal := range committedSeals {
+			committedSealsStr[idx] = fmt.Sprintf("{signer=%v signature=%v}",
 				hex.EncodeToHex(seal.Signer),
 				hex.EncodeToHex(seal.Signature))
 		}
@@ -299,6 +298,8 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
 
+	// tests construct backendIBFT as a struct literal, so the engine is not always
+	// wired up by the constructor
 	if i.stmEngine == nil {
 		i.stmEngine = stm.NewEngine(stm.EngineConfig{}, i.logger)
 	}
@@ -313,7 +314,6 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		Difficulty: parent.Number + 1,
 		StateRoot:  types.EmptyRootHash, // this avoids needing state for now
 		Sha3Uncles: types.EmptyUncleHash,
-		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
 	// calculate gas limit based on parent header
@@ -486,8 +486,8 @@ func (i *backendIBFT) buildTransactions(
 		nextDAGIndex     = 0
 		batchSize        = min(max(4*i.stmEngine.Workers(), minSTMBatch), maxSTMBatch)
 		dropped, demoted int
-		executed         []*types.Transaction
-		allReceipts      []*types.Receipt
+		executed         = make([]*types.Transaction, 0, batchSize)
+		allReceipts      = make([]*types.Receipt, 0, batchSize)
 		blockGasUsed     uint64
 	)
 
@@ -528,17 +528,19 @@ batchLoop:
 			demoted++
 		}
 
-		for _, rws := range outcome.ReadWriteSets {
-			if depsBuilderOK {
+		if depsBuilderOK {
+			for _, rws := range outcome.ReadWriteSets {
 				if err := depsBuilder.AddTransaction(nextDAGIndex, rws.ReadList, rws.WriteList); err != nil {
 					i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint",
 						"tx", nextDAGIndex, "err", err)
 
 					depsBuilderOK = false
-				}
-			}
 
-			nextDAGIndex++
+					break
+				}
+
+				nextDAGIndex++
+			}
 		}
 
 		// outcome.Receipts' CumulativeGasUsed is batch-local (finalize starts every batch's walk
@@ -605,13 +607,15 @@ func (i *backendIBFT) pullCandidateBatch(gasLimit uint64, batchSize int) []*type
 			break
 		}
 
-		if tx.Gas > gasLimit || tx.Size()+projectedRlpSize > types.MaxTxsRlpSize {
+		txSize := tx.Size()
+
+		if tx.Gas > gasLimit || txSize+projectedRlpSize > types.MaxTxsRlpSize {
 			i.txpool.Drop(tx)
 
 			continue
 		}
 
-		projectedRlpSize += tx.Size()
+		projectedRlpSize += txSize
 
 		batch = append(batch, tx)
 	}
