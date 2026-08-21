@@ -25,6 +25,7 @@ function showhelp() {
   echo "  write-logs      Writes STDOUT and STDERR output to log file. Not applicable when using --docker flag."
   echo "Flags:"
   echo "  --docker                    Run using Docker (requires docker-compose)."
+  echo "  --keep-data                 Start from existing test-chain-* / genesis.json (do not wipe)."
   echo "  --tx-gossip-batch-size [N]   Set server --tx-gossip-batch-size (default N=20 when omitted)."
   echo "  --help                      Display this help information"
   echo "Environment (consensus health push, local defaults):"
@@ -33,6 +34,7 @@ function showhelp() {
   echo "  CONSENSUS_STATE_PUSH_INTERVAL  Recovery heartbeat, default 30s"
   echo "Examples:"
   echo "  cluster ibft -- Run the script with IBFT consensus"
+  echo "  cluster ibft write-logs --keep-data -- Resume existing local data dirs"
   echo "  cluster ibft --docker -- Run the script with IBFT consensus using docker"
   echo "  cluster ibft stop -- Stop the running environment"
   echo ""
@@ -145,9 +147,14 @@ function stopDockerEnvironment() {
 set -e
 
 TX_GOSSIP_BATCH_SIZE=""
+KEEP_DATA=0
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --keep-data)
+      KEEP_DATA=1
+      shift
+      ;;
     --tx-gossip-batch-size)
       shift
       if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
@@ -171,9 +178,16 @@ if [[ "${1:-}" == "--help" ]] || [[ $# -eq 0 ]]; then
   exit 0
 fi
 
-# Reset test-dirs
-rm -rf test-chain-*
-rm -f genesis.json
+if [[ "$KEEP_DATA" == "1" ]]; then
+  if [[ ! -d test-chain-1 || ! -f genesis.json ]]; then
+    echo "--keep-data requires ./test-chain-1 and ./genesis.json from a previous cluster run."
+    exit 1
+  fi
+  echo "Keeping existing test-chain-* and genesis.json"
+else
+  rm -rf test-chain-*
+  rm -f genesis.json
+fi
 
 # Build binary
 go build -o polygon-edge .
@@ -209,8 +223,12 @@ case "$2" in
 *)
   echo "Running $1 environment from local binary..."
   if [ "$1" == "ibft" ]; then
-    initIbftConsensus
-    createGenesis
+    if [ "$KEEP_DATA" != "1" ]; then
+      initIbftConsensus
+      createGenesis
+    else
+      echo "Resuming existing IBFT data dirs (skip secrets init and genesis)"
+    fi
     startNodes $1 $2
     exit 0
   elif [ "$1" == "polybft" ]; then
