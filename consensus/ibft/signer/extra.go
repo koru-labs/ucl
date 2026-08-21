@@ -241,24 +241,41 @@ func packFieldsIntoExtra(
 	extraHeader := extraBytes[:IstanbulExtraVanity]
 	extraBody := extraBytes[IstanbulExtraVanity:]
 
-	newExtraBody := types.MarshalRLPTo(func(ar *fastrlp.Arena) *fastrlp.Value {
-		vv := ar.NewArray()
+	// Parser/Arena pooling here must not follow the usual types.UnmarshalRlp +
+	// types.MarshalRLPTo composition: that returns the parser to fastrlp.DefaultParserPool as
+	// soon as the parse callback returns, but newArrayValue below goes on holding *fastrlp.Value
+	// pointers straight out of that parser's arena (packFn typically carries most old values
+	// through unchanged via newArrayValue.Set(oldValues[i])) until MarshalTo runs afterwards.
+	// Under concurrent callers, another goroutine can Get() that same pooled parser and start
+	// overwriting its arena while this call is still reading from it via MarshalTo - a real data
+	// race (see TestParallel_* under -race). Both pooled objects must stay checked out until
+	// MarshalTo has fully consumed everything derived from them.
+	pr := fastrlp.DefaultParserPool.Get()
+	defer fastrlp.DefaultParserPool.Put(pr)
 
-		_ = types.UnmarshalRlp(func(p *fastrlp.Parser, v *fastrlp.Value) error {
-			elems, err := v.GetElems()
-			if err != nil {
-				return err
-			}
+	ar := fastrlp.DefaultArenaPool.Get()
+	defer fastrlp.DefaultArenaPool.Put(ar)
 
-			if len(elems) < 3 {
-				return fmt.Errorf("incorrect number of elements to decode istambul extra, expected 3 but found %d", len(elems))
-			}
+	v, err := pr.Parse(extraBody)
+	if err != nil {
+		return extraBytes
+	}
 
-			return packFn(ar, elems, vv)
-		}, extraBody)
+	elems, err := v.GetElems()
+	if err != nil {
+		return extraBytes
+	}
 
-		return vv
-	}, nil)
+	if len(elems) < 3 {
+		return extraBytes
+	}
+
+	vv := ar.NewArray()
+	if err := packFn(ar, elems, vv); err != nil {
+		return extraBytes
+	}
+
+	newExtraBody := vv.MarshalTo(nil)
 
 	return append(
 		extraHeader,

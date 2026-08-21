@@ -1259,6 +1259,14 @@ func (h *parHarness) build(tb testing.TB, txs []*types.Transaction) *types.Block
 	require.Len(tb, receipts, len(txs), "every tx must have executed successfully in the proposer")
 	require.Len(tb, block.Transactions, len(txs))
 
+	// header.GasUsed is set from the block-wide Transition's own totalGas, which STM's
+	// per-batch execution never increments directly - it must be threaded back explicitly from
+	// buildTransactions, so this is a real regression guard, not just a sanity check.
+	if len(receipts) > 0 {
+		require.Equal(tb, receipts[len(receipts)-1].CumulativeGasUsed, block.Header.GasUsed,
+			"header.GasUsed must equal the last receipt's CumulativeGasUsed")
+	}
+
 	h.lastBlock = block
 	h.lastBuildReceipts = receipts
 
@@ -1407,22 +1415,30 @@ func eoaTransfer(seed byte, from, to types.Address, nonce uint64, value int64) *
 	}
 }
 
+// fakeTxPool is a single-queue stand-in for the real (multi-account) txpool. STM pulls a whole
+// candidate batch via repeated Peek() calls before any Pop/Drop is known, so Peek() advances its
+// own cursor (peeked) independently of idx - which only moves once a tx is actually finalized -
+// mirroring how the real pool only re-offers a tx after Pop, not on every Peek.
 type fakeTxPool struct {
-	txs []*types.Transaction
-	idx int
+	txs    []*types.Transaction
+	idx    int
+	peeked int
 }
 
-func (p *fakeTxPool) Prepare()       {}
+func (p *fakeTxPool) Prepare()       { p.peeked = 0 }
 func (p *fakeTxPool) Length() uint64 { return uint64(len(p.txs) - p.idx) }
 func (p *fakeTxPool) Peek() *types.Transaction {
-	if p.idx >= len(p.txs) {
+	next := p.idx + p.peeked
+	if next >= len(p.txs) {
 		return nil
 	}
 
-	return p.txs[p.idx]
+	p.peeked++
+
+	return p.txs[next]
 }
-func (p *fakeTxPool) Pop(*types.Transaction)      { p.idx++ }
-func (p *fakeTxPool) Drop(*types.Transaction)     { p.idx++ }
+func (p *fakeTxPool) Pop(*types.Transaction)      { p.idx++; p.peeked-- }
+func (p *fakeTxPool) Drop(*types.Transaction)     { p.idx++; p.peeked-- }
 func (p *fakeTxPool) Demote(*types.Transaction)   {}
 func (p *fakeTxPool) ResetWithBlock(*types.Block) {}
 func (p *fakeTxPool) SetSealing(bool)             {}

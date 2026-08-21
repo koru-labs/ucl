@@ -4,19 +4,21 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/0xPolygon/go-ibft/messages"
 	"github.com/0xPolygon/go-ibft/messages/proto"
-	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/consensus"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
 	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
+	"github.com/0xPolygon/polygon-edge/state/stm"
 	"github.com/0xPolygon/polygon-edge/types"
+	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -151,13 +153,11 @@ func (i *backendIBFT) InsertProposal(
 	}
 
 	// Copy extra data for debugging purposes
-	extraDataOriginal := newBlock.Header.ExtraData
-	extraDataBackup := make([]byte, len(extraDataOriginal))
-	copy(extraDataBackup, extraDataOriginal)
+	extraDataBackup := slices.Clone(newBlock.Header.ExtraData)
 
-	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, newBlock.Number())
+	signer, validators, hooks, err := getModulesFromForkManager(i.forkManager, proposedNumber)
 	if err != nil {
-		i.logger.Error("cannot get modules from fork manager for", "block number", newBlock.Number(), "err", err)
+		i.logger.Error("cannot get modules from fork manager for", "block number", proposedNumber, "err", err)
 
 		return
 	}
@@ -178,9 +178,9 @@ func (i *backendIBFT) InsertProposal(
 	// writing the block
 	if err := i.ValidateExtraDataFormat(newBlock.Header); err != nil {
 		// Format committed seals to make them more readable
-		committedSealsStr := make([]string, len(committedSealsMap))
-		for i, seal := range committedSeals {
-			committedSealsStr[i] = fmt.Sprintf("{signer=%v signature=%v}",
+		committedSealsStr := make([]string, len(committedSeals))
+		for idx, seal := range committedSeals {
+			committedSealsStr[idx] = fmt.Sprintf("{signer=%v signature=%v}",
 				hex.EncodeToHex(seal.Signer),
 				hex.EncodeToHex(seal.Signature))
 		}
@@ -298,6 +298,12 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	defer metrics.MeasureSince([]string{consensusMetrics, "span", "build"}, time.Now())
 
+	// tests construct backendIBFT as a struct literal, so the engine is not always
+	// wired up by the constructor
+	if i.stmEngine == nil {
+		i.stmEngine = stm.NewEngine(stm.EngineConfig{}, i.logger)
+	}
+
 	header := &types.Header{
 		ParentHash: parent.Hash,
 		Number:     parent.Number + 1,
@@ -308,7 +314,6 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		Difficulty: parent.Number + 1,
 		StateRoot:  types.EmptyRootHash, // this avoids needing state for now
 		Sha3Uncles: types.EmptyUncleHash,
-		GasLimit:   parent.GasLimit, // Inherit from parent for now, will need to adjust dynamically later.
 	}
 
 	// calculate gas limit based on parent header
@@ -334,7 +339,6 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	// Set the header timestamp
 	potentialTimestamp := i.calcHeaderTimestamp(parent.Timestamp, time.Now().UTC())
 	header.Timestamp = uint64(potentialTimestamp.Unix())
-	isParallelVerification := i.config.Params.Forks.IsActive(chain.EIPBorTxDeps, header.Number)
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
@@ -348,9 +352,20 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	tranGasLimit := new(uint64)
 	*tranGasLimit = header.GasLimit
 
+	// dst is the block-wide merge sink every STM batch's validated writes land in, in final
+	// order; buildTransactions merges into it batch by batch, and its wrapping Transition is
+	// what gets Commit()'d below - the same "one shared radix, many Transitions" pattern
+	// TxDependancyExecutor.Execute already uses on the verification side.
+	var dst *state.TxnVerifier
+
+	blockMutex := &sync.RWMutex{}
+	blockRadix := iradix.New().Txn()
+
 	transition, err := i.executor.BeginTxnWithCustomTxn(
 		parent.StateRoot, header, signer.Address(), tranGasLimit, func(s state.Snapshot) state.ITransitionTxn {
-			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(!isParallelVerification))
+			dst = state.NewTxnVerifier(s, blockMutex, blockRadix)
+
+			return dst
 		})
 	if err != nil {
 		return nil, nil, err
@@ -360,46 +375,11 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	writeCtx, cancelFn := context.WithTimeout(ctx, i.blockTime)
 	defer cancelFn()
 
-	var (
-		depsBuilder = blockstm.NewDepsBuilder()
-		chDeps      = make(chan []state.TxReadWriteSet, 128)
-		depsWg      sync.WaitGroup
-	)
-
-	if isParallelVerification {
-		depsWg.Add(1)
-
-		go func(chDeps chan []state.TxReadWriteSet) {
-			defer depsWg.Done()
-
-			for ts := range chDeps {
-				for _, t := range ts {
-					if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
-						// Non-sequential index indicates a systematic bug, not a transient error.
-						// Drain the channel so the sender never blocks, then stop processing.
-						i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint",
-							"tx", t.Index, "err", err)
-
-						for range chDeps {
-						}
-
-						return
-					}
-				}
-			}
-		}(chDeps)
+	txs, receipts, blockGasUsed, err := i.buildTransactions(
+		writeCtx, gasLimit, header, signer.Address(), dst, tranGasLimit)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	txs, receipts := i.writeTransactions(
-		writeCtx,
-		gasLimit,
-		header.Number,
-		transition,
-		chDeps,
-		isParallelVerification,
-	)
-
-	close(chDeps)
 
 	// provide dummy block instance to the PreCommitState
 	// (for the IBFT consensus, it is correct to have just a header, as only it is used)
@@ -407,21 +387,16 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		return nil, nil, err
 	}
 
+	transition.AddPendingBalances()
+
+	// transition.Write is never called directly on this block-wide Transition (each batch
+	// executes through its own per-incarnation Transitions instead), so its own totalGas is
+	// never incremented - it must be set explicitly from buildTransactions' running total.
+	transition.SetTotalGas(blockGasUsed)
+
 	_, root, err := transition.Commit()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
-	}
-
-	if isParallelVerification {
-		depsWg.Wait()
-
-		txDependency := depsBuilder.GetDeps()
-		// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
-		if txDependency == nil {
-			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
-		}
-
-		header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 	}
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
@@ -472,152 +447,180 @@ func (i *backendIBFT) calcHeaderTimestamp(parentUnix uint64, currentTime time.Ti
 	return potentialTimestamp
 }
 
-type status uint8
-
+// minSTMBatch and maxSTMBatch clamp the candidate-batch size pulled per STM round: too small
+// starves the scheduler of independent work once a few txs conflict, too large deepens the
+// blast radius of a cascading abort and delays the "is the block already full" check.
 const (
-	success status = iota
-	fail
-	skip
+	minSTMBatch = 32
+	maxSTMBatch = 256
 )
 
-type txExeResult struct {
-	tx      *types.Transaction
-	receipt *types.Receipt
-	status  status
-}
-
-type transitionInterface interface {
-	Write(txn *types.Transaction) (*types.Receipt, error)
-	GetTxReadWriteSet(txIndx int) state.TxReadWriteSet
-}
-
-func (i *backendIBFT) writeTransactions(
+// buildTransactions drives the block-STM engine over the txpool, batch by batch, until the
+// block is full, the txpool is exhausted, or writeCtx's deadline (bounded by i.blockTime)
+// passes - then, like the sequential builder it replaces, waits out whatever remains of that
+// deadline before returning. Every batch's validated writes are merged into dst (in final
+// block order) as they land, and every batch's read/write sets feed blockstm.DepsBuilder,
+// whose resulting dependency DAG is packed into header.ExtraData unconditionally: STM inherently
+// produces these sets as part of its own conflict detection, so exporting them for verifiers is
+// effectively free and keeps the proposer/verifier paths symmetric regardless of which
+// verification-side forks happen to be active.
+func (i *backendIBFT) buildTransactions(
 	writeCtx context.Context,
-	gasLimit,
-	blockNumber uint64,
-	transition transitionInterface,
-	chDeps chan []state.TxReadWriteSet,
-	isParallelVerification bool,
-) (executed []*types.Transaction, receipts []*types.Receipt) {
-	hooks := i.forkManager.GetHooks(blockNumber)
-	if !hooks.ShouldWriteTransactions(blockNumber) {
-		return
+	gasLimit uint64,
+	header *types.Header,
+	coinbase types.Address,
+	dst *state.TxnVerifier,
+	tranGasLimit *uint64,
+) ([]*types.Transaction, []*types.Receipt, uint64, error) {
+	hooks := i.forkManager.GetHooks(header.Number)
+	if !hooks.ShouldWriteTransactions(header.Number) {
+		return nil, nil, 0, nil
 	}
-
-	var (
-		txSetCacheSize = cap(chDeps)
-		failed         = 0
-		skipped        = 0
-		txSetsCache    = make([]state.TxReadWriteSet, 0, txSetCacheSize)
-	)
-
-	defer func() {
-		// send all sets that are left
-		if len(txSetsCache) > 0 {
-			chDeps <- txSetsCache
-		}
-
-		i.logger.Info(
-			"executed txs",
-			"successful", len(executed),
-			"failed", failed,
-			"skipped", skipped,
-			"remaining", i.txpool.Length(),
-		)
-	}()
 
 	i.txpool.Prepare()
 	i.buildBlockTxsRlpSize = 0
 
-write:
+	var (
+		depsBuilder      = blockstm.NewDepsBuilder()
+		depsBuilderOK    = true
+		nextDAGIndex     = 0
+		batchSize        = min(max(4*i.stmEngine.Workers(), minSTMBatch), maxSTMBatch)
+		dropped, demoted int
+		executed         = make([]*types.Transaction, 0, batchSize)
+		allReceipts      = make([]*types.Receipt, 0, batchSize)
+		blockGasUsed     uint64
+	)
+
+batchLoop:
 	for {
 		select {
 		case <-writeCtx.Done():
-			return
+			break batchLoop
 		default:
-			// execute transactions one by one
-			result, ok := i.writeTransaction(
-				i.txpool.Peek(),
-				transition,
-				gasLimit,
-			)
-
-			if !ok {
-				break write
-			}
-
-			switch result.status {
-			case success:
-				// Send maps to dag with timeout to prevent deadlock
-				if isParallelVerification {
-					txSetsCache = append(txSetsCache, transition.GetTxReadWriteSet(len(executed)))
-
-					if len(txSetsCache) == txSetCacheSize {
-						lst := make([]state.TxReadWriteSet, txSetCacheSize)
-						copy(lst, txSetsCache)
-
-						select {
-						case chDeps <- lst: // Successfully sent
-						case <-time.After(1 * time.Second): // Timeout - channel is blocked
-							break write
-						}
-
-						txSetsCache = txSetsCache[:0]
-					}
-				}
-
-				receipts = append(receipts, result.receipt)
-				executed = append(executed, result.tx)
-			case fail:
-				failed++
-			case skip:
-				skipped++
-			}
 		}
-	}
 
-	//	wait for the timer to expire
-	<-writeCtx.Done()
+		batch := i.pullCandidateBatch(gasLimit, batchSize)
+		if len(batch) == 0 {
+			break batchLoop
+		}
 
-	return
-}
+		outcome, err := i.stmEngine.RunBatch(
+			writeCtx, i.executor, header, coinbase, dst, *tranGasLimit, batch,
+		)
+		if err != nil {
+			return nil, nil, 0, err
+		}
 
-func (i *backendIBFT) writeTransaction(
-	tx *types.Transaction,
-	transition transitionInterface,
-	gasLimit uint64,
-) (*txExeResult, bool) {
-	if tx == nil {
-		return nil, false
-	}
+		for _, tx := range outcome.Pop {
+			i.txpool.Pop(tx)
+			i.buildBlockTxsRlpSize += tx.Size()
+		}
 
-	if tx.Gas > gasLimit || tx.Size()+i.buildBlockTxsRlpSize > types.MaxTxsRlpSize {
-		i.txpool.Drop(tx)
-
-		// continue processing
-		return &txExeResult{tx, nil, fail}, true
-	}
-
-	receipt, err := transition.Write(tx)
-	if err != nil {
-		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
-			// stop processing
-			return nil, false
-		} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
-			i.txpool.Demote(tx)
-
-			return &txExeResult{tx, nil, skip}, true
-		} else {
+		for _, tx := range outcome.Drop {
 			i.txpool.Drop(tx)
 
-			return &txExeResult{tx, nil, fail}, true
+			dropped++
+		}
+
+		for _, tx := range outcome.Demote {
+			i.txpool.Demote(tx)
+
+			demoted++
+		}
+
+		if depsBuilderOK {
+			for _, rws := range outcome.ReadWriteSets {
+				if err := depsBuilder.AddTransaction(nextDAGIndex, rws.ReadList, rws.WriteList); err != nil {
+					i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint",
+						"tx", nextDAGIndex, "err", err)
+
+					depsBuilderOK = false
+
+					break
+				}
+
+				nextDAGIndex++
+			}
+		}
+
+		// outcome.Receipts' CumulativeGasUsed is batch-local (finalize starts every batch's walk
+		// at zero); receipts must report gas used across the whole block, so re-base each one by
+		// however much every earlier batch already used before appending.
+		for _, r := range outcome.Receipts {
+			r.CumulativeGasUsed += blockGasUsed
+		}
+
+		executed = append(executed, outcome.Included...)
+		allReceipts = append(allReceipts, outcome.Receipts...)
+		blockGasUsed += outcome.GasUsed
+		*tranGasLimit -= outcome.GasUsed
+
+		if len(outcome.Included) < len(batch) {
+			// finalize hit the gas-limit cutoff partway through this batch: the block is full
+			break batchLoop
 		}
 	}
 
-	i.txpool.Pop(tx)
-	i.buildBlockTxsRlpSize += tx.Size()
+	i.logger.Info(
+		"executed txs",
+		"successful", len(executed),
+		"dropped", dropped,
+		"demoted", demoted,
+		"remaining", i.txpool.Length(),
+	)
 
-	return &txExeResult{tx, receipt, success}, true
+	if depsBuilderOK {
+		txDependency := depsBuilder.GetDeps()
+		// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
+		if txDependency == nil {
+			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
+		}
+
+		header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
+	}
+
+	// wait for the timer to expire, matching the sequential builder's fixed wall-clock policy
+	<-writeCtx.Done()
+
+	return executed, allReceipts, blockGasUsed, nil
+}
+
+// pullCandidateBatch pulls up to batchSize candidates from the txpool via repeated Peek()
+// calls. Peek() only ever resurfaces a second tx from the same account after Pop() is called on
+// the first, so a batch built this way naturally contains at most one candidate per account -
+// bookkeeping (Pop/Drop/Demote) is deferred until the batch's STM results are known, so nothing
+// here mutates the pool beyond the same size/gas pre-filter writeTransaction used to apply
+// inline.
+//
+// The RLP-size budget has to be tracked as the batch is assembled, not just against
+// i.buildBlockTxsRlpSize: that counter only advances once a batch's results come back, so
+// checking every candidate against the same starting value would let a single batch admit an
+// unbounded number of txs past types.MaxTxsRlpSize. Candidates that later drop out (failed or
+// past the gas cutoff) leave the projection conservative, never over-permissive.
+func (i *backendIBFT) pullCandidateBatch(gasLimit uint64, batchSize int) []*types.Transaction {
+	batch := make([]*types.Transaction, 0, batchSize)
+	projectedRlpSize := i.buildBlockTxsRlpSize
+
+	for len(batch) < batchSize {
+		tx := i.txpool.Peek()
+		if tx == nil {
+			break
+		}
+
+		txSize := tx.Size()
+
+		if tx.Gas > gasLimit || txSize+projectedRlpSize > types.MaxTxsRlpSize {
+			i.txpool.Drop(tx)
+
+			continue
+		}
+
+		projectedRlpSize += txSize
+
+		batch = append(batch, tx)
+	}
+
+	return batch
 }
 
 // extractCommittedSeals extracts CommittedSeals from header

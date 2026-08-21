@@ -235,7 +235,10 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 			txPool.On("Pop", mock.Anything).Run(func(args mock.Arguments) {}).Once()
 		}
 
-		txPool.On("Peek").Return((*types.Transaction)(nil)).Once()
+		// STM pulls a whole candidate batch via repeated Peek() calls and may probe once more
+		// after the pool is empty (harmless in production - the batch just comes back empty), so
+		// this must tolerate any number of further calls rather than exactly one.
+		txPool.On("Peek").Return((*types.Transaction)(nil))
 
 		block, receipts, err := buildBlock(parentBlockHeader, testBlockchain, executor, txPool)
 
@@ -379,7 +382,10 @@ func TestIBFTBackend_BuildBlock(t *testing.T) {
 			txPool.On("Pop", mock.Anything).Run(func(args mock.Arguments) {}).Once()
 		}
 
-		txPool.On("Peek").Return((*types.Transaction)(nil)).Once()
+		// STM pulls a whole candidate batch via repeated Peek() calls and may probe once more
+		// after the pool is empty (harmless in production - the batch just comes back empty), so
+		// this must tolerate any number of further calls rather than exactly one.
+		txPool.On("Peek").Return((*types.Transaction)(nil))
 
 		block, receipts, err := buildBlock(parentBlockHeader, testBlockchain, executor, txPool)
 
