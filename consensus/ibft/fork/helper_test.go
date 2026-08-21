@@ -255,3 +255,69 @@ func Test_writeDataStore(t *testing.T) {
 		})
 	}
 }
+
+func TestTrimSnapshots(t *testing.T) {
+	t.Parallel()
+
+	t.Run("skips missing files", func(t *testing.T) {
+		t.Parallel()
+
+		dir := createTestTempDirectory(t)
+		res, err := TrimSnapshots(dir, 10, false)
+		assert.NoError(t, err)
+		assert.Equal(t, "no snapshot files", res.Skipped)
+	})
+
+	t.Run("clamps LastBlock and drops future snapshots", func(t *testing.T) {
+		t.Parallel()
+
+		dir := createTestTempDirectory(t)
+		assert.NoError(t, writeDataStore(path.Join(dir, snapshotMetadataFilename), &snapshot.SnapshotMetadata{
+			LastBlock: 20,
+		}))
+		assert.NoError(t, writeDataStore(path.Join(dir, snapshotSnapshotsFilename), []*snapshot.Snapshot{
+			{Number: 0, Hash: "a", Set: validators.NewECDSAValidatorSet()},
+			{Number: 10, Hash: "b", Set: validators.NewECDSAValidatorSet()},
+			{Number: 20, Hash: "c", Set: validators.NewECDSAValidatorSet()},
+		}))
+
+		res, err := TrimSnapshots(dir, 10, false)
+		assert.NoError(t, err)
+		assert.Empty(t, res.Skipped)
+		assert.Equal(t, uint64(20), res.OldLastBlock)
+		assert.Equal(t, uint64(10), res.NewLastBlock)
+		assert.Equal(t, 1, res.Dropped)
+		assert.Equal(t, 2, res.Kept)
+
+		meta, err := loadSnapshotMetadata(path.Join(dir, snapshotMetadataFilename))
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(10), meta.LastBlock)
+
+		snaps, err := loadSnapshots(path.Join(dir, snapshotSnapshotsFilename))
+		assert.NoError(t, err)
+		assert.Len(t, snaps, 2)
+		assert.Equal(t, uint64(0), snaps[0].Number)
+		assert.Equal(t, uint64(10), snaps[1].Number)
+	})
+
+	t.Run("dry-run does not write", func(t *testing.T) {
+		t.Parallel()
+
+		dir := createTestTempDirectory(t)
+		assert.NoError(t, writeDataStore(path.Join(dir, snapshotMetadataFilename), &snapshot.SnapshotMetadata{
+			LastBlock: 5,
+		}))
+		assert.NoError(t, writeDataStore(path.Join(dir, snapshotSnapshotsFilename), []*snapshot.Snapshot{
+			{Number: 5, Hash: "x", Set: validators.NewECDSAValidatorSet()},
+		}))
+
+		res, err := TrimSnapshots(dir, 3, true)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, res.Dropped)
+		assert.Equal(t, uint64(3), res.NewLastBlock)
+
+		meta, err := loadSnapshotMetadata(path.Join(dir, snapshotMetadataFilename))
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(5), meta.LastBlock)
+	})
+}

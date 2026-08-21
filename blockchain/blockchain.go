@@ -847,6 +847,10 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	if block.Number() <= b.Header().Number {
 		b.logger.Info("block already inserted", "block", block.Number(), "source", source)
 
+		if block.Number() == b.Header().Number && block.Hash() == b.Header().Hash {
+			return b.consensus.ProcessHeaders([]*types.Header{block.Header})
+		}
+
 		return nil
 	}
 
@@ -871,15 +875,16 @@ func (b *Blockchain) WriteFullBlock(fblock *types.FullBlock, source string) erro
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), fblock.Receipts)
 
-	// update snapshot
-	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
-		return err
-	}
-
 	// Update the average gas price
 	b.updateGasPriceAvgWithBlock(block)
 
 	if err := b.writeBatchAndUpdate(batchWriter, header, newTD, isCanonical); err != nil {
+		return err
+	}
+
+	// Snapshot updates after the block is durable so a failed write cannot
+	// leave LastBlock ahead of the chain.
+	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
 		return err
 	}
 
@@ -912,6 +917,10 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	if block.Number() <= b.Header().Number {
 		b.logger.Info("block already inserted", "block", block.Number(), "source", source)
 
+		if block.Number() == b.Header().Number && block.Hash() == b.Header().Hash {
+			return b.consensus.ProcessHeaders([]*types.Header{block.Header})
+		}
+
 		return nil
 	}
 
@@ -942,15 +951,16 @@ func (b *Blockchain) WriteBlock(block *types.Block, source string) error {
 	// but before it is written into the storage
 	batchWriter.PutReceipts(block.Number(), block.Hash(), blockReceipts)
 
-	// update snapshot
-	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
-		return err
-	}
-
 	// Update the average gas price
 	b.updateGasPriceAvgWithBlock(block)
 
 	if err := b.writeBatchAndUpdate(batchWriter, header, newTD, isCanonical); err != nil {
+		return err
+	}
+
+	// Snapshot updates after the block is durable so a failed write cannot
+	// leave LastBlock ahead of the chain.
+	if err := b.consensus.ProcessHeaders([]*types.Header{header}); err != nil {
 		return err
 	}
 

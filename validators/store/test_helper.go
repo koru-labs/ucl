@@ -22,9 +22,17 @@ type MockBlockchain struct {
 }
 
 func (m *MockBlockchain) Header() *types.Header {
+	if m.HeaderFn == nil {
+		return nil
+	}
+
 	return m.HeaderFn()
 }
 
 func (m *MockBlockchain) GetHeaderByNumber(height uint64) (*types.Header, bool) {
+	if m.GetHeaderByNumberFn == nil {
+		return nil, false
+	}
+
 	return m.GetHeaderByNumberFn(height)
 }

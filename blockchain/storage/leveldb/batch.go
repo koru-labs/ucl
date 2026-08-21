@@ -22,6 +22,12 @@ func (b *batchLevelDB) Put(t uint8, k []byte, v []byte) {
 	b.b.Put(k, v)
 }
 
+func (b *batchLevelDB) Delete(t uint8, k []byte) {
+	mc := tableMapper[t]
+	k = append(append(make([]byte, 0, len(k)+len(mc)), k...), mc...)
+	b.b.Delete(k)
+}
+
 func (b *batchLevelDB) Write() error {
 	return b.db.Write(b.b, nil)
 }

@@ -60,6 +60,22 @@ func (w *Writer) PutForks(forks []types.Hash) {
 	w.putRlp(FORK, FORK_KEY, &fs)
 }
 
+func (w *Writer) DeleteCanonicalHash(bn uint64) {
+	w.deleteFromTable(CANONICAL, common.EncodeUint64ToBytes(bn))
+}
+
+func (w *Writer) DeleteTxLookup(hash types.Hash) {
+	w.deleteFromTable(TX_LOOKUP, hash.Bytes())
+}
+
+func (w *Writer) DeleteBlockLookup(hash types.Hash) {
+	w.deleteFromTable(BLOCK_LOOKUP, hash.Bytes())
+}
+
+func (w *Writer) deleteFromTable(t uint8, k []byte) {
+	w.getBatch(t).Delete(t, k)
+}
+
 func (w *Writer) putRlp(t uint8, k []byte, raw types.RLPMarshaler) {
 	var data []byte
 
