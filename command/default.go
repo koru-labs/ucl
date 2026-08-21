@@ -34,6 +34,7 @@ var (
 
 const (
 	JSONOutputFlag  = "json"
+	JSONLogsFlag    = "json-logs"
 	GRPCAddressFlag = "grpc-address"
 	JSONRPCFlag     = "jsonrpc"
 )
