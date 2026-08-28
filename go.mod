@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/secretmanager v1.21.0
-	github.com/0xPolygon/go-ibft v0.4.1-0.20240621090555-e81a63ff50d7
+	github.com/0xPolygon/go-ibft v0.0.0-20260828074325-bff3f4668a53
 	github.com/Ethernal-Tech/ethgo v0.0.0-20260601133825-23430360aac1
 	github.com/Ethernal-Tech/kryptology v0.0.0-20260305071036-ea3a474a28e2
 	github.com/aws/aws-sdk-go v1.55.8
@@ -279,4 +279,4 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace github.com/0xPolygon/go-ibft => ../go-ibft
+replace github.com/0xPolygon/go-ibft => github.com/koru-labs/go-ibft v0.0.0-20260828074325-bff3f4668a53
