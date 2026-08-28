@@ -11,5 +11,4 @@ updates:
     open-pull-requests-limit: 20
     pull-request-branch-name:
       separator: "-"
-    reviewers:
-      - "Ethernal-Tech/blade-devs"
+

@@ -7,7 +7,7 @@ The core smart contracts work in tandem with the consensus engine to define all 
 
 ![bridge](../../..//img/edge/polybft.excalidraw.png)
 
-The consensus engine of PolyBFT is based on the Istanbul Byzantine Fault Tolerance [<ins>(IBFT 2.0) protocol</ins>](https://github.com/Ethernal-Tech/go-ibft), which is responsible for sealing blocks on the blockchain.
+The consensus engine of PolyBFT is based on the Istanbul Byzantine Fault Tolerance [<ins>(IBFT 2.0) protocol</ins>](https://github.com/koru-labs/go-ibft), which is responsible for sealing blocks on the blockchain.
 The IBFT 2.0 protocol ensures that network integrity is maintained even in the presence of malicious or dishonest nodes.
 
 To achieve fault tolerance, IBFT allows for `f` faulty nodes in a `3f + 1` network, as long as two-thirds of the nodes are honest. This algorithm is also known as a "super-majority rules" algorithm.
