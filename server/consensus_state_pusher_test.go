@@ -17,6 +17,7 @@ import (
 )
 
 type mockConsensusStateProvider struct {
+	mu    sync.Mutex
 	state *consensus.ConsensusState
 	err   error
 	calls atomic.Int64
@@ -25,7 +26,17 @@ type mockConsensusStateProvider struct {
 func (m *mockConsensusStateProvider) GetConsensusState() (*consensus.ConsensusState, error) {
 	m.calls.Add(1)
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.state, m.err
+}
+
+func (m *mockConsensusStateProvider) setState(state *consensus.ConsensusState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.state = state
 }
 
 type eventedConsensusStateProvider struct {
@@ -117,7 +128,7 @@ func TestConsensusStatePusherPostsSnapshot(t *testing.T) {
 
 	// Advance consensus (new round) and signal: the loop is parked on the
 	// events channel, so the send orders this write before the next capture.
-	provider.state = &consensus.ConsensusState{
+	provider.setState(&consensus.ConsensusState{
 		CapturedAt: "2026-08-05T12:00:01Z",
 		Complete:   true,
 		NodeID:     "0xabc",
@@ -127,7 +138,7 @@ func TestConsensusStatePusherPostsSnapshot(t *testing.T) {
 			Round:  1,
 			Phase:  "new_round",
 		},
-	}
+	})
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool {
@@ -189,7 +200,7 @@ func TestConsensusStatePusherSkipsUnchangedSnapshotOnEvent(t *testing.T) {
 	require.Eventually(t, func() bool { return hits.Load() == 1 }, time.Second, 10*time.Millisecond)
 
 	// Only clock-derived fields differ: an event must NOT produce a push.
-	provider.state = mkState("2026-08-05T12:00:00.5Z", 505)
+	provider.setState(mkState("2026-08-05T12:00:00.5Z", 505))
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool { return provider.calls.Load() >= 2 }, time.Second, 10*time.Millisecond)
@@ -199,7 +210,7 @@ func TestConsensusStatePusherSkipsUnchangedSnapshotOnEvent(t *testing.T) {
 	next := mkState("2026-08-05T12:00:02Z", 7)
 	next.Current.Round = 1
 
-	provider.state = next
+	provider.setState(next)
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool { return hits.Load() == 2 }, time.Second, 10*time.Millisecond)
