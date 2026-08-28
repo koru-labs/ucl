@@ -361,6 +361,9 @@ func (s *Server) runDial() {
 	defer cancel()
 
 	if err := s.Subscribe(ctx, func(event *peerEvent.PeerEvent) {
+		if event == nil {
+			return
+		}
 		// Return back slot on PeerFailedToConnect or PeerDisconnected
 		switch event.Type {
 		case
@@ -673,9 +676,13 @@ func (s *Server) Subscribe(ctx context.Context, handler func(evnt *peerEvent.Pee
 		for {
 			select {
 			case <-ctx.Done():
+				handler(nil)
+
 				return
 
 			case <-s.closeCh:
+				handler(nil)
+
 				return
 
 			case evnt := <-sub.Out():
@@ -695,20 +702,16 @@ func (s *Server) SubscribeCh(ctx context.Context) (<-chan *peerEvent.PeerEvent, 
 	ctx, cancel := context.WithCancel(ctx)
 
 	err := s.Subscribe(ctx, func(evnt *peerEvent.PeerEvent) {
-		select {
-		case <-ctx.Done():
-			return
-		case ch <- evnt:
+		if evnt != nil {
+			ch <- evnt
+		} else if ch != nil {
+			close(ch)
+			ch = nil
 		}
 	})
-
-	cleanup := func() {
+	if err != nil {
 		cancel()
 		close(ch)
-	}
-
-	if err != nil {
-		cleanup()
 
 		return nil, err
 	}
@@ -716,7 +719,7 @@ func (s *Server) SubscribeCh(ctx context.Context) (<-chan *peerEvent.PeerEvent, 
 	go func() {
 		<-s.closeCh
 
-		cleanup()
+		cancel()
 	}()
 
 	return ch, nil
