@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	goruntime "runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
-	iradix "github.com/hashicorp/go-immutable-radix"
 	"github.com/hashicorp/go-metrics"
 
 	"github.com/0xPolygon/polygon-edge/chain"
@@ -42,9 +43,10 @@ type Executor struct {
 	state   State
 	GetHash GetHashByNumberHelper
 
-	PostHook         func(txn *Transition)
-	GenesisPostHook  func(*Transition) error
-	GetPendingTxHook func(types.Hash) (*types.Transaction, bool)
+	PostHook            func(txn *Transition)
+	GenesisPostHook     func(*Transition) error
+	GetPendingTxHook    func(types.Hash) (*types.Transaction, bool)
+	GetTxDependencyHook func(*types.Header) [][]uint64
 }
 
 // NewExecutor creates a new executor
@@ -71,12 +73,14 @@ func (e *Executor) WriteGenesis(
 		ChainID: e.config.ChainID,
 	}
 
+	gasLimit := uint64(env.GasLimit)
+
 	transition := &Transition{
 		logger:      e.logger,
 		ctx:         env,
 		state:       txn,
 		auxState:    e.state,
-		gasPool:     uint64(env.GasLimit),
+		gasPool:     &gasLimit,
 		config:      config,
 		precompiles: precompiled.NewPrecompiled(),
 	}
@@ -121,7 +125,7 @@ func (e *Executor) WriteGenesis(
 // GetDumpTree function returns accounts based on the selected criteria.
 func (e *Executor) GetDumpTree(dump *Dump, parentHash types.Hash,
 	block *types.Block, opts *DumpInfo) ([]byte, error) {
-	txn, err := e.ProcessBlock(parentHash, block, types.BytesToAddress(block.Header.Miner))
+	txn, _, err := e.ProcessBlock(parentHash, block, types.BytesToAddress(block.Header.Miner))
 	if err != nil {
 		return nil, err
 	}
@@ -157,15 +161,32 @@ func (e *Executor) ProcessBlock(
 	parentRoot types.Hash,
 	block *types.Block,
 	blockCreator types.Address,
-) (*Transition, error) {
+) (*Transition, []*types.Receipt, error) {
+	workersCnt := e.config.WorkersPerVerifier
+	if workersCnt == 0 {
+		workersCnt = goruntime.NumCPU()
+	}
+
+	if e.GetTxDependencyHook != nil && workersCnt > 1 {
+		txDependency := e.GetTxDependencyHook(block.Header)
+		if e.areTxDependenciesGood(txDependency, len(block.Transactions)) {
+			exc := NewTxDependancyExecutor(workersCnt, e.logger)
+			txp := NewTxDependancyPool(block.Transactions, txDependency)
+
+			return exc.Execute(txp, e, parentRoot, block.Header, blockCreator)
+		}
+	}
+
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	receipts := make([]*types.Receipt, 0, len(block.Transactions))
 
 	for _, t := range block.Transactions {
 		if t.Gas > block.Header.GasLimit {
-			return nil, runtime.ErrOutOfGas
+			return nil, nil, runtime.ErrOutOfGas
 		}
 
 		if t.From == emptyFrom && t.Type != types.StateTx {
@@ -174,12 +195,15 @@ func (e *Executor) ProcessBlock(
 			}
 		}
 
-		if err = txn.Write(t); err != nil {
-			return nil, err
+		receipt, err := txn.Write(t)
+		if err != nil {
+			return nil, nil, err
 		}
+
+		receipts = append(receipts, receipt)
 	}
 
-	return txn, nil
+	return txn, receipts, nil
 }
 
 // GetForksInTime returns the active forks at the given block height
@@ -187,10 +211,30 @@ func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
 }
 
+// SetWorkersPerVerifier is used only for testing
+func (e *Executor) SetWorkersPerVerifier(workersCnt int) {
+	e.config.WorkersPerVerifier = workersCnt
+}
+
 func (e *Executor) BeginTxn(
 	parentRoot types.Hash,
 	header *types.Header,
 	coinbaseReceiver types.Address,
+) (*Transition, error) {
+	gasLimit := new(uint64)
+	*gasLimit = header.GasLimit
+
+	return e.BeginTxnWithCustomTxn(parentRoot, header, coinbaseReceiver, gasLimit, func(s Snapshot) ITransitionTxn {
+		return newTxnWithTxAccessTracker(s, TxAccessTrackerFactory(true))
+	})
+}
+
+func (e *Executor) BeginTxnWithCustomTxn(
+	parentRoot types.Hash,
+	header *types.Header,
+	coinbaseReceiver types.Address,
+	gasLimit *uint64,
+	txnFactory func(Snapshot) ITransitionTxn,
 ) (*Transition, error) {
 	forkConfig := e.config.Forks.At(header.Number)
 
@@ -207,15 +251,13 @@ func (e *Executor) BeginTxn(
 		}
 	}
 
-	newTxn := NewTxn(auxSnap2)
-
 	txCtx := runtime.TxContext{
 		Coinbase:     coinbaseReceiver,
 		Timestamp:    int64(header.Timestamp),
 		Number:       int64(header.Number),
 		Difficulty:   types.BytesToHash(new(big.Int).SetUint64(header.Difficulty).Bytes()),
 		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
-		GasLimit:     int64(header.GasLimit),
+		GasLimit:     int64(*gasLimit),
 		ChainID:      e.config.ChainID,
 		BurnContract: burnContract,
 	}
@@ -223,14 +265,13 @@ func (e *Executor) BeginTxn(
 	txn := &Transition{
 		logger:   e.logger,
 		ctx:      txCtx,
-		state:    newTxn,
+		state:    txnFactory(auxSnap2),
 		snap:     auxSnap2,
 		getHash:  e.GetHash(header),
 		auxState: e.state,
 		config:   forkConfig,
-		gasPool:  uint64(txCtx.GasLimit),
+		gasPool:  gasLimit,
 
-		receipts: []*types.Receipt{},
 		totalGas: 0,
 
 		evm:         evm.NewEVM(),
@@ -268,6 +309,34 @@ func (e *Executor) BeginTxn(
 	return txn, nil
 }
 
+func (e *Executor) areTxDependenciesGood(txDependancy [][]uint64, txsLen int) bool {
+	if len(txDependancy) == 0 || txsLen <= 1 {
+		return false
+	}
+
+	if ln := len(txDependancy); ln != txsLen {
+		e.logger.Error("TxDependency length from header is invalid", "value", ln, "expected", txsLen)
+
+		return false
+	}
+
+	for i, deps := range txDependancy {
+		for _, d := range deps {
+			if d == uint64(i) {
+				e.logger.Error("TxDependency tx depends on itself", "indx", i)
+
+				return false
+			} else if d > uint64(i) {
+				e.logger.Error("TxDependency tx depends on tx with greater index", "indx", i, "other", d)
+
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 type Transition struct {
 	logger hclog.Logger
 
@@ -276,13 +345,12 @@ type Transition struct {
 	snap     Snapshot
 
 	config  chain.ForksInTime
-	state   *Txn
+	state   ITransitionTxn
 	getHash GetHashByNumber
 	ctx     runtime.TxContext
-	gasPool uint64
+	gasPool *uint64
 
 	// result
-	receipts []*types.Receipt
 	totalGas uint64
 
 	PostHook func(t *Transition)
@@ -360,14 +428,15 @@ func (t *Transition) TotalGas() uint64 {
 	return t.totalGas
 }
 
-func (t *Transition) Receipts() []*types.Receipt {
-	return t.receipts
+// SetTotalGas is used only for parallel verifiers
+func (t *Transition) SetTotalGas(totalGas uint64) {
+	t.totalGas = totalGas
 }
 
 var emptyFrom = types.Address{}
 
 // Write writes another transaction to the executor
-func (t *Transition) Write(txn *types.Transaction) error {
+func (t *Transition) Write(txn *types.Transaction) (*types.Receipt, error) {
 	var err error
 
 	if txn.From == emptyFrom &&
@@ -377,7 +446,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 
 		txn.From, err = signer.Sender(txn)
 		if err != nil {
-			return NewTransitionApplicationError(err, false)
+			return nil, NewTransitionApplicationError(err, false)
 		}
 	}
 
@@ -388,7 +457,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	if e != nil {
 		t.logger.Error("failed to apply tx", "err", e)
 
-		return e
+		return nil, e
 	}
 
 	t.totalGas += result.GasUsed
@@ -404,7 +473,7 @@ func (t *Transition) Write(txn *types.Transaction) error {
 
 	// Clean radix tree objects for the next iteration (suicided accounts, transient storage, refund index)
 	if err := t.state.CleanRadixObjects(); err != nil {
-		return fmt.Errorf("failed to clean deleted objects: %w", err)
+		return nil, fmt.Errorf("failed to clean radix objects: %w", err)
 	}
 
 	if result.Failed() {
@@ -421,9 +490,8 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	// Set the receipt logs and create a bloom for filtering
 	receipt.Logs = logs
 	receipt.LogsBloom = types.CreateBloom([]*types.Receipt{receipt})
-	t.receipts = append(t.receipts, receipt)
 
-	return nil
+	return receipt, nil
 }
 
 // Commit commits the final result
@@ -442,20 +510,25 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 }
 
 func (t *Transition) subGasPool(amount uint64) error {
-	if t.gasPool < amount {
-		return ErrBlockLimitReached
+	for {
+		current := atomic.LoadUint64(t.gasPool)
+		if current < amount {
+			return ErrBlockLimitReached
+		}
+
+		if atomic.CompareAndSwapUint64(t.gasPool, current, current-amount) {
+			return nil
+		}
+
+		// Another goroutine could modified t.gasPool -> in that case do retry
 	}
-
-	t.gasPool -= amount
-
-	return nil
 }
 
 func (t *Transition) addGasPool(amount uint64) {
-	t.gasPool += amount
+	atomic.AddUint64(t.gasPool, amount)
 }
 
-func (t *Transition) Txn() *Txn {
+func (t *Transition) Txn() ITransitionTxn {
 	return t.state
 }
 
@@ -478,12 +551,14 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 			t.state.GetCodeHash(sender).String())
 	}
 
-	t.state.snapshots = []*iradix.Tree{}
-
+	t.state.ClearLocalChanges()
 	s := t.state.Snapshot()
+	t.state.ClearAccessTracker(false)
 
 	result, err := t.apply(msg)
 	if err != nil {
+		t.state.ClearAccessTracker(true) // clear writes if tx has been reverted
+
 		if revertErr := t.state.RevertToSnapshot(s); revertErr != nil {
 			return nil, revertErr
 		}
@@ -494,6 +569,14 @@ func (t *Transition) Apply(msg *types.Transaction) (*runtime.ExecutionResult, er
 	}
 
 	return result, err
+}
+
+func (t *Transition) GetTxReadWriteSet(txIndx int) TxReadWriteSet {
+	return t.state.GetReadWriteSet(txIndx)
+}
+
+func (t *Transition) SetCurrentTxContext(txContext TxWithIndex) {
+	t.state.SetCurrentTxContext(txContext)
 }
 
 // ContextPtr returns reference of context
@@ -741,14 +824,16 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	}
 
 	// Pay the coinbase fee as a miner reward using the calculated effective tip.
+	// each tx adds balance to proposer -> we should prevent updating this inside txWriteAccessMap
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
-	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
+	t.state.AddBalanceDoNotTrack(t.ctx.Coinbase, coinbaseFee)
 
 	// Burn some amount if the london hardfork is applied.
 	// Basically, burn amount is just transferred to the current burn contract.
 	if t.config.London && msg.Type != types.StateTx {
+		// each tx adds balance to burn contract -> we should prevent updating this inside txWriteAccessMap
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
-		t.state.AddBalance(t.ctx.BurnContract, burnAmount)
+		t.state.AddBalanceDoNotTrack(t.ctx.BurnContract, burnAmount)
 	}
 
 	// return gas to the pool
@@ -1393,4 +1478,12 @@ func (t *Transition) RevertToSnapshot(snapshot int) error {
 	// t.journalRevisions = t.journalRevisions[:idx]
 
 	return nil
+}
+
+func (txn *Transition) PopulateBlockRadix() error {
+	return txn.state.PopulateBlockRadix()
+}
+
+func (txn *Transition) AddPendingBalances() {
+	txn.state.AddPendingBalances()
 }

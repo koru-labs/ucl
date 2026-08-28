@@ -91,6 +91,24 @@ func TestIstanbulExtraMarshalAndUnmarshal(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "BLSExtra with TxDependency",
+			extra: &IstanbulExtra{
+				Validators: validators.NewBLSValidatorSet(
+					blsValidator1,
+				),
+				ProposerSeal: testProposerSeal,
+				CommittedSeals: &AggregatedSeal{
+					Bitmap:    new(big.Int).SetBytes([]byte{0x8}),
+					Signature: []byte{0x1},
+				},
+				ParentCommittedSeals: &AggregatedSeal{
+					Bitmap:    new(big.Int).SetBytes([]byte{0x9}),
+					Signature: []byte{0x2},
+				},
+				TxDependency: [][]uint64{{1}, {}, {2, 3}, {}, {5}},
+			},
+		},
 	}
 
 	for _, test := range tests {

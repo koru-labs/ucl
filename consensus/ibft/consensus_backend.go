@@ -9,8 +9,10 @@ import (
 
 	"github.com/0xPolygon/go-ibft/messages"
 	"github.com/0xPolygon/go-ibft/messages/proto"
+	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/consensus"
-	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/blockstm"
+	sgn "github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/helper/hex"
 	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/0xPolygon/polygon-edge/state"
@@ -301,7 +303,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 		Number:     parent.Number + 1,
 		Miner:      types.ZeroAddress.Bytes(),
 		Nonce:      types.Nonce{},
-		MixHash:    signer.IstanbulDigest,
+		MixHash:    sgn.IstanbulDigest,
 		// this is required because blockchain needs difficulty to organize blocks and forks
 		Difficulty: parent.Number + 1,
 		StateRoot:  types.EmptyRootHash, // this avoids needing state for now
@@ -332,6 +334,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	// Set the header timestamp
 	potentialTimestamp := i.calcHeaderTimestamp(parent.Timestamp, time.Now().UTC())
 	header.Timestamp = uint64(potentialTimestamp.Unix())
+	isParallelVerification := i.config.Params.Forks.IsActive(chain.EIPBorTxDeps, header.Number)
 
 	parentCommittedSeals, err := i.extractParentCommittedSeals(parent)
 	if err != nil {
@@ -342,21 +345,61 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	execStart := time.Now().UTC()
 
-	transition, err := i.executor.BeginTxn(parent.StateRoot, header, signer.Address())
+	tranGasLimit := new(uint64)
+	*tranGasLimit = header.GasLimit
+
+	transition, err := i.executor.BeginTxnWithCustomTxn(
+		parent.StateRoot, header, signer.Address(), tranGasLimit, func(s state.Snapshot) state.ITransitionTxn {
+			return state.NewTxnWithTxAccessTracker(s, state.TxAccessTrackerFactory(!isParallelVerification))
+		})
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Get the block transactions
-	writeCtx, cancelFn := context.WithTimeout(context.Background(), i.blockTime)
+	writeCtx, cancelFn := context.WithTimeout(ctx, i.blockTime)
 	defer cancelFn()
 
-	txs := i.writeTransactions(
+	var (
+		depsBuilder = blockstm.NewDepsBuilder()
+		chDeps      = make(chan []state.TxReadWriteSet, 128)
+		depsWg      sync.WaitGroup
+	)
+
+	if isParallelVerification {
+		depsWg.Add(1)
+
+		go func(chDeps chan []state.TxReadWriteSet) {
+			defer depsWg.Done()
+
+			for ts := range chDeps {
+				for _, t := range ts {
+					if err := depsBuilder.AddTransaction(t.Index, t.ReadList, t.WriteList); err != nil {
+						// Non-sequential index indicates a systematic bug, not a transient error.
+						// Drain the channel so the sender never blocks, then stop processing.
+						i.logger.Error("Failed to build tx dependency metadata, dropping DAG hint",
+							"tx", t.Index, "err", err)
+
+						for range chDeps {
+						}
+
+						return
+					}
+				}
+			}
+		}(chDeps)
+	}
+
+	txs, receipts := i.writeTransactions(
 		writeCtx,
 		gasLimit,
 		header.Number,
 		transition,
+		chDeps,
+		isParallelVerification,
 	)
+
+	close(chDeps)
 
 	// provide dummy block instance to the PreCommitState
 	// (for the IBFT consensus, it is correct to have just a header, as only it is used)
@@ -367,6 +410,18 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	_, root, err := transition.Commit()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to commit the state changes: %w", err)
+	}
+
+	if isParallelVerification {
+		depsWg.Wait()
+
+		txDependency := depsBuilder.GetDeps()
+		// deps is nil when DepsBuilder errored, and non-nil empty when no transactions were added.
+		if txDependency == nil {
+			i.logger.Error("Failed to build tx dependency DAG, skipping metadata", "number", header.Number)
+		}
+
+		header.ExtraData = sgn.PackTxDependencyIntoExtra(header.ExtraData, txDependency)
 	}
 
 	metrics.MeasureSince([]string{consensusMetrics, "span", "execution"}, execStart)
@@ -382,7 +437,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 	block := consensus.BuildBlock(consensus.BuildBlockParams{
 		Header:   header,
 		Txns:     txs,
-		Receipts: transition.Receipts(),
+		Receipts: receipts,
 	})
 
 	// write the seal of the block after all the fields are completed
@@ -399,7 +454,7 @@ func (i *backendIBFT) buildBlock(ctx context.Context, parent *types.Header) (*ty
 
 	i.logger.Info("build block", "number", header.Number, "txs", len(txs))
 
-	return block, transition.Receipts(), nil
+	return block, receipts, nil
 }
 
 // calcHeaderTimestamp calculates the new block timestamp, based
@@ -426,12 +481,14 @@ const (
 )
 
 type txExeResult struct {
-	tx     *types.Transaction
-	status status
+	tx      *types.Transaction
+	receipt *types.Receipt
+	status  status
 }
 
 type transitionInterface interface {
-	Write(txn *types.Transaction) error
+	Write(txn *types.Transaction) (*types.Receipt, error)
+	GetTxReadWriteSet(txIndx int) state.TxReadWriteSet
 }
 
 func (i *backendIBFT) writeTransactions(
@@ -439,24 +496,30 @@ func (i *backendIBFT) writeTransactions(
 	gasLimit,
 	blockNumber uint64,
 	transition transitionInterface,
-) (executed []*types.Transaction) {
-	executed = make([]*types.Transaction, 0)
-
+	chDeps chan []state.TxReadWriteSet,
+	isParallelVerification bool,
+) (executed []*types.Transaction, receipts []*types.Receipt) {
 	hooks := i.forkManager.GetHooks(blockNumber)
 	if !hooks.ShouldWriteTransactions(blockNumber) {
 		return
 	}
 
 	var (
-		successful = 0
-		failed     = 0
-		skipped    = 0
+		txSetCacheSize = cap(chDeps)
+		failed         = 0
+		skipped        = 0
+		txSetsCache    = make([]state.TxReadWriteSet, 0, txSetCacheSize)
 	)
 
 	defer func() {
+		// send all sets that are left
+		if len(txSetsCache) > 0 {
+			chDeps <- txSetsCache
+		}
+
 		i.logger.Info(
 			"executed txs",
-			"successful", successful,
+			"successful", len(executed),
 			"failed", failed,
 			"skipped", skipped,
 			"remaining", i.txpool.Length(),
@@ -483,12 +546,28 @@ write:
 				break write
 			}
 
-			tx := result.tx
-
 			switch result.status {
 			case success:
-				executed = append(executed, tx)
-				successful++
+				// Send maps to dag with timeout to prevent deadlock
+				if isParallelVerification {
+					txSetsCache = append(txSetsCache, transition.GetTxReadWriteSet(len(executed)))
+
+					if len(txSetsCache) == txSetCacheSize {
+						lst := make([]state.TxReadWriteSet, txSetCacheSize)
+						copy(lst, txSetsCache)
+
+						select {
+						case chDeps <- lst: // Successfully sent
+						case <-time.After(1 * time.Second): // Timeout - channel is blocked
+							break write
+						}
+
+						txSetsCache = txSetsCache[:0]
+					}
+				}
+
+				receipts = append(receipts, result.receipt)
+				executed = append(executed, result.tx)
 			case fail:
 				failed++
 			case skip:
@@ -516,34 +595,35 @@ func (i *backendIBFT) writeTransaction(
 		i.txpool.Drop(tx)
 
 		// continue processing
-		return &txExeResult{tx, fail}, true
+		return &txExeResult{tx, nil, fail}, true
 	}
 
-	if err := transition.Write(tx); err != nil {
+	receipt, err := transition.Write(tx)
+	if err != nil {
 		if _, ok := err.(*state.GasLimitReachedTransitionApplicationError); ok { //nolint:errorlint
 			// stop processing
 			return nil, false
 		} else if appErr, ok := err.(*state.TransitionApplicationError); ok && appErr.IsRecoverable { //nolint:errorlint
 			i.txpool.Demote(tx)
 
-			return &txExeResult{tx, skip}, true
+			return &txExeResult{tx, nil, skip}, true
 		} else {
 			i.txpool.Drop(tx)
 
-			return &txExeResult{tx, fail}, true
+			return &txExeResult{tx, nil, fail}, true
 		}
 	}
 
 	i.txpool.Pop(tx)
 	i.buildBlockTxsRlpSize += tx.Size()
 
-	return &txExeResult{tx, success}, true
+	return &txExeResult{tx, receipt, success}, true
 }
 
 // extractCommittedSeals extracts CommittedSeals from header
 func (i *backendIBFT) extractCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	signer, err := i.forkManager.GetSigner(header.Number)
 	if err != nil {
 		return nil, err
@@ -560,7 +640,7 @@ func (i *backendIBFT) extractCommittedSeals(
 // extractParentCommittedSeals extracts ParentCommittedSeals from header
 func (i *backendIBFT) extractParentCommittedSeals(
 	header *types.Header,
-) (signer.Seals, error) {
+) (sgn.Seals, error) {
 	if header.Number == 0 {
 		return nil, nil
 	}

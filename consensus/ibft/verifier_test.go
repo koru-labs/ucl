@@ -70,7 +70,7 @@ func TestBackendIBFT_IsValidValidator(t *testing.T) {
 func TestBackendIBFT_IsValidProposalHash(t *testing.T) {
 	t.Parallel()
 
-	expectedProposalHash := types.StringToHash("0x634062bfb5f6812e6a32338f1145d77f93545e03177de14df81d8684cf3cb200")
+	expectedProposalHash := types.StringToHash("0x527afa4dbd31ac76d013a0d46897ab109ab020a78b5c30ee6a05e5f1032f75ad")
 
 	validators := validators.NewECDSAValidatorSet(
 		validators.NewECDSAValidator(types.StringToAddress("1")),
@@ -82,6 +82,7 @@ func TestBackendIBFT_IsValidProposalHash(t *testing.T) {
 		Validators:     validators,
 		CommittedSeals: &signer.AggregatedSeal{},
 		RoundNumber:    &round,
+		TxDependency:   [][]uint64{{1, 2, 5}, {}, {4}, {}, {3}},
 	}
 
 	block := &types.Block{

@@ -178,6 +178,8 @@ type StateObject struct {
 	// withFakeStorage signals whether the state object
 	// is using the override full state
 	withFakeStorage bool
+	// mark if there are changes inside account / suicide / code /
+	dirtyFields bool
 }
 
 func (s *StateObject) Empty() bool {
@@ -187,7 +189,7 @@ func (s *StateObject) Empty() bool {
 }
 
 // Copy makes a copy of the state object
-func (s *StateObject) Copy() *StateObject {
+func (s *StateObject) Copy(copyWithTx bool) *StateObject {
 	ss := new(StateObject)
 
 	// copy account
@@ -198,9 +200,12 @@ func (s *StateObject) Copy() *StateObject {
 	ss.DirtyCode = s.DirtyCode
 	ss.Code = s.Code
 	ss.withFakeStorage = s.withFakeStorage
+	ss.dirtyFields = s.dirtyFields
 
-	if s.Txn != nil {
+	if s.Txn != nil && copyWithTx {
 		ss.Txn = s.Txn.CommitOnly().Txn()
+	} else {
+		ss.Txn = s.Txn
 	}
 
 	return ss
