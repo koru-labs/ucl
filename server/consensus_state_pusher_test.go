@@ -139,6 +139,7 @@ func TestConsensusStatePusherPostsSnapshot(t *testing.T) {
 			Phase:  "new_round",
 		},
 	})
+
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool {
@@ -201,6 +202,7 @@ func TestConsensusStatePusherSkipsUnchangedSnapshotOnEvent(t *testing.T) {
 
 	// Only clock-derived fields differ: an event must NOT produce a push.
 	provider.setState(mkState("2026-08-05T12:00:00.5Z", 505))
+
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool { return provider.calls.Load() >= 2 }, time.Second, 10*time.Millisecond)
@@ -211,6 +213,7 @@ func TestConsensusStatePusherSkipsUnchangedSnapshotOnEvent(t *testing.T) {
 	next.Current.Round = 1
 
 	provider.setState(next)
+
 	provider.events <- struct{}{}
 
 	require.Eventually(t, func() bool { return hits.Load() == 2 }, time.Second, 10*time.Millisecond)
