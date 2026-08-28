@@ -91,6 +91,7 @@ func (p *consensusStatePusher) loop() {
 	if p.events != nil && !p.drainEvents() {
 		p.events = nil
 	}
+
 	p.pushOnce(true)
 
 	ticker := time.NewTicker(p.heartbeat)
@@ -111,11 +112,13 @@ func (p *consensusStatePusher) loop() {
 			if !p.drainEvents() {
 				p.events = nil
 			}
+
 			p.pushOnce(false)
 		case <-ticker.C:
 			if p.events != nil && !p.drainEvents() {
 				p.events = nil
 			}
+
 			p.pushOnce(true)
 		}
 	}
@@ -175,13 +178,14 @@ func (p *consensusStatePusher) pushOnce(force bool) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.token)
 
-	resp, err := p.client.Do(req)
+	resp, err := p.client.Do(req) //nolint:gosec // G704: URL is operator-configured, not request input
 	if err != nil {
 		p.logger.Warn("failed to push consensus state", "err", err)
 
 		return
 	}
-	defer resp.Body.Close()
+
+	defer resp.Body.Close() //nolint:errcheck
 
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 

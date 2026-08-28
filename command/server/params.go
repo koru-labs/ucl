@@ -21,7 +21,7 @@ import (
 const (
 	// consensusStatePushTokenEnv is consulted when --consensus-state-push-token
 	// is not set, so the secret does not have to appear in argv / process lists.
-	consensusStatePushTokenEnv = "CONSENSUS_STATE_PUSH_TOKEN" //nolint:gosec
+	consensusStatePushTokenEnv = "CONSENSUS_STATE_PUSH_TOKEN"
 
 	configFlag                   = "config"
 	genesisPathFlag              = "chain"

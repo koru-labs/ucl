@@ -76,11 +76,37 @@ func listCommand() *cobra.Command {
 }
 
 func removeCommand() *cobra.Command {
+	return mutateCommand(
+		"remove",
+		"Move a journaled transaction into the quarantine file",
+		"removed",
+		"transaction hash to remove (repeatable)",
+		txpool.RemovedJournalPath,
+		txpool.RemoveFromJournal,
+	)
+}
+
+func restoreCommand() *cobra.Command {
+	return mutateCommand(
+		"restore",
+		"Move a quarantined transaction back into the live journal",
+		"restored",
+		"transaction hash to restore (repeatable)",
+		txpool.JournalPath,
+		txpool.RestoreToJournal,
+	)
+}
+
+func mutateCommand(
+	use, short, action, hashUsage string,
+	resultPath func(string) string,
+	mutate func(string, string, []types.Hash) ([]*types.Transaction, error),
+) *cobra.Command {
 	var hashes []string
 
 	cmd := &cobra.Command{
-		Use:   "remove",
-		Short: "Move a journaled transaction into the quarantine file",
+		Use:   use,
+		Short: short,
 		Run: func(cmd *cobra.Command, _ []string) {
 			run(cmd, func(p journalParams) (command.CommandResult, error) {
 				parsed, err := parseHashes(hashes)
@@ -88,7 +114,7 @@ func removeCommand() *cobra.Command {
 					return nil, err
 				}
 
-				moved, err := txpool.RemoveFromJournal(
+				moved, err := mutate(
 					txpool.JournalPath(p.dataDir),
 					txpool.RemovedJournalPath(p.dataDir),
 					parsed,
@@ -98,52 +124,15 @@ func removeCommand() *cobra.Command {
 				}
 
 				return &journalMutateResult{
-					Action: "removed",
-					Path:   txpool.RemovedJournalPath(p.dataDir),
+					Action: action,
+					Path:   resultPath(p.dataDir),
 					Txs:    decorateTxs(moved, p.chainID, nil),
 				}, nil
 			})
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&hashes, hashFlag, nil, "transaction hash to remove (repeatable)")
-	_ = cmd.MarkFlagRequired(hashFlag)
-
-	return cmd
-}
-
-func restoreCommand() *cobra.Command {
-	var hashes []string
-
-	cmd := &cobra.Command{
-		Use:   "restore",
-		Short: "Move a quarantined transaction back into the live journal",
-		Run: func(cmd *cobra.Command, _ []string) {
-			run(cmd, func(p journalParams) (command.CommandResult, error) {
-				parsed, err := parseHashes(hashes)
-				if err != nil {
-					return nil, err
-				}
-
-				restored, err := txpool.RestoreToJournal(
-					txpool.JournalPath(p.dataDir),
-					txpool.RemovedJournalPath(p.dataDir),
-					parsed,
-				)
-				if err != nil {
-					return nil, err
-				}
-
-				return &journalMutateResult{
-					Action: "restored",
-					Path:   txpool.JournalPath(p.dataDir),
-					Txs:    decorateTxs(restored, p.chainID, nil),
-				}, nil
-			})
-		},
-	}
-
-	cmd.Flags().StringSliceVar(&hashes, hashFlag, nil, "transaction hash to restore (repeatable)")
+	cmd.Flags().StringSliceVar(&hashes, hashFlag, nil, hashUsage)
 	_ = cmd.MarkFlagRequired(hashFlag)
 
 	return cmd
@@ -173,6 +162,7 @@ func rejectedCommand() *cobra.Command {
 				out := make([]rejectedBlockView, 0, len(recs))
 				for i := len(recs) - 1; i >= 0; i-- {
 					rec := recs[i]
+
 					block := rec.Block
 					if block == nil {
 						continue

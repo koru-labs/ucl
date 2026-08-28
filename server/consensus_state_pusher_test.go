@@ -136,6 +136,7 @@ func TestConsensusStatePusherPostsSnapshot(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+
 	require.Equal(t, "Bearer secret-token", gotAuth)
 	require.Equal(t, "application/json", gotContent)
 	require.Equal(t, "0xabc", gotBody.NodeID)
@@ -197,6 +198,7 @@ func TestConsensusStatePusherSkipsUnchangedSnapshotOnEvent(t *testing.T) {
 	// A real change (round advanced) pushes immediately on the next event.
 	next := mkState("2026-08-05T12:00:02Z", 7)
 	next.Current.Round = 1
+
 	provider.state = next
 	provider.events <- struct{}{}
 
@@ -229,11 +231,14 @@ func TestConsensusStatePusherStopIsIdempotent(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			pusher.stop()
 		}()
 	}
+
 	wg.Wait()
 	pusher.stop()
 }

@@ -74,7 +74,8 @@ func execute(dataDir string, blocks, to uint64, useBlocks, dryRun bool) (*unwind
 	if err != nil {
 		return nil, fmt.Errorf("open blockchain db at %s: %w (stop the validator first)", dbPath, err)
 	}
-	defer db.Close()
+
+	defer db.Close() //nolint:errcheck
 
 	headNum, ok := db.ReadHeadNumber()
 	if !ok {

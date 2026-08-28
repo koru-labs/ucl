@@ -61,7 +61,11 @@ func convertConsensusState(snap *core.ConsensusState) *consensus.ConsensusState 
 	return out
 }
 
-func (c *converter) convertHeightState(h *core.HeightState, capturedAt time.Time, includeLiveTiming bool) *consensus.HeightState {
+func (c *converter) convertHeightState(
+	h *core.HeightState,
+	capturedAt time.Time,
+	includeLiveTiming bool,
+) *consensus.HeightState {
 	if h == nil {
 		return nil
 	}
