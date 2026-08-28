@@ -390,6 +390,7 @@ func TestSnapshotValidatorStoreWrapperClose(t *testing.T) {
 	assert.NoError(t, err)
 
 	persisted := store.GetSnapshots()
+
 	expected := make([]string, 0, len(persisted))
 	for _, snap := range persisted {
 		expected = append(expected, createTestSnapshotJSON(t, snap))

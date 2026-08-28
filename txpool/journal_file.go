@@ -54,7 +54,7 @@ func ReadJournalFile(path string) ([]*types.Transaction, error) {
 
 // WriteJournalFile atomically replaces a journal dump.
 func WriteJournalFile(path string, txs []*types.Transaction) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
@@ -99,21 +99,30 @@ func txHash(tx *types.Transaction) types.Hash {
 
 // RemoveFromJournal moves matching txs from the live journal into the quarantine file.
 func RemoveFromJournal(journalPath, removedPath string, hashes []types.Hash) ([]*types.Transaction, error) {
+	return moveJournalTxs(journalPath, removedPath, hashes, "no matching transactions in journal")
+}
+
+// RestoreToJournal moves matching txs from the quarantine file back into the live journal.
+func RestoreToJournal(journalPath, removedPath string, hashes []types.Hash) ([]*types.Transaction, error) {
+	return moveJournalTxs(removedPath, journalPath, hashes, "no matching transactions in removed journal")
+}
+
+func moveJournalTxs(fromPath, toPath string, hashes []types.Hash, missing string) ([]*types.Transaction, error) {
 	if len(hashes) == 0 {
 		return nil, fmt.Errorf("no transaction hashes given")
 	}
 
 	want := hashSet(hashes)
 
-	live, err := ReadJournalFile(journalPath)
+	src, err := ReadJournalFile(fromPath)
 	if err != nil {
 		return nil, fmt.Errorf("read journal: %w", err)
 	}
 
-	kept := make([]*types.Transaction, 0, len(live))
+	kept := make([]*types.Transaction, 0, len(src))
 	moved := make([]*types.Transaction, 0)
 
-	for _, tx := range live {
+	for _, tx := range src {
 		if _, ok := want[txHash(tx)]; ok {
 			moved = append(moved, tx)
 			delete(want, tx.Hash)
@@ -125,68 +134,21 @@ func RemoveFromJournal(journalPath, removedPath string, hashes []types.Hash) ([]
 	}
 
 	if len(moved) == 0 {
-		return nil, fmt.Errorf("no matching transactions in journal")
+		return nil, fmt.Errorf("%s", missing)
 	}
 
-	quarantine, err := ReadJournalFile(removedPath)
-	if err != nil {
-		return nil, fmt.Errorf("read removed journal: %w", err)
-	}
-
-	if err := WriteJournalFile(journalPath, kept); err != nil {
-		return nil, fmt.Errorf("write journal: %w", err)
-	}
-
-	if err := WriteJournalFile(removedPath, append(quarantine, moved...)); err != nil {
-		return nil, fmt.Errorf("write removed journal: %w", err)
-	}
-
-	return moved, nil
-}
-
-// RestoreToJournal moves matching txs from the quarantine file back into the live journal.
-func RestoreToJournal(journalPath, removedPath string, hashes []types.Hash) ([]*types.Transaction, error) {
-	if len(hashes) == 0 {
-		return nil, fmt.Errorf("no transaction hashes given")
-	}
-
-	want := hashSet(hashes)
-
-	quarantine, err := ReadJournalFile(removedPath)
-	if err != nil {
-		return nil, fmt.Errorf("read removed journal: %w", err)
-	}
-
-	kept := make([]*types.Transaction, 0, len(quarantine))
-	restored := make([]*types.Transaction, 0)
-
-	for _, tx := range quarantine {
-		if _, ok := want[txHash(tx)]; ok {
-			restored = append(restored, tx)
-			delete(want, tx.Hash)
-
-			continue
-		}
-
-		kept = append(kept, tx)
-	}
-
-	if len(restored) == 0 {
-		return nil, fmt.Errorf("no matching transactions in removed journal")
-	}
-
-	live, err := ReadJournalFile(journalPath)
+	dst, err := ReadJournalFile(toPath)
 	if err != nil {
 		return nil, fmt.Errorf("read journal: %w", err)
 	}
 
-	if err := WriteJournalFile(removedPath, kept); err != nil {
-		return nil, fmt.Errorf("write removed journal: %w", err)
-	}
-
-	if err := WriteJournalFile(journalPath, append(live, restored...)); err != nil {
+	if err := WriteJournalFile(fromPath, kept); err != nil {
 		return nil, fmt.Errorf("write journal: %w", err)
 	}
 
-	return restored, nil
+	if err := WriteJournalFile(toPath, append(dst, moved...)); err != nil {
+		return nil, fmt.Errorf("write journal: %w", err)
+	}
+
+	return moved, nil
 }

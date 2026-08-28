@@ -73,12 +73,13 @@ func (s *rejectedBlockStore) record(
 	recs, err := readRejectedBlocks(s.path)
 	if err != nil {
 		s.logger.Error("failed to load rejected blocks", "err", err)
+
 		recs = nil
 	}
 
 	recs = append(recs, RejectedBlock{
 		Reason:         reason,
-		Timestamp:      time.Now().Unix(),
+		Timestamp:      time.Now().UTC().Unix(),
 		Block:          block,
 		LocalStateRoot: localRoot,
 		Outcomes:       outcomes,
@@ -147,6 +148,7 @@ func readRejectedBlocks(path string) ([]RejectedBlock, error) {
 		}
 
 		data = data[extraLen:]
+
 		recs = append(recs, RejectedBlock{
 			Reason:         reason,
 			Timestamp:      unix,
@@ -160,7 +162,7 @@ func readRejectedBlocks(path string) ([]RejectedBlock, error) {
 }
 
 func writeRejectedBlocks(path string, recs []RejectedBlock) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o770); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
