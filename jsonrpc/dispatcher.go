@@ -43,12 +43,13 @@ func (f *funcData) numParams() int {
 }
 
 type endpoints struct {
-	Eth    *Eth
-	Web3   *Web3
-	Net    *Net
-	TxPool *TxPool
-	Bridge *Bridge
-	Debug  *Debug
+	Eth       *Eth
+	Web3      *Web3
+	Net       *Net
+	TxPool    *TxPool
+	Bridge    *Bridge
+	Debug     *Debug
+	Consensus *Consensus
 }
 
 // Dispatcher handles all json rpc requests by delegating
@@ -75,8 +76,9 @@ type dispatcherParams struct {
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
 
-	enableTxPoolEndpoints   bool
-	enableAllDebugEndpoints bool
+	enableTxPoolEndpoints    bool
+	enableAllDebugEndpoints  bool
+	enableConsensusEndpoints bool
 }
 
 func (dp dispatcherParams) isExceedingBatchLengthLimit(value uint64) bool {
@@ -128,6 +130,9 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 		store,
 	}
 	d.endpoints.Debug = NewDebug(store, d.params.concurrentRequestsDebug, d.params.enableAllDebugEndpoints)
+	d.endpoints.Consensus = &Consensus{
+		store: store,
+	}
 
 	var err error
 
@@ -151,6 +156,12 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 
 	if err = d.registerService("bridge", d.endpoints.Bridge); err != nil {
 		return err
+	}
+
+	if d.params.enableConsensusEndpoints {
+		if err = d.registerService("consensus", d.endpoints.Consensus); err != nil {
+			return err
+		}
 	}
 
 	return d.registerService("debug", d.endpoints.Debug)

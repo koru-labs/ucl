@@ -352,6 +352,34 @@ func setFlags(cmd *cobra.Command) {
 		"enable all debug JSON-RPC endpoints",
 	)
 
+	cmd.Flags().BoolVar(
+		&params.rawConfig.EnableConsensusEndpoints,
+		enableConsensusEndpointsFlag,
+		defaultConfig.EnableConsensusEndpoints,
+		"enable consensus JSON-RPC endpoints (consensus_state)",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.ConsensusStatePushURL,
+		consensusStatePushURLFlag,
+		defaultConfig.ConsensusStatePushURL,
+		"HTTP(S) URL that receives periodic consensus_state snapshots (empty disables push)",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.ConsensusStatePushToken,
+		consensusStatePushTokenFlag,
+		defaultConfig.ConsensusStatePushToken,
+		"bearer token sent with consensus state push requests (prefer the CONSENSUS_STATE_PUSH_TOKEN env var)",
+	)
+
+	cmd.Flags().DurationVar(
+		&params.rawConfig.ConsensusStatePushInterval,
+		consensusStatePushIntervalFlag,
+		defaultConfig.ConsensusStatePushInterval,
+		"recovery heartbeat between pushes when no consensus diagnostics events arrive",
+	)
+
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.JumpdestCacheSize,
 		jumpdestCacheSizeFlag,

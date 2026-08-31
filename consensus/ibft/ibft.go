@@ -3,6 +3,7 @@ package ibft
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	protomsg "github.com/0xPolygon/go-ibft/messages/proto"
@@ -100,6 +101,9 @@ type backendIBFT struct {
 
 	// buildBlockTxsRlpSize tracks the total RLP size of transactions in the block being built
 	buildBlockTxsRlpSize uint64
+
+	// last N proposals that failed IsValidProposal (on disk)
+	rejectedBlocks *rejectedBlockStore
 }
 
 // Factory implements the base consensus Factory method
@@ -173,6 +177,14 @@ func Factory(params *consensus.Params) (consensus.Consensus, error) {
 		closeCh: make(chan struct{}),
 
 		sealTimes: newSealTimeStore(),
+	}
+
+	if params.Config != nil && params.Config.Path != "" {
+		p.rejectedBlocks = newRejectedBlockStore(
+			filepath.Join(params.Config.Path, RejectedBlocksFileName),
+			DefaultRejectedBlocksKeep,
+			logger,
+		)
 	}
 
 	// Istanbul requires a different header hash function

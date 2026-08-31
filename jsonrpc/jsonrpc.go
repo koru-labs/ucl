@@ -41,6 +41,7 @@ type JSONRPCStore interface {
 	filterManagerStore
 	bridgeStore
 	debugStore
+	consensusStore
 }
 
 type Config struct {
@@ -65,8 +66,9 @@ type Config struct {
 	BlockCacheTTL      time.Duration
 	BlockCacheCapacity uint64
 
-	EnableTxPoolEndpoints   bool
-	EnableAllDebugEndpoints bool
+	EnableTxPoolEndpoints    bool
+	EnableAllDebugEndpoints  bool
+	EnableConsensusEndpoints bool
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -75,16 +77,17 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 		logger,
 		config.Store,
 		&dispatcherParams{
-			chainID:                 config.ChainID,
-			chainName:               config.ChainName,
-			priceLimit:              config.PriceLimit,
-			jsonRPCBatchLengthLimit: config.BatchLengthLimit,
-			blockRangeLimit:         config.BlockRangeLimit,
-			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
-			blockCacheTTL:           config.BlockCacheTTL,
-			blockCacheCapacity:      config.BlockCacheCapacity,
-			enableTxPoolEndpoints:   config.EnableTxPoolEndpoints,
-			enableAllDebugEndpoints: config.EnableAllDebugEndpoints,
+			chainID:                  config.ChainID,
+			chainName:                config.ChainName,
+			priceLimit:               config.PriceLimit,
+			jsonRPCBatchLengthLimit:  config.BatchLengthLimit,
+			blockRangeLimit:          config.BlockRangeLimit,
+			concurrentRequestsDebug:  config.ConcurrentRequestsDebug,
+			blockCacheTTL:            config.BlockCacheTTL,
+			blockCacheCapacity:       config.BlockCacheCapacity,
+			enableTxPoolEndpoints:    config.EnableTxPoolEndpoints,
+			enableAllDebugEndpoints:  config.EnableAllDebugEndpoints,
+			enableConsensusEndpoints: config.EnableConsensusEndpoints,
 		},
 	)
 	if err != nil {
