@@ -188,16 +188,11 @@ func NewServer(config *Config) (*Server, error) {
 		m.prometheusServer = m.startPrometheusServer(config.Telemetry.PrometheusAddr)
 	}
 
-	shutdown, otelErr := observability.InitObservability(context.Background(), versioning.Version)
+	shutdown, otelErr := observability.InitObservability(context.Background(), versioning.Version, m.logger)
 	if otelErr != nil {
 		m.logger.Error("OpenTelemetry tracing setup failed", "err", otelErr.Error())
 	} else {
 		m.tracerShutdown = shutdown
-	}
-
-	// Set up datadog profiler
-	if ddErr := m.enableDataDogProfiler(); ddErr != nil {
-		m.logger.Error("DataDog profiler setup failed", "err", ddErr.Error())
 	}
 
 	// Set up the secrets manager
@@ -1284,9 +1279,6 @@ func (s *Server) Close() {
 			s.logger.Error("OpenTelemetry tracer shutdown error", "err", err.Error())
 		}
 	}
-
-	// Close DataDog profiler
-	s.closeDataDogProfiler()
 }
 
 // Entry is a consensus configuration entry

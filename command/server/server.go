@@ -40,6 +40,10 @@ func registerSubcommands(baseCmd *cobra.Command) {
 func setFlags(cmd *cobra.Command) {
 	defaultConfig := config.DefaultConfig()
 
+	// Deployed nodes ship logs to an aggregator, so JSON is the default here. This is
+	// separate from --json, which selects the format of a command's output.
+	helper.RegisterJSONLogsFlag(cmd)
+
 	cmd.Flags().StringVar(
 		&params.rawConfig.LogLevel,
 		command.LogLevelFlag,
@@ -475,6 +479,13 @@ func runPreRun(cmd *cobra.Command, _ []string) error {
 	if isConfigFileSpecified(cmd) {
 		if err := params.initConfigFromFile(); err != nil {
 			return err
+		}
+
+		// initConfigFromFile replaces rawConfig wholesale, discarding the flag values
+		// set above. An explicitly-passed --json-logs is re-applied here so it is not
+		// silently ignored whenever --config is used.
+		if cmd.Flags().Changed(command.JSONLogsFlag) {
+			params.setJSONLogFormat(helper.GetJSONLogFormat(cmd))
 		}
 	}
 
