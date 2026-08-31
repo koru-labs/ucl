@@ -166,9 +166,30 @@ func GetJSONRPCAddress(cmd *cobra.Command) string {
 	return cmd.Flag(command.JSONRPCFlag).Value.String()
 }
 
-// GetJSONLogFormat extracts the set JSON Format flag
+// GetJSONLogFormat reports whether the node should emit logs as JSON.
+//
+// This reads the dedicated --json-logs flag rather than --json: the latter selects the
+// format of a command's *output*, which is a separate concern from how a long-running
+// server writes its logs. They used to share one flag, which meant a command could not
+// print human-readable output while still shipping parseable logs.
 func GetJSONLogFormat(cmd *cobra.Command) bool {
-	return cmd.Flag(command.JSONOutputFlag).Changed
+	jsonLogs, err := cmd.Flags().GetBool(command.JSONLogsFlag)
+	if err != nil {
+		return false
+	}
+
+	return jsonLogs
+}
+
+// RegisterJSONLogsFlag registers --json-logs on a long-running command. It defaults to
+// true because deployed nodes ship their logs to a log aggregator, which cannot parse
+// hclog's text format; pass --json-logs=false for readable output when working locally.
+func RegisterJSONLogsFlag(cmd *cobra.Command) {
+	cmd.Flags().Bool(
+		command.JSONLogsFlag,
+		true,
+		"emit logs as JSON; pass --json-logs=false for human-readable output",
+	)
 }
 
 // RegisterJSONOutputFlag registers the --json output setting for all child commands

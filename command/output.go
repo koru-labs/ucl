@@ -36,10 +36,12 @@ func InitializeOutputter(cmd *cobra.Command) OutputFormatter {
 }
 
 func shouldOutputJSON(baseCmd *cobra.Command) bool {
-	jsonOutputFlag := baseCmd.Flag(JSONOutputFlag)
-	if jsonOutputFlag == nil {
+	// Read the value rather than whether the flag was supplied: testing .Changed made
+	// --json=false select JSON output, the opposite of what it says.
+	outputJSON, err := baseCmd.Flags().GetBool(JSONOutputFlag)
+	if err != nil {
 		return false
 	}
 
-	return jsonOutputFlag.Changed
+	return outputJSON
 }

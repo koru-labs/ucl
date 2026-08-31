@@ -21,10 +21,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # Read the version from go.mod rather than a GitHub Actions variable: setup-go pins
+      # GOTOOLCHAIN=local, so a runner Go older than the `go` directive fails the build
+      # outright instead of upgrading itself.
       - name: Setup Go environment
         uses: actions/setup-go@v6.3.0
         with:
-          go-version: ${{ vars.GO_VERSION }}
+          go-version-file: go.mod
 
       - name: Set Version Variables
         id: set_version
@@ -98,7 +101,7 @@ jobs:
       - name: Setup Go environment
         uses: actions/setup-go@v6.3.0
         with:
-          go-version: ${{ vars.GO_VERSION }}
+          go-version-file: go.mod
 
       - name: Reproduce builds
         continue-on-error: true

@@ -459,6 +459,10 @@ func (t *TestServer) Start(ctx context.Context) error {
 		"--tls-cert-file", t.Config.TLSCertFile,
 		// TLS key file
 		"--tls-key-file", t.Config.TLSKeyFile,
+		// Test node logs are archived as CI artifacts and read by hand when a run fails,
+		// so keep the aligned text format rather than the JSON a node deployment uses.
+		// Must be `--flag=false`; pflag does not accept a separate value for bool flags.
+		"--json-logs=false",
 	}
 
 	switch t.Config.Consensus {

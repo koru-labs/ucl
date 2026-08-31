@@ -145,6 +145,9 @@ func DefaultConfig() *Config {
 	defaultNetworkConfig := network.DefaultConfig()
 
 	return &Config{
+		// Deployed nodes ship logs to an aggregator, which cannot parse hclog's text
+		// format. Kept in step with the --json-logs flag default.
+		JSONLogFormat:  true,
 		GenesisPath:    "./genesis.json",
 		DataDir:        "",
 		BlockGasTarget: "0x0", // Special value signaling the parent gas limit should be applied

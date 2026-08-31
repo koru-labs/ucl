@@ -172,6 +172,10 @@ func (t *TestServer) Start() {
 		"--tls-cert-file", config.TLSCertFile,
 		// TLS key file
 		"--tls-key-file", config.TLSKeyFile,
+		// Test node logs are archived as CI artifacts and read by hand when a run fails,
+		// so keep the aligned text format rather than the JSON a node deployment uses.
+		// Must be `--flag=false`; pflag does not accept a separate value for bool flags.
+		"--json-logs=false",
 	}
 
 	if len(config.LogLevel) > 0 {

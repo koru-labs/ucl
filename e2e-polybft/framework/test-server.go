@@ -164,6 +164,10 @@ func (t *TestServer) Start() {
 		"--jsonrpc", fmt.Sprintf(":%d", config.JSONRPCPort),
 		// minimal number of child blocks required for the parent block to be considered final
 		"--num-block-confirmations", strconv.FormatUint(config.NumBlockConfirmations, 10),
+		// Test node logs are archived as CI artifacts and read by hand when a run fails,
+		// so keep the aligned text format rather than the JSON a node deployment uses.
+		// Must be `--flag=false`; pflag does not accept a separate value for bool flags.
+		"--json-logs=false",
 	}
 
 	if len(config.LogLevel) > 0 {
