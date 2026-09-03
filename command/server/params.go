@@ -56,8 +56,13 @@ const (
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
 
-	concurrentRequestsDebugFlag = "concurrent-requests-debug"
-	webSocketReadLimitFlag      = "websocket-read-limit"
+	concurrentRequestsDebugFlag     = "concurrent-requests-debug"
+	webSocketReadLimitFlag          = "websocket-read-limit"
+	jsonRPCFilterLimitFlag          = "json-rpc-filter-limit"
+	jsonRPCFilterLimitPerConnFlag   = "json-rpc-filter-limit-per-connection"
+	jsonRPCWSMaxConnectionsFlag     = "json-rpc-ws-max-connections"
+	jsonRPCWSMaxInFlightFlag        = "json-rpc-ws-max-in-flight"
+	jsonRPCWSMaxInFlightPerConnFlag = "json-rpc-ws-max-in-flight-per-connection"
 
 	metricsIntervalFlag = "metrics-interval"
 
@@ -200,6 +205,11 @@ func (p *serverParams) generateConfig() *server.Config {
 			BlockRangeLimit:          p.rawConfig.JSONRPCBlockRangeLimit,
 			ConcurrentRequestsDebug:  p.rawConfig.ConcurrentRequestsDebug,
 			WebSocketReadLimit:       p.rawConfig.WebSocketReadLimit,
+			FilterLimit:              p.rawConfig.JSONRPCFilterLimit,
+			FilterLimitPerConn:       p.rawConfig.JSONRPCFilterLimitPerConn,
+			WSMaxConnections:         p.rawConfig.JSONRPCWSMaxConnections,
+			WSMaxInFlight:            p.rawConfig.JSONRPCWSMaxInFlight,
+			WSMaxInFlightPerConn:     p.rawConfig.JSONRPCWSMaxInFlightPerConn,
 		},
 		GRPCAddr:   p.grpcAddress,
 		LibP2PAddr: p.libp2pAddress,

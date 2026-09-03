@@ -282,6 +282,41 @@ func setFlags(cmd *cobra.Command) {
 		"maximum size in bytes for a message read from the peer by websocket",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCFilterLimit,
+		jsonRPCFilterLimitFlag,
+		defaultConfig.JSONRPCFilterLimit,
+		"maximum number of active filters and subscriptions on the node, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCFilterLimitPerConn,
+		jsonRPCFilterLimitPerConnFlag,
+		defaultConfig.JSONRPCFilterLimitPerConn,
+		"maximum number of active subscriptions per websocket connection, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxConnections,
+		jsonRPCWSMaxConnectionsFlag,
+		defaultConfig.JSONRPCWSMaxConnections,
+		"maximum number of active websocket connections, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxInFlight,
+		jsonRPCWSMaxInFlightFlag,
+		defaultConfig.JSONRPCWSMaxInFlight,
+		"maximum number of in-flight websocket JSON-RPC requests across all connections, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxInFlightPerConn,
+		jsonRPCWSMaxInFlightPerConnFlag,
+		defaultConfig.JSONRPCWSMaxInFlightPerConn,
+		"maximum number of in-flight websocket JSON-RPC requests per connection, zero means no limit",
+	)
+
 	cmd.Flags().DurationVar(
 		&params.rawConfig.MetricsInterval,
 		metricsIntervalFlag,

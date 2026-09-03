@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,10 +25,12 @@ type JSONRPC struct {
 	logger     hclog.Logger
 	config     *Config
 	dispatcher dispatcher
+	wsLimiter  *wsLimiter
 }
 
 type dispatcher interface {
 	RemoveFilterByWs(conn wsConn)
+	RefreshFilterTimeouts(conn wsConn)
 	HandleWs(reqBody []byte, conn wsConn) ([]byte, error)
 	Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 }
@@ -57,6 +60,11 @@ type Config struct {
 
 	ConcurrentRequestsDebug uint64
 	WebSocketReadLimit      uint64
+	FilterLimit             uint64
+	FilterLimitPerConn      uint64
+	WSMaxConnections        uint64
+	WSMaxInFlight           uint64
+	WSMaxInFlightPerConn    uint64
 	UseTLS                  bool
 	TLSCertFile             string
 	TLSKeyFile              string
@@ -80,6 +88,10 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			priceLimit:              config.PriceLimit,
 			jsonRPCBatchLengthLimit: config.BatchLengthLimit,
 			blockRangeLimit:         config.BlockRangeLimit,
+			filterLimits: FilterLimits{
+				PerConnection: config.FilterLimitPerConn,
+				Global:        config.FilterLimit,
+			},
 			concurrentRequestsDebug: config.ConcurrentRequestsDebug,
 			blockCacheTTL:           config.BlockCacheTTL,
 			blockCacheCapacity:      config.BlockCacheCapacity,
@@ -95,6 +107,11 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 		logger:     logger.Named("jsonrpc"),
 		config:     config,
 		dispatcher: d,
+		wsLimiter: newWSLimiter(
+			config.WSMaxConnections,
+			config.WSMaxInFlight,
+			config.WSMaxInFlightPerConn,
+		),
 	}
 
 	// start http server
@@ -208,38 +225,190 @@ var wsUpgrader = websocket.Upgrader{
 	// shouldn't exceed 1024B
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+
+	// CORS rule - Allow requests from anywhere
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+const (
+	// wsWriteDeadline bounds a single frame write to the peer. Without a deadline a peer
+	// that stops reading its socket blocks the writer forever once the TCP window fills.
+	wsWriteDeadline = 10 * time.Second
+
+	// wsOutboundQueueSize is how many frames are buffered per connection before the peer is
+	// considered too slow to keep up and gets dropped. It needs to absorb the burst a single
+	// block can produce, which for a log subscription is one frame per matching log, while
+	// staying small enough that many stalled connections cannot amplify into a lot of
+	// retained memory.
+	wsOutboundQueueSize = 256
+
+	// wsPongWait is how long the connection may go without any inbound traffic, counting the
+	// pong replies to our pings, before it is treated as dead. Without this a peer that
+	// vanishes without closing its socket (power loss, NAT timeout) leaves the read loop
+	// blocked forever and its filters installed until the OS gives up on the TCP connection.
+	wsPongWait = 60 * time.Second
+
+	// wsPingPeriod is how often the peer is pinged. It has to stay comfortably below
+	// wsPongWait so that a single lost pong does not drop a healthy connection.
+	wsPingPeriod = 20 * time.Second
+)
+
+// errWSWriteQueueFull signals that the peer is not draining its socket fast enough and
+// should be evicted rather than buffered for.
+var errWSWriteQueueFull = errors.New("web socket outbound queue is full")
+
+// wsConnection is the subset of *websocket.Conn used by wsWrapper. It exists so the write
+// path can be exercised without a real socket.
+type wsConnection interface {
+	WriteMessage(messageType int, data []byte) error
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+	SetWriteDeadline(t time.Time) error
+	Close() error
+}
+
+type wsMessage struct {
+	messageType int
+	data        []byte
 }
 
 // wsWrapper is a wrapping object for the web socket connection and logger
 type wsWrapper struct {
-	sync.Mutex
+	ws     wsConnection // the actual WS connection
+	logger hclog.Logger // module logger
 
-	ws       *websocket.Conn // the actual WS connection
-	logger   hclog.Logger    // module logger
-	filterID string          // filter ID
+	// filterIDs holds every filter created over this connection. It has to be a set rather
+	// than a single ID: a client can open any number of subscriptions on one connection, and
+	// all of them have to be removed when it goes away.
+	filterMux sync.Mutex
+	filterIDs map[string]struct{}
+
+	outbound   chan wsMessage // bounded queue drained by the writer goroutine
+	closeCh    chan struct{}  // closed when the connection is being torn down
+	closeOnce  sync.Once
+	pingPeriod time.Duration
 }
 
-func (w *wsWrapper) SetFilterID(filterID string) {
-	w.filterID = filterID
-}
-
-func (w *wsWrapper) GetFilterID() string {
-	return w.filterID
-}
-
-// WriteMessage writes out the message to the WS peer
-func (w *wsWrapper) WriteMessage(messageType int, data []byte) error {
-	w.Lock()
-	defer w.Unlock()
-
-	writeErr := w.ws.WriteMessage(messageType, data)
-	if writeErr != nil {
-		w.logger.Error(
-			fmt.Sprintf("Unable to write WS message, %s", writeErr.Error()),
-		)
+// newWSWrapper wraps the connection and starts the goroutine that owns all writes to it
+func newWSWrapper(ws wsConnection, logger hclog.Logger, pingPeriod time.Duration) *wsWrapper {
+	w := &wsWrapper{
+		ws:         ws,
+		logger:     logger,
+		filterIDs:  make(map[string]struct{}),
+		outbound:   make(chan wsMessage, wsOutboundQueueSize),
+		closeCh:    make(chan struct{}),
+		pingPeriod: pingPeriod,
 	}
 
-	return writeErr
+	go w.writeLoop()
+
+	return w
+}
+
+// AddFilterID records a filter created over this connection
+func (w *wsWrapper) AddFilterID(id string) {
+	w.filterMux.Lock()
+	defer w.filterMux.Unlock()
+
+	w.filterIDs[id] = struct{}{}
+}
+
+// RemoveFilterID forgets a filter that has already been uninstalled, so that a client which
+// subscribes and unsubscribes in a loop does not grow this set without bound
+func (w *wsWrapper) RemoveFilterID(id string) {
+	w.filterMux.Lock()
+	defer w.filterMux.Unlock()
+
+	delete(w.filterIDs, id)
+}
+
+// GetFilterIDs returns a snapshot of the filters created over this connection, so the caller
+// can iterate it while filters are being removed
+func (w *wsWrapper) GetFilterIDs() []string {
+	w.filterMux.Lock()
+	defer w.filterMux.Unlock()
+
+	ids := make([]string, 0, len(w.filterIDs))
+
+	for id := range w.filterIDs {
+		ids = append(ids, id)
+	}
+
+	return ids
+}
+
+// WriteMessage queues the message for delivery to the WS peer. It never blocks: if the
+// peer is not keeping up, the queue fills and the message is rejected with
+// errWSWriteQueueFull so the caller can evict the connection.
+func (w *wsWrapper) WriteMessage(messageType int, data []byte) error {
+	select {
+	case <-w.closeCh:
+		return net.ErrClosed
+	default:
+	}
+
+	select {
+	case w.outbound <- wsMessage{messageType: messageType, data: data}:
+		return nil
+	default:
+		return errWSWriteQueueFull
+	}
+}
+
+// Close tears down the connection and stops the writer goroutine. Closing the underlying
+// connection also unblocks the read loop in handleWs, which removes the connection's filters.
+func (w *wsWrapper) Close() error {
+	var closeErr error
+
+	w.closeOnce.Do(func() {
+		close(w.closeCh)
+
+		closeErr = w.ws.Close()
+	})
+
+	return closeErr
+}
+
+// writeLoop is the only goroutine that writes to the underlying connection, so the writes
+// need no further serialization. It also drives the keepalive pings, whose pongs are what
+// keep the peer's filters from expiring.
+func (w *wsWrapper) writeLoop() {
+	pingTicker := time.NewTicker(w.pingPeriod)
+	defer pingTicker.Stop()
+
+	for {
+		var err error
+
+		select {
+		case <-w.closeCh:
+			return
+		case msg := <-w.outbound:
+			err = w.writeToConn(msg)
+		case <-pingTicker.C:
+			err = w.ws.WriteControl(
+				websocket.PingMessage,
+				nil,
+				time.Now().UTC().Add(wsWriteDeadline),
+			)
+		}
+
+		if err != nil {
+			w.logger.Error(
+				fmt.Sprintf("Unable to write to WS peer, closing connection, %s", err.Error()),
+			)
+
+			_ = w.Close()
+
+			return
+		}
+	}
+}
+
+func (w *wsWrapper) writeToConn(msg wsMessage) error {
+	if err := w.ws.SetWriteDeadline(time.Now().UTC().Add(wsWriteDeadline)); err != nil {
+		return err
+	}
+
+	return w.ws.WriteMessage(msg.messageType, msg.data)
 }
 
 // isSupportedWSType returns a status indicating if the message type is supported
@@ -248,9 +417,39 @@ func isSupportedWSType(messageType int) bool {
 		messageType == websocket.BinaryMessage
 }
 
+// replyWSLimitExceeded writes a JSON-RPC error from the read loop, so a flood of
+// frames past the in-flight ceiling does not spawn a goroutine each.
+func (j *JSONRPC) replyWSLimitExceeded(conn *wsWrapper, msgType int, message []byte) {
+	var req Request
+
+	_ = jsonIt.Unmarshal(message, &req)
+
+	resp, err := NewRPCResponse(
+		req.ID,
+		"2.0",
+		nil,
+		NewLimitExceededError("websocket in-flight request limit reached"),
+	).Bytes()
+	if err != nil {
+		return
+	}
+
+	if writeErr := conn.WriteMessage(msgType, resp); errors.Is(writeErr, errWSWriteQueueFull) {
+		j.logger.Warn("Closing WS connection, peer is not draining its socket")
+
+		_ = conn.Close()
+	}
+}
+
 func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
-	// CORS rule - Allow requests from anywhere
-	wsUpgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	if !j.wsLimiter.tryAddConn() {
+		j.logger.Warn("websocket connection limit reached")
+		http.Error(w, "websocket connection limit reached", http.StatusServiceUnavailable)
+
+		return
+	}
+
+	defer j.wsLimiter.removeConn()
 
 	// Upgrade the connection to a WS one
 	ws, err := wsUpgrader.Upgrade(w, req, nil)
@@ -265,19 +464,46 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 		ws.SetReadLimit(int64(j.config.WebSocketReadLimit))
 	}
 
-	// Defer WS closure
-	defer func(ws *websocket.Conn) {
-		err = ws.Close()
-		if err != nil {
+	wrapConn := newWSWrapper(ws, j.logger, wsPingPeriod)
+
+	// Defer WS closure, which also stops the writer goroutine
+	defer func() {
+		if closeErr := wrapConn.Close(); closeErr != nil {
 			j.logger.Error(
-				fmt.Sprintf("Unable to gracefully close WS connection, %s", err.Error()),
+				fmt.Sprintf("Unable to gracefully close WS connection, %s", closeErr.Error()),
 			)
 		}
-	}(ws)
+	}()
 
-	wrapConn := &wsWrapper{ws: ws, logger: j.logger}
+	extendReadDeadline := func() error {
+		return ws.SetReadDeadline(time.Now().UTC().Add(wsPongWait))
+	}
+
+	if err := extendReadDeadline(); err != nil {
+		j.logger.Error(fmt.Sprintf("Unable to set WS read deadline, %s", err.Error()))
+
+		return
+	}
+
+	// A pong is the peer proving it is still there, so it both keeps the connection open and
+	// pushes back the expiry of the filters the connection owns. Tying the refresh to pongs
+	// rather than to every inbound frame keeps it naturally rate limited: a client cannot
+	// turn cheap messages into FilterManager write lock traffic proportional to its filters.
+	ws.SetPongHandler(func(string) error {
+		j.dispatcher.RefreshFilterTimeouts(wrapConn)
+
+		return extendReadDeadline()
+	})
 
 	j.logger.Info("Websocket connection established")
+
+	var perConn uint64
+	if j.wsLimiter != nil {
+		perConn = j.wsLimiter.perConn
+	}
+
+	inFlight := newWSConnSlots(perConn)
+
 	// Run the listen loop
 	for {
 		// Read the incoming message
@@ -300,8 +526,34 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 			break
 		}
 
+		if deadlineErr := extendReadDeadline(); deadlineErr != nil {
+			j.logger.Error(
+				fmt.Sprintf("Unable to refresh WS read deadline, %s", deadlineErr.Error()),
+			)
+
+			j.dispatcher.RemoveFilterByWs(wrapConn)
+
+			break
+		}
+
 		if isSupportedWSType(msgType) {
-			go func() {
+			if !inFlight.try() {
+				j.replyWSLimitExceeded(wrapConn, msgType, message)
+
+				continue
+			}
+
+			if !j.wsLimiter.tryAcquireInFlight() {
+				inFlight.release()
+				j.replyWSLimitExceeded(wrapConn, msgType, message)
+
+				continue
+			}
+
+			go func(msgType int, message []byte) {
+				defer inFlight.release()
+				defer j.wsLimiter.releaseInFlight()
+
 				defer func() {
 					if r := recover(); r != nil {
 						// Log the panic details
@@ -313,14 +565,15 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 				if handleErr != nil {
 					j.logger.Error(fmt.Sprintf("Unable to handle WS request, %s", handleErr.Error()))
 
-					_ = wrapConn.WriteMessage(
-						msgType,
-						[]byte(fmt.Sprintf("WS Handle error: %s", handleErr.Error())),
-					)
-				} else {
-					_ = wrapConn.WriteMessage(msgType, resp)
+					resp = []byte(fmt.Sprintf("WS Handle error: %s", handleErr.Error()))
 				}
-			}()
+
+				if writeErr := wrapConn.WriteMessage(msgType, resp); errors.Is(writeErr, errWSWriteQueueFull) {
+					j.logger.Warn("Closing WS connection, peer is not draining its socket")
+
+					_ = wrapConn.Close()
+				}
+			}(msgType, message)
 		}
 	}
 }

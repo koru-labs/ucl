@@ -330,11 +330,6 @@ func TestDispatcherBatchRequest(t *testing.T) {
 	}
 
 	mock := &mockWsConn{
-		SetFilterIDFn: func(s string) {
-		},
-		GetFilterIDFn: func() string {
-			return ""
-		},
 		WriteMessageFn: func(i int, b []byte) error {
 			return nil
 		},
@@ -528,11 +523,6 @@ func TestDispatcher_WebsocketConnection_Unsubscribe(t *testing.T) {
 		},
 	)
 	mockConn := &mockWsConn{
-		SetFilterIDFn: func(s string) {
-		},
-		GetFilterIDFn: func() string {
-			return ""
-		},
 		WriteMessageFn: func(i int, b []byte) error {
 			return nil
 		},
