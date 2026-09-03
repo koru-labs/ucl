@@ -891,12 +891,22 @@ func (e *Eth) GetCode(address types.Address, filter BlockNumberOrHash) (interfac
 
 // NewFilter creates a filter object, based on filter options, to notify when the state changes (logs).
 func (e *Eth) NewFilter(filter *LogQuery) (interface{}, error) {
-	return e.filterManager.NewLogFilter(filter, nil), nil
+	id, err := e.filterManager.NewLogFilter(filter, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return id, nil
 }
 
 // NewBlockFilter creates a filter in the node, to notify when a new block arrives
 func (e *Eth) NewBlockFilter() (interface{}, error) {
-	return e.filterManager.NewBlockFilter(nil), nil
+	id, err := e.filterManager.NewBlockFilter(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return id, nil
 }
 
 // GetFilterChanges is a polling method for a filter, which returns an array of logs which occurred since last poll.

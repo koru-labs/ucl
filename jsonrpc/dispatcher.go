@@ -69,6 +69,7 @@ type dispatcherParams struct {
 	priceLimit              uint64
 	jsonRPCBatchLengthLimit uint64
 	blockRangeLimit         uint64
+	filterLimits            FilterLimits
 
 	concurrentRequestsDebug uint64
 
@@ -94,7 +95,7 @@ func newDispatcher(
 	}
 
 	if store != nil {
-		d.filterManager = NewFilterManager(logger, store, params.blockRangeLimit)
+		d.filterManager = NewFilterManager(logger, store, params.blockRangeLimit, params.filterLimits)
 		go d.filterManager.Run()
 	}
 
@@ -180,8 +181,10 @@ func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, Error) 
 
 type wsConn interface {
 	WriteMessage(messageType int, data []byte) error
-	GetFilterID() string
-	SetFilterID(string)
+	AddFilterID(id string)
+	RemoveFilterID(id string)
+	GetFilterIDs() []string
+	Close() error
 }
 
 // as per https://www.jsonrpc.org/specification, the `id` in JSON-RPC 2.0
@@ -218,22 +221,29 @@ func (d *Dispatcher) handleSubscribe(req Request, conn wsConn) (string, Error) {
 		return "", NewSubscriptionNotFoundError(subscribeMethod)
 	}
 
-	var filterID string
+	var (
+		filterID string
+		filterEr error
+	)
 
 	switch {
 	case subscribeMethod == "newHeads":
-		filterID = d.filterManager.NewBlockFilter(conn)
+		filterID, filterEr = d.filterManager.NewBlockFilter(conn)
 	case subscribeMethod == "logs":
 		logQuery, err := decodeLogQueryFromInterface(params[1])
 		if err != nil {
 			return "", NewInternalError(err.Error())
 		}
 
-		filterID = d.filterManager.NewLogFilter(logQuery, conn)
+		filterID, filterEr = d.filterManager.NewLogFilter(logQuery, conn)
 	case subscribeMethod == "newPendingTransactions":
-		filterID = d.filterManager.NewPendingTxFilter(conn)
+		filterID, filterEr = d.filterManager.NewPendingTxFilter(conn)
 	default:
 		return "", NewSubscriptionNotFoundError(subscribeMethod)
+	}
+
+	if filterEr != nil {
+		return "", NewLimitExceededError(filterEr.Error())
 	}
 
 	return filterID, nil
@@ -259,6 +269,12 @@ func (d *Dispatcher) handleUnsubscribe(req Request) (bool, Error) {
 
 func (d *Dispatcher) RemoveFilterByWs(conn wsConn) {
 	d.filterManager.RemoveFilterByWs(conn)
+}
+
+// RefreshFilterTimeouts pushes back the expiry of the connection's filters, called whenever
+// the peer proves it is still alive
+func (d *Dispatcher) RefreshFilterTimeouts(conn wsConn) {
+	d.filterManager.RefreshFilterTimeouts(conn)
 }
 
 func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {

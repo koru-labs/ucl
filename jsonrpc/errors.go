@@ -94,6 +94,23 @@ func NewSubscriptionNotFoundError(method string) *subscriptionNotFoundError {
 	return &subscriptionNotFoundError{fmt.Sprintf("subscribe method %s not found", method)}
 }
 
+type limitExceededError struct {
+	err string
+}
+
+func (e *limitExceededError) Error() string {
+	return e.err
+}
+
+// ErrorCode returns -32005, the code Ethereum clients conventionally use for exceeded limits
+func (e *limitExceededError) ErrorCode() int {
+	return -32005
+}
+
+func NewLimitExceededError(msg string) *limitExceededError {
+	return &limitExceededError{msg}
+}
+
 func constructErrorFromRevert(result *runtime.ExecutionResult) error {
 	revertErrMsg, unpackErr := abi.UnpackRevertError(result.ReturnValue)
 	if unpackErr != nil {

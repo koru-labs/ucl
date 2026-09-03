@@ -145,7 +145,7 @@ func (m *mockStore) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Rece
 	return receipts, nil
 }
 
-func (m *mockStore) SubscribeEvents() blockchain.Subscription {
+func (m *mockStore) SubscribeEventsLossy() blockchain.Subscription {
 	return m.subscription
 }
 

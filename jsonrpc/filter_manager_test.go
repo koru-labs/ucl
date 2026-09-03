@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"net"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,7 +131,7 @@ func Test_GetLogsForQuery(t *testing.T) {
 
 	store.appendBlocksToStore(blocks)
 
-	f := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	t.Cleanup(func() {
 		defer f.Close()
@@ -211,7 +213,7 @@ func Test_getLogsFromBlock(t *testing.T) {
 
 	store.appendBlocksToStore([]*types.Block{block})
 
-	f := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	t.Cleanup(func() {
 		defer f.Close()
@@ -235,7 +237,7 @@ func Test_GetLogFilterFromID(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
@@ -246,9 +248,10 @@ func Test_GetLogFilterFromID(t *testing.T) {
 		fromBlock: 0,
 	}
 
-	retrivedLogFilter, err := m.GetLogFilterFromID(
-		m.NewLogFilter(logFilter, &MockClosedWSConnection{}),
-	)
+	id, err := m.NewLogFilter(logFilter, &MockClosedWSConnection{})
+	require.NoError(t, err)
+
+	retrivedLogFilter, err := m.GetLogFilterFromID(id)
 	assert.NoError(t, err)
 	assert.Equal(t, logFilter, retrivedLogFilter.query)
 }
@@ -258,16 +261,17 @@ func TestFilterLog(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
-	id := m.NewLogFilter(&LogQuery{
+	id, err := m.NewLogFilter(&LogQuery{
 		Topics: [][]types.Hash{
 			{hash1},
 		},
 	}, nil)
+	require.NoError(t, err)
 
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
@@ -322,13 +326,14 @@ func TestFilterBlock(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
 	// add block filter
-	id := m.NewBlockFilter(nil)
+	id, err := m.NewBlockFilter(nil)
+	require.NoError(t, err)
 
 	// emit two events
 	store.emitEvent(&mockEvent{
@@ -387,13 +392,14 @@ func TestFilterPendingTx(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
 	// add pending tx filter
-	id := m.NewPendingTxFilter(nil)
+	id, err := m.NewPendingTxFilter(nil)
+	require.NoError(t, err)
 
 	// emit two events
 	store.emitTxPoolEvent(proto.EventType_ADDED, "evt1")
@@ -437,7 +443,7 @@ func TestFilterTimeout(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	m.timeout = 2 * time.Second
@@ -445,7 +451,8 @@ func TestFilterTimeout(t *testing.T) {
 	go m.Run()
 
 	// add block filter
-	id := m.NewBlockFilter(nil)
+	id, err := m.NewBlockFilter(nil)
+	require.NoError(t, err)
 
 	assert.True(t, m.Exists(id))
 	time.Sleep(3 * time.Second)
@@ -459,12 +466,13 @@ func TestRemoveFilterByWebsocket(t *testing.T) {
 
 	mock, _ := newMockWsConnWithMsgCh()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
-	id := m.NewBlockFilter(mock)
+	id, err := m.NewBlockFilter(mock)
+	require.NoError(t, err)
 
 	m.RemoveFilterByWs(mock)
 
@@ -477,7 +485,7 @@ func Test_flushWsFilters(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	t.Cleanup(func() {
 		m.Close()
@@ -488,23 +496,14 @@ func Test_flushWsFilters(t *testing.T) {
 	runTest := func(t *testing.T, flushErr error, shouldExist bool) {
 		t.Helper()
 
-		var (
-			filterID string
-		)
-
 		mock := &mockWsConn{
-			SetFilterIDFn: func(s string) {
-				filterID = s
-			},
-			GetFilterIDFn: func() string {
-				return filterID
-			},
 			WriteMessageFn: func(i int, b []byte) error {
 				return flushErr
 			},
 		}
 
-		id := m.NewBlockFilter(mock)
+		id, err := m.NewBlockFilter(mock)
+		require.NoError(t, err)
 
 		// emit event
 		store.emitEvent(&mockEvent{
@@ -557,6 +556,123 @@ func Test_flushWsFilters(t *testing.T) {
 
 		runTest(t, nil, true)
 	})
+
+	t.Run("should remove if sendUpdates returns errWSWriteQueueFull", func(t *testing.T) {
+		t.Parallel()
+
+		runTest(t, errWSWriteQueueFull, false)
+	})
+}
+
+// newBlockEvent builds the minimal chain event that makes the FilterManager flush block filters
+func newBlockEvent(hash string) *mockEvent {
+	return &mockEvent{
+		NewChain: []*mockHeader{
+			{
+				header: &types.Header{
+					Hash: types.StringToHash(hash),
+				},
+			},
+		},
+	}
+}
+
+// Test_flushWsFilters_evictsPeerWithFullQueue asserts that a peer which has fallen so far
+// behind that its outbound queue overflowed loses its subscription and its connection,
+// rather than being buffered for indefinitely.
+func Test_flushWsFilters_evictsPeerWithFullQueue(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+
+	t.Cleanup(m.Close)
+
+	go m.Run()
+
+	stalled := &mockWsConn{
+		WriteMessageFn: func(int, []byte) error {
+			return errWSWriteQueueFull
+		},
+	}
+
+	id, err := m.NewBlockFilter(stalled)
+	require.NoError(t, err)
+
+	store.emitEvent(newBlockEvent("1"))
+
+	waitFor(t, 5*time.Second, "filter of the evicted peer was not removed", func() bool {
+		return !m.Exists(id)
+	})
+
+	assert.True(t, stalled.isClosed(), "peer connection was not closed after its queue overflowed")
+}
+
+// Test_flushWsFilters_holdsNoLockAcrossWrite is the regression test for the deadlock where a
+// single unresponsive WS peer wedged every FilterManager operation: the flush used to write to
+// the peer while holding the read lock, and Go's RWMutex starves new readers as soon as a
+// writer queues up.
+func Test_flushWsFilters_holdsNoLockAcrossWrite(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+
+	t.Cleanup(m.Close)
+
+	go m.Run()
+
+	var (
+		releaseWrite = make(chan struct{})
+		inWrite      = make(chan struct{}, 1)
+	)
+
+	stalled := &mockWsConn{
+		WriteMessageFn: func(int, []byte) error {
+			select {
+			case inWrite <- struct{}{}:
+			default:
+			}
+
+			<-releaseWrite
+
+			return nil
+		},
+	}
+
+	stalledID, err := m.NewBlockFilter(stalled)
+	require.NoError(t, err)
+
+	defer close(releaseWrite)
+
+	store.emitEvent(newBlockEvent("1"))
+
+	select {
+	case <-inWrite:
+	case <-time.After(5 * time.Second):
+		t.Fatal("flush never reached the peer write")
+	}
+
+	// While the write is stuck, both read-lock and write-lock operations must still complete
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		m.Exists(stalledID)                         // read lock
+		otherID, _ := m.NewBlockFilter(&mockWsConn{ // write lock
+			WriteMessageFn: func(int, []byte) error { return nil },
+		})
+		m.Uninstall(otherID) // write lock
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("FilterManager operations blocked while a write to a peer was in flight")
+	}
 }
 
 func TestFilterWebsocket(t *testing.T) {
@@ -566,15 +682,16 @@ func TestFilterWebsocket(t *testing.T) {
 
 	mock, msgCh := newMockWsConnWithMsgCh()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
-	id := m.NewBlockFilter(mock)
+	id, err := m.NewBlockFilter(mock)
+	require.NoError(t, err)
 
 	// we cannot call get filter changes for a websocket filter
-	_, err := m.GetFilterChanges(id)
+	_, err = m.GetFilterChanges(id)
 	assert.Equal(t, err, ErrWSFilterDoesNotSupportGetChanges)
 
 	// emit event
@@ -602,15 +719,16 @@ func TestFilterPendingTxWebsocket(t *testing.T) {
 
 	mock, msgCh := newMockWsConnWithMsgCh()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
-	id := m.NewPendingTxFilter(mock)
+	id, err := m.NewPendingTxFilter(mock)
+	require.NoError(t, err)
 
 	// we cannot call get filter changes for a websocket filter
-	_, err := m.GetFilterChanges(id)
+	_, err = m.GetFilterChanges(id)
 	assert.Equal(t, err, ErrWSFilterDoesNotSupportGetChanges)
 
 	// emit event
@@ -624,36 +742,63 @@ func TestFilterPendingTxWebsocket(t *testing.T) {
 }
 
 type mockWsConn struct {
-	SetFilterIDFn  func(string)
-	GetFilterIDFn  func() string
 	WriteMessageFn func(int, []byte) error
+
+	filterMux sync.Mutex
+	filterIDs map[string]struct{}
+
+	closed atomic.Bool
 }
 
-func (m *mockWsConn) SetFilterID(filterID string) {
-	m.SetFilterIDFn(filterID)
+func (m *mockWsConn) AddFilterID(id string) {
+	m.filterMux.Lock()
+	defer m.filterMux.Unlock()
+
+	if m.filterIDs == nil {
+		m.filterIDs = make(map[string]struct{})
+	}
+
+	m.filterIDs[id] = struct{}{}
 }
 
-func (m *mockWsConn) GetFilterID() string {
-	return m.GetFilterIDFn()
+func (m *mockWsConn) RemoveFilterID(id string) {
+	m.filterMux.Lock()
+	defer m.filterMux.Unlock()
+
+	delete(m.filterIDs, id)
+}
+
+func (m *mockWsConn) GetFilterIDs() []string {
+	m.filterMux.Lock()
+	defer m.filterMux.Unlock()
+
+	ids := make([]string, 0, len(m.filterIDs))
+
+	for id := range m.filterIDs {
+		ids = append(ids, id)
+	}
+
+	return ids
 }
 
 func (m *mockWsConn) WriteMessage(messageType int, b []byte) error {
 	return m.WriteMessageFn(messageType, b)
 }
 
+func (m *mockWsConn) Close() error {
+	m.closed.Store(true)
+
+	return nil
+}
+
+func (m *mockWsConn) isClosed() bool {
+	return m.closed.Load()
+}
+
 func newMockWsConnWithMsgCh() (*mockWsConn, <-chan []byte) {
-	var (
-		filterID string
-		msgCh    = make(chan []byte, 1)
-	)
+	msgCh := make(chan []byte, 1)
 
 	mock := &mockWsConn{
-		SetFilterIDFn: func(s string) {
-			filterID = s
-		},
-		GetFilterIDFn: func() string {
-			return filterID
-		},
 		WriteMessageFn: func(i int, b []byte) error {
 			msgCh <- b
 
@@ -753,14 +898,20 @@ func TestHeadStream_Concurrent(t *testing.T) {
 
 type MockClosedWSConnection struct{}
 
-func (m *MockClosedWSConnection) SetFilterID(_filterID string) {}
+func (m *MockClosedWSConnection) AddFilterID(_id string) {}
 
-func (m *MockClosedWSConnection) GetFilterID() string {
-	return ""
+func (m *MockClosedWSConnection) RemoveFilterID(_id string) {}
+
+func (m *MockClosedWSConnection) GetFilterIDs() []string {
+	return nil
 }
 
 func (m *MockClosedWSConnection) WriteMessage(_messageType int, _data []byte) error {
 	return websocket.ErrCloseSent
+}
+
+func (m *MockClosedWSConnection) Close() error {
+	return nil
 }
 
 func TestClosedFilterDeletion(t *testing.T) {
@@ -768,18 +919,19 @@ func TestClosedFilterDeletion(t *testing.T) {
 
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
 
 	// add block filter
-	id := m.NewBlockFilter(&MockClosedWSConnection{})
+	id, err := m.NewBlockFilter(&MockClosedWSConnection{})
+	require.NoError(t, err)
 
 	assert.True(t, m.Exists(id))
 
 	// event is sent to the filter but writing to connection should fail
-	err := m.dispatchEvent(&blockchain.Event{
+	err = m.dispatchEvent(&blockchain.Event{
 		NewChain: []*types.Header{
 			{
 				Hash: types.StringToHash("1"),
@@ -852,7 +1004,7 @@ func Test_appendLogsToFilters(t *testing.T) {
 
 	store.appendBlocksToStore([]*types.Block{block})
 
-	f := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	logFilter := &logFilter{
 		filterBase: newFilterBase(nil),

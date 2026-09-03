@@ -49,7 +49,9 @@ func (s *systemService) GetStatus(ctx context.Context, req *empty.Empty) (*proto
 
 // Subscribe implements the blockchain event subscription service
 func (s *systemService) Subscribe(req *empty.Empty, stream proto.System_SubscribeServer) error {
-	sub := s.server.blockchain.SubscribeEvents()
+	// A lossy subscription, since stream.Send below blocks on the client: a client that stops
+	// reading must not be able to stall the block write path
+	sub := s.server.blockchain.SubscribeEventsLossy()
 
 	for {
 		evnt := sub.GetEvent()

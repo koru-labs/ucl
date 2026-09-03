@@ -841,7 +841,7 @@ func (m *mockBlockStore) ApplyTxn(_ *types.Header, _ *types.Transaction, _ types
 	}, nil
 }
 
-func (m *mockBlockStore) SubscribeEvents() blockchain.Subscription {
+func (m *mockBlockStore) SubscribeEventsLossy() blockchain.Subscription {
 	return nil
 }
 

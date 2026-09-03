@@ -96,4 +96,9 @@ type JSONRPC struct {
 	BlockRangeLimit          uint64
 	ConcurrentRequestsDebug  uint64
 	WebSocketReadLimit       uint64
+	FilterLimit              uint64
+	FilterLimitPerConn       uint64
+	WSMaxConnections         uint64
+	WSMaxInFlight            uint64
+	WSMaxInFlightPerConn     uint64
 }
