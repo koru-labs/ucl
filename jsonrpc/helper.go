@@ -23,6 +23,68 @@ var (
 	ErrInsufficientFunds        = errors.New("insufficient funds for execution")
 )
 
+const (
+	maxCallDataSize              = 128 * 1024
+	maxStateOverrideAccounts     = 256
+	maxStateOverrideCodeSize     = 128 * 1024
+	maxStateOverrideStorageSlots = 4096
+	maxEstimateGasIterations     = 32
+)
+
+// capCallGas applies the eth_call gas defaults: missing gas => block gas limit; anything above the
+// operator cap (when set) is clamped to the cap (same behaviour as go-ethereum).
+func capCallGas(gas, blockGasLimit, rpcGasCap uint64) uint64 {
+	if gas == 0 {
+		gas = blockGasLimit
+	}
+
+	if rpcGasCap != 0 && gas > rpcGasCap {
+		gas = rpcGasCap
+	}
+
+	return gas
+}
+
+// toStateOverride validates and converts the API override. Errors are Invalid params (-32602).
+func toStateOverride(api *StateOverride) (types.StateOverride, error) {
+	if api == nil {
+		return nil, nil
+	}
+
+	if len(*api) > maxStateOverrideAccounts {
+		return nil, NewInvalidParamsError("state override has too many accounts")
+	}
+
+	slots := 0
+	out := types.StateOverride{}
+
+	for addr, o := range *api {
+		if o.Code != nil && len(*o.Code) > maxStateOverrideCodeSize {
+			return nil, NewInvalidParamsError("state override code too large")
+		}
+
+		if o.State != nil && o.StateDiff != nil {
+			return nil, NewInvalidParamsError("cannot override both state and stateDiff")
+		}
+
+		if o.State != nil {
+			slots += len(*o.State)
+		}
+
+		if o.StateDiff != nil {
+			slots += len(*o.StateDiff)
+		}
+
+		if slots > maxStateOverrideStorageSlots {
+			return nil, NewInvalidParamsError("state override has too many storage slots")
+		}
+
+		out[addr] = o.ToType()
+	}
+
+	return out, nil
+}
+
 type latestHeaderGetter interface {
 	Header() *types.Header
 }
@@ -221,6 +283,10 @@ func DecodeTxn(arg *txnArgs, blockNumber uint64, store nonceGetter, forceSetNonc
 
 	if input == nil {
 		input = []byte{}
+	}
+
+	if len(input) > maxCallDataSize {
+		return nil, NewInvalidParamsError("calldata too large")
 	}
 
 	if arg.Gas == nil {

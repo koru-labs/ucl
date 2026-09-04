@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"errors"
 	"math/big"
 	"testing"
@@ -684,7 +685,7 @@ func TestEth_EstimateGas_GasLimit(t *testing.T) {
 			}
 
 			// Run the estimation
-			estimate, estimateErr := ethEndpoint.EstimateGas(testCase.transaction, nil)
+			estimate, estimateErr := ethEndpoint.EstimateGas(context.Background(), testCase.transaction, nil)
 
 			if testCase.expectedError != nil {
 				if estimateErr == nil {
@@ -758,6 +759,7 @@ func TestEth_EstimateGas_Reverts(t *testing.T) {
 
 		// Run the estimation
 		estimate, estimateErr := ethEndpoint.EstimateGas(
+			context.Background(),
 			constructMockTx(nil, nil),
 			nil,
 		)
@@ -792,6 +794,7 @@ func TestEth_EstimateGas_ValueTransfer(t *testing.T) {
 
 	// Run the estimation
 	estimate, err := ethEndpoint.EstimateGas(
+		context.Background(),
 		mockTx,
 		nil,
 	)
@@ -819,6 +822,7 @@ func TestEth_EstimateGas_ContractCreation(t *testing.T) {
 
 	// Run the estimation
 	estimate, err := ethEndpoint.EstimateGas(
+		context.Background(),
 		mockTx,
 		nil,
 	)
@@ -905,7 +909,332 @@ func (m *mockSpecialStore) GetForksInTime(blockNumber uint64) chain.ForksInTime 
 	return chain.AllForksEnabled.At(0)
 }
 
-func (m *mockSpecialStore) ApplyTxn(header *types.Header, txn *types.Transaction, _ types.StateOverride, _ bool) (*runtime.ExecutionResult, error) {
+func TestEth_Call_GasCapAndAbort(t *testing.T) {
+	t.Parallel()
+
+	filter := BlockNumberOrHash{}
+
+	t.Run("omitted gas is clamped to cap", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		eth.rpcGasCap = 100000
+
+		var seen uint64
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			seen = txn.Gas
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		_, err := eth.Call(context.Background(), constructMockTx(nil, argBytesPtr([]byte{0x1})), filter, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(100000), seen)
+	})
+
+	t.Run("gas above cap is clamped", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		eth.rpcGasCap = 100000
+
+		var seen uint64
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			seen = txn.Gas
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		_, err := eth.Call(context.Background(), constructMockTx(argUintPtr(200000), argBytesPtr([]byte{0x1})), filter, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(100000), seen)
+	})
+
+	t.Run("gas below cap is unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		eth.rpcGasCap = 100000
+
+		var seen uint64
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			seen = txn.Gas
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		_, err := eth.Call(context.Background(), constructMockTx(argUintPtr(50000), argBytesPtr([]byte{0x1})), filter, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(50000), seen)
+	})
+
+	t.Run("aborted execution returns timeout error", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		store.applyTxnHook = func(_ *types.Header, _ *types.Transaction) (*runtime.ExecutionResult, error) {
+			return &runtime.ExecutionResult{Err: runtime.ErrExecutionAborted}, nil
+		}
+
+		_, err := eth.Call(context.Background(), constructMockTx(argUintPtr(50000), argBytesPtr([]byte{0x1})), filter, nil)
+		assert.Error(t, err)
+
+		var te *timeoutError
+		assert.ErrorAs(t, err, &te)
+		assert.Equal(t, -32000, te.ErrorCode())
+	})
+}
+
+func TestEth_EstimateGas_CapsAndIterations(t *testing.T) {
+	t.Parallel()
+
+	t.Run("revert at ceiling is a single run", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		calls := 0
+
+		store.applyTxnHook = func(_ *types.Header, _ *types.Transaction) (*runtime.ExecutionResult, error) {
+			calls++
+
+			return &runtime.ExecutionResult{
+				Err: runtime.ErrExecutionReverted,
+			}, nil
+		}
+
+		_, err := eth.EstimateGas(context.Background(), constructMockTx(nil, argBytesPtr([]byte{0x1})), nil)
+		assert.Error(t, err)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("success stays within iteration bound", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		calls := 0
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			calls++
+
+			if txn.Gas < state.TxGas {
+				return &runtime.ExecutionResult{}, state.ErrNotEnoughIntrinsicGas
+			}
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		_, err := eth.EstimateGas(context.Background(), constructMockTx(nil, argBytesPtr([]byte{0x1})), nil)
+		assert.NoError(t, err)
+		assert.LessOrEqual(t, calls, maxEstimateGasIterations+1)
+	})
+
+	t.Run("rpc gas cap bounds every run", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		eth.rpcGasCap = 100000
+
+		var seen []uint64
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			seen = append(seen, txn.Gas)
+
+			if txn.Gas < state.TxGas {
+				return &runtime.ExecutionResult{}, state.ErrNotEnoughIntrinsicGas
+			}
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		_, err := eth.EstimateGas(context.Background(), constructMockTx(nil, argBytesPtr([]byte{0x1})), nil)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, seen)
+
+		for _, gas := range seen {
+			assert.LessOrEqual(t, gas, uint64(100000))
+		}
+	})
+
+	t.Run("cap below intrinsic gas fails fast", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		eth.rpcGasCap = state.TxGas / 2
+
+		_, err := eth.EstimateGas(context.Background(), constructMockTx(nil, argBytesPtr([]byte{0x1})), nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds allowance")
+	})
+
+	t.Run("cancelled context times out", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		eth := newTestEthEndpoint(store)
+		calls := 0
+
+		store.applyTxnHook = func(_ *types.Header, txn *types.Transaction) (*runtime.ExecutionResult, error) {
+			calls++
+
+			if txn.Gas < state.TxGas {
+				return &runtime.ExecutionResult{}, state.ErrNotEnoughIntrinsicGas
+			}
+
+			return &runtime.ExecutionResult{}, nil
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := eth.EstimateGas(ctx, constructMockTx(nil, argBytesPtr([]byte{0x1})), nil)
+		assert.Error(t, err)
+
+		var te *timeoutError
+		if errors.As(err, &te) {
+			assert.Equal(t, -32000, te.ErrorCode())
+		}
+
+		assert.LessOrEqual(t, calls, 1)
+	})
+}
+
+func TestToStateOverrideAndCalldataLimits(t *testing.T) {
+	t.Parallel()
+
+	addr := types.Address{0x1}
+
+	t.Run("too many accounts", func(t *testing.T) {
+		t.Parallel()
+
+		override := StateOverride{}
+
+		for i := 0; i < maxStateOverrideAccounts+1; i++ {
+			var a types.Address
+
+			a[0] = byte(i / 256)
+			a[1] = byte(i)
+
+			override[a] = OverrideAccount{}
+		}
+
+		_, err := toStateOverride(&override)
+		assert.Error(t, err)
+
+		var ie *invalidParamsError
+		assert.ErrorAs(t, err, &ie)
+	})
+
+	t.Run("accounts at the limit pass", func(t *testing.T) {
+		t.Parallel()
+
+		override := StateOverride{}
+
+		for i := 0; i < maxStateOverrideAccounts; i++ {
+			var a types.Address
+
+			a[0] = byte(i / 256)
+			a[1] = byte(i)
+
+			override[a] = OverrideAccount{}
+		}
+
+		_, err := toStateOverride(&override)
+		assert.NoError(t, err)
+	})
+
+	t.Run("code too large", func(t *testing.T) {
+		t.Parallel()
+
+		code := argBytes(make([]byte, maxStateOverrideCodeSize+1))
+		_, err := toStateOverride(&StateOverride{
+			addr: {Code: &code},
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("code at the limit passes", func(t *testing.T) {
+		t.Parallel()
+
+		code := argBytes(make([]byte, maxStateOverrideCodeSize))
+		_, err := toStateOverride(&StateOverride{
+			addr: {Code: &code},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("state and stateDiff together", func(t *testing.T) {
+		t.Parallel()
+
+		stateMap := map[types.Hash]types.Hash{types.ZeroHash: types.ZeroHash}
+		_, err := toStateOverride(&StateOverride{
+			addr: {State: &stateMap, StateDiff: &stateMap},
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("too many storage slots", func(t *testing.T) {
+		t.Parallel()
+
+		slots := make(map[types.Hash]types.Hash, maxStateOverrideStorageSlots+1)
+
+		for i := 0; i < maxStateOverrideStorageSlots+1; i++ {
+			var h types.Hash
+
+			h[0] = byte(i / 256)
+			h[1] = byte(i)
+			slots[h] = types.Hash{}
+		}
+
+		_, err := toStateOverride(&StateOverride{
+			addr: {State: &slots},
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("oversized calldata", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		data := argBytes(make([]byte, maxCallDataSize+1))
+		_, err := DecodeTxn(&txnArgs{
+			From:  &addr,
+			To:    &addr,
+			Data:  &data,
+			Value: argBytesPtr([]byte{}),
+		}, 1, store, true)
+		assert.Error(t, err)
+
+		var ie *invalidParamsError
+		assert.ErrorAs(t, err, &ie)
+	})
+
+	t.Run("calldata at the limit passes", func(t *testing.T) {
+		t.Parallel()
+
+		store := getExampleStore()
+		data := argBytes(make([]byte, maxCallDataSize))
+		_, err := DecodeTxn(&txnArgs{
+			From:  &addr,
+			To:    &addr,
+			Data:  &data,
+			Value: argBytesPtr([]byte{}),
+		}, 1, store, true)
+		assert.NoError(t, err)
+	})
+}
+
+func (m *mockSpecialStore) ApplyTxn(_ context.Context, header *types.Header, txn *types.Transaction, _ types.StateOverride, _ bool) (*runtime.ExecutionResult, error) {
 	if m.applyTxnHook != nil {
 		return m.applyTxnHook(header, txn)
 	}

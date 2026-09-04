@@ -107,7 +107,7 @@ type debugBlockchainStore interface {
 	TraceTxn(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
 
 	// TraceCall traces a single call at the point when the given header is mined
-	TraceCall(*types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
+	TraceCall(context.Context, *types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
 }
 
 type debugTxPoolStore interface {
@@ -131,6 +131,7 @@ type Debug struct {
 	handler      *DebugHandler
 	ReadFileFunc func(filename string) ([]byte, error)
 	allEnabled   bool
+	rpcGasCap    uint64
 }
 
 // BlockTraceResult represents the results of tracing a single block
@@ -141,13 +142,14 @@ type BlockTraceResult struct {
 	Error  error
 }
 
-func NewDebug(store debugStore, requestsPerSecond uint64, allEnabled bool) *Debug {
+func NewDebug(store debugStore, requestsPerSecond uint64, allEnabled bool, rpcGasCap uint64) *Debug {
 	return &Debug{
 		store:        store,
 		throttling:   NewThrottling(requestsPerSecond, time.Second),
 		handler:      new(DebugHandler),
 		ReadFileFunc: os.ReadFile,
 		allEnabled:   allEnabled,
+		rpcGasCap:    rpcGasCap,
 	}
 }
 
@@ -699,6 +701,7 @@ func (d *Debug) TraceTransaction(
 }
 
 func (d *Debug) TraceCall(
+	ctx context.Context,
 	arg *txnArgs,
 	filter BlockNumberOrHash,
 	config *TraceConfig,
@@ -708,7 +711,7 @@ func (d *Debug) TraceCall(
 	}
 
 	return d.throttling.AttemptRequest(
-		context.Background(),
+		ctx,
 		func() (interface{}, error) {
 			header, err := GetHeaderFromBlockNumberOrHash(filter, d.store)
 			if err != nil {
@@ -720,10 +723,7 @@ func (d *Debug) TraceCall(
 				return nil, err
 			}
 
-			// If the caller didn't supply the gas limit in the message, then we set it to maximum possible => block gas limit
-			if tx.Gas == 0 {
-				tx.Gas = header.GasLimit
-			}
+			tx.Gas = capCallGas(tx.Gas, header.GasLimit, d.rpcGasCap)
 
 			tracer, cancel, err := newTracer(config)
 			if err != nil {
@@ -732,7 +732,7 @@ func (d *Debug) TraceCall(
 
 			defer cancel()
 
-			return d.store.TraceCall(tx, header, tracer)
+			return d.store.TraceCall(ctx, tx, header, tracer)
 		},
 	)
 }

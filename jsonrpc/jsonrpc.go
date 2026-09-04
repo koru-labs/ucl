@@ -75,6 +75,10 @@ type Config struct {
 
 	EnableTxPoolEndpoints   bool
 	EnableAllDebugEndpoints bool
+
+	RPCGasCap       uint64
+	BatchCostLimit  uint64
+	MaxResponseSize uint64
 }
 
 // NewJSONRPC returns the JSONRPC http server
@@ -97,6 +101,10 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			blockCacheCapacity:      config.BlockCacheCapacity,
 			enableTxPoolEndpoints:   config.EnableTxPoolEndpoints,
 			enableAllDebugEndpoints: config.EnableAllDebugEndpoints,
+			requestTimeout:          config.JSONRPCTimeout,
+			rpcGasCap:               config.RPCGasCap,
+			batchCostLimit:          config.BatchCostLimit,
+			maxResponseSize:         config.MaxResponseSize,
 		},
 	)
 	if err != nil {
@@ -122,6 +130,16 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 	return srv, nil
 }
 
+// writeTimeout is a grace period on top of the execution deadline so the
+// timeout error response can still be written after a handler is cancelled.
+func writeTimeout(timeout time.Duration) time.Duration {
+	if timeout == 0 {
+		return 0
+	}
+
+	return timeout + 5*time.Second
+}
+
 func (j *JSONRPC) setupHTTP() error {
 	lis, err := net.Listen("tcp", j.config.Addr.String())
 	if err != nil {
@@ -143,7 +161,7 @@ func (j *JSONRPC) setupHTTP() error {
 		Handler:           mux,
 		ReadHeaderTimeout: 60 * time.Second,
 		ReadTimeout:       j.config.JSONRPCTimeout,
-		WriteTimeout:      j.config.JSONRPCTimeout,
+		WriteTimeout:      writeTimeout(j.config.JSONRPCTimeout),
 	}
 
 	if j.config.UseTLS {

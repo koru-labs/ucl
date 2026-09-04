@@ -1,11 +1,14 @@
 package jsonrpc
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/0xPolygon/polygon-edge/gasprice"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
@@ -300,13 +303,20 @@ func TestEth_TxnType(t *testing.T) {
 
 func newTestEthEndpoint(store testStore) *Eth {
 	return &Eth{
-		hclog.NewNullLogger(), store, 100, nil, 0, initRPCCache(store, hclog.NewNullLogger(), time.Minute, 10),
+		logger:     hclog.NewNullLogger(),
+		store:      store,
+		chainID:    100,
+		priceLimit: 0,
+		cache:      initRPCCache(store, hclog.NewNullLogger(), time.Minute, 10),
 	}
 }
 
 func newTestEthEndpointWithPriceLimit(store testStore, priceLimit uint64) *Eth {
 	return &Eth{
-		hclog.NewNullLogger(), store, 100, nil, priceLimit, nil,
+		logger:     hclog.NewNullLogger(),
+		store:      store,
+		chainID:    100,
+		priceLimit: priceLimit,
 	}
 }
 
@@ -391,4 +401,62 @@ func TestOverrideAccount_ToType(t *testing.T) {
 	require.Equal(t, new(big.Int).SetUint64(balance), convertedAcc.Balance)
 	require.Equal(t, state, convertedAcc.State)
 	require.Equal(t, stateDiff, convertedAcc.StateDiff)
+}
+
+type feeHistoryStore struct {
+	*mockStore
+	called bool
+}
+
+func (s *feeHistoryStore) FeeHistory(uint64, uint64, []float64) (*gasprice.FeeHistoryReturn, error) {
+	s.called = true
+
+	return &gasprice.FeeHistoryReturn{
+		OldestBlock:   1,
+		BaseFeePerGas: []uint64{1},
+		GasUsedRatio:  []float64{0.5},
+		Reward:        [][]uint64{{1}},
+	}, nil
+}
+
+func TestEth_FeeHistory_PercentileValidation(t *testing.T) {
+	t.Parallel()
+
+	store := &feeHistoryStore{mockStore: newMockStore()}
+	eth := newTestEthEndpoint(store)
+
+	tooMany := make([]float64, gasprice.MaxRewardPercentiles+1)
+	for i := range tooMany {
+		tooMany[i] = float64(i)
+	}
+
+	_, err := eth.FeeHistory(1, LatestBlockNumber, tooMany)
+	require.Error(t, err)
+
+	var ie *invalidParamsError
+	require.ErrorAs(t, err, &ie)
+	require.Equal(t, -32602, ie.ErrorCode())
+	require.False(t, store.called)
+
+	res, err := eth.FeeHistory(1, LatestBlockNumber, []float64{10, 20})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.True(t, store.called)
+}
+
+func TestDispatcher_FeeHistoryInvalidParams(t *testing.T) {
+	t.Parallel()
+
+	store := &feeHistoryStore{mockStore: newMockStore()}
+	d := newTestDispatcher(t, hclog.NewNullLogger(), store, &dispatcherParams{})
+
+	res, err := d.Handle(context.Background(), []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"eth_feeHistory","params":["0x1","latest",[10,10]]}`,
+	))
+	require.NoError(t, err)
+
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(res, &errResp))
+	require.Equal(t, -32602, errResp.Error.Code)
+	require.False(t, store.called)
 }

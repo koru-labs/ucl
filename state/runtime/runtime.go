@@ -147,6 +147,7 @@ var (
 	ErrInvalidInputData         = errors.New("invalid input data")
 	ErrNotAuth                  = errors.New("not in allow list")
 	ErrInvalidCode              = errors.New("invalid code: must not begin with 0xef")
+	ErrExecutionAborted         = errors.New("execution aborted (timeout or client disconnect)")
 )
 
 // StackUnderflowError wraps an evm error when the items on the stack less

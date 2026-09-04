@@ -1,13 +1,16 @@
 package evm
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/holiman/uint256"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -142,6 +145,95 @@ func TestOpcodeNotFound(t *testing.T) {
 
 		_, err := s.Run()
 		assert.Equal(t, errOpCodeNotFound, err)
+	})
+}
+
+func TestRun_ExecutionAborted(t *testing.T) {
+	loop := []byte{JUMPDEST, PUSH1, 0x00, JUMP}
+
+	t.Run("already-cancelled context", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		s.evm = NewEVM()
+		s.evm.SetExecutionContext(ctx)
+		s.host = &mockHost{}
+		s.code = loop
+		s.bitmap.setCode(loop)
+		s.gas = 1 << 40
+
+		_, err := s.Run()
+		require.ErrorIs(t, err, runtime.ErrExecutionAborted)
+	})
+
+	t.Run("timeout during infinite loop", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		s.evm = NewEVM()
+		s.evm.SetExecutionContext(ctx)
+		s.host = &mockHost{}
+		s.code = loop
+		s.bitmap.setCode(loop)
+		s.gas = 1 << 40
+
+		start := time.Now().UTC()
+		_, err := s.Run()
+		elapsed := time.Since(start)
+
+		require.ErrorIs(t, err, runtime.ErrExecutionAborted)
+		require.Less(t, elapsed, 2*time.Second)
+	})
+
+	t.Run("nil evm is unchanged consensus path", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		s.evm = nil
+		s.host = &mockHost{}
+		s.code = loop
+		s.bitmap.setCode(loop)
+		s.gas = 20
+
+		_, err := s.Run()
+		require.ErrorIs(t, err, runtime.ErrOutOfGas)
+	})
+
+	t.Run("evm without context is unchanged consensus path", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		s.evm = NewEVM()
+		s.host = &mockHost{}
+		s.code = loop
+		s.bitmap.setCode(loop)
+		s.gas = 20
+
+		_, err := s.Run()
+		require.ErrorIs(t, err, runtime.ErrOutOfGas)
+	})
+
+	t.Run("cancelled context on STOP still aborts", func(t *testing.T) {
+		s, closeFn := getState(&chain.ForksInTime{})
+		defer closeFn()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		s.evm = NewEVM()
+		s.evm.SetExecutionContext(ctx)
+		s.host = &mockHost{}
+		s.code = []byte{byte(STOP)}
+		s.gas = 1000
+
+		_, err := s.Run()
+		require.ErrorIs(t, err, runtime.ErrExecutionAborted)
 	})
 }
 

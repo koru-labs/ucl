@@ -3,20 +3,46 @@ package gasprice
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"sort"
 )
 
 var (
-	ErrInvalidPercentile = errors.New("invalid percentile")
-	ErrBlockCount        = errors.New("blockCount must be greater than 0")
-	ErrBlockNotFound     = errors.New("could not find block")
+	ErrInvalidPercentile  = errors.New("invalid percentile")
+	ErrTooManyPercentiles = errors.New("too many reward percentiles")
+	ErrBlockCount         = errors.New("blockCount must be greater than 0")
+	ErrBlockNotFound      = errors.New("could not find block")
 )
 
 const (
-	maxBlockRequest = 1024
+	maxBlockRequest      = 1024
+	MaxRewardPercentiles = 64
 )
+
+// ValidateRewardPercentiles enforces length, range, NaN-freedom and strict monotonicity.
+func ValidateRewardPercentiles(p []float64) error {
+	if len(p) > MaxRewardPercentiles {
+		return fmt.Errorf("%w: %d > %d", ErrTooManyPercentiles, len(p), MaxRewardPercentiles)
+	}
+
+	var prev float64
+
+	for i, v := range p {
+		if math.IsNaN(v) || v < 0 || v > 100 {
+			return fmt.Errorf("%w: %f", ErrInvalidPercentile, v)
+		}
+
+		if i > 0 && v <= prev {
+			return fmt.Errorf("%w: #%d:%f >= #%d:%f", ErrInvalidPercentile, i-1, prev, i, v)
+		}
+
+		prev = v
+	}
+
+	return nil
+}
 
 type cacheKey struct {
 	number      uint64
@@ -60,14 +86,8 @@ func (g *GasHelper) FeeHistory(blockCount uint64, newestBlock uint64, rewardPerc
 		blockCount = newestBlock
 	}
 
-	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 {
-			return &FeeHistoryReturn{0, nil, nil, nil}, ErrInvalidPercentile
-		}
-
-		if i > 0 && p < rewardPercentiles[i-1] {
-			return &FeeHistoryReturn{0, nil, nil, nil}, ErrInvalidPercentile
-		}
+	if err := ValidateRewardPercentiles(rewardPercentiles); err != nil {
+		return &FeeHistoryReturn{0, nil, nil, nil}, err
 	}
 
 	var (
@@ -89,12 +109,7 @@ func (g *GasHelper) FeeHistory(blockCount uint64, newestBlock uint64, rewardPerc
 	for i := oldestBlock; i <= newestBlock; i++ {
 		cacheKey := cacheKey{number: i, percentiles: string(percentileKey)}
 		// cache is hit, load from cache and continue to next block
-		if p, ok := g.historyCache.Get(cacheKey); ok {
-			processedFee, isOk := p.(*processedFees)
-			if !isOk {
-				return &FeeHistoryReturn{0, nil, nil, nil}, errors.New("could not convert catched processed fee")
-			}
-
+		if processedFee, ok := g.historyCache.get(cacheKey); ok {
 			baseFeePerGas[i-oldestBlock] = processedFee.baseFee
 			gasUsedRatio[i-oldestBlock] = processedFee.gasUsedRatio
 			reward[i-oldestBlock] = processedFee.reward
@@ -164,7 +179,7 @@ func (g *GasHelper) FeeHistory(blockCount uint64, newestBlock uint64, rewardPerc
 			baseFee:      block.Header.BaseFee,
 			gasUsedRatio: gasUsedRatio[i-oldestBlock],
 		}
-		g.historyCache.Add(cacheKey, blockFees)
+		g.historyCache.add(cacheKey, blockFees)
 	}
 
 	baseFeePerGas[blockCount] = g.backend.Header().BaseFee
