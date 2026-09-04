@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -14,7 +15,17 @@ var _ runtime.Runtime = &EVM{}
 
 // EVM is the ethereum virtual machine
 type EVM struct {
+	// ctx, when non-nil, is polled by the interpreter; once it is done every
+	// running frame stops with runtime.ErrExecutionAborted. Consensus paths
+	// (block processing) never set it, so it cannot influence block validity.
+	ctx context.Context
 }
+
+// SetExecutionContext installs the context whose cancellation aborts execution.
+func (e *EVM) SetExecutionContext(ctx context.Context) { e.ctx = ctx }
+
+// cancelled is nil-safe: state_test.go builds states with evm == nil.
+func (e *EVM) cancelled() bool { return e != nil && e.ctx != nil && e.ctx.Err() != nil }
 
 // NewEVM creates a new EVM
 func NewEVM() *EVM {

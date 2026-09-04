@@ -101,4 +101,7 @@ type JSONRPC struct {
 	WSMaxConnections         uint64
 	WSMaxInFlight            uint64
 	WSMaxInFlightPerConn     uint64
+	RPCGasCap                uint64
+	BatchCostLimit           uint64
+	MaxResponseSize          uint64
 }

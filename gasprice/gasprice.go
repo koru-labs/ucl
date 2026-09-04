@@ -10,8 +10,88 @@ import (
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/Ethernal-Tech/ethgo"
-	lru "github.com/hashicorp/golang-lru"
+	"github.com/hashicorp/golang-lru/simplelru"
 )
+
+const (
+	feeHistoryCacheMaxEntries = 4096
+	feeHistoryCacheMaxBytes   = 4 << 20
+)
+
+type feeHistoryCache struct {
+	lock     sync.Mutex
+	lru      *simplelru.LRU // not thread-safe: always used under lock
+	bytes    int
+	maxBytes int
+}
+
+func newFeeHistoryCache(maxEntries, maxBytes int) (*feeHistoryCache, error) {
+	c := &feeHistoryCache{maxBytes: maxBytes}
+
+	cache, err := simplelru.NewLRU(maxEntries, c.onEvict)
+	if err != nil {
+		return nil, err
+	}
+
+	c.lru = cache
+
+	return c, nil
+}
+
+func entrySize(k cacheKey, v *processedFees) int {
+	return len(k.percentiles) + 8*len(v.reward) + 64
+}
+
+func (c *feeHistoryCache) onEvict(key, value interface{}) {
+	k, ok1 := key.(cacheKey)
+	v, ok2 := value.(*processedFees)
+
+	if !ok1 || !ok2 {
+		return
+	}
+
+	c.bytes -= entrySize(k, v)
+	if c.bytes < 0 {
+		c.bytes = 0
+	}
+}
+
+func (c *feeHistoryCache) get(k cacheKey) (*processedFees, bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	v, ok := c.lru.Get(k)
+	if !ok {
+		return nil, false
+	}
+
+	fees, ok := v.(*processedFees)
+
+	return fees, ok
+}
+
+func (c *feeHistoryCache) add(k cacheKey, v *processedFees) {
+	size := entrySize(k, v)
+	if size > c.maxBytes {
+		return
+	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if old, ok := c.lru.Peek(k); ok {
+		if oldFees, ok := old.(*processedFees); ok {
+			c.bytes -= entrySize(k, oldFees)
+		}
+	}
+
+	c.lru.Add(k, v)
+	c.bytes += size
+
+	for c.bytes > c.maxBytes && c.lru.Len() > 0 {
+		c.lru.RemoveOldest()
+	}
+}
 
 const couldNotFoundBlockFormat = "could not find block. Number: %d, Hash: %s"
 
@@ -83,7 +163,7 @@ type GasHelper struct {
 
 	lock sync.Mutex
 
-	historyCache *lru.Cache
+	historyCache *feeHistoryCache
 }
 
 // NewGasHelper is the constructor function for GasHelper struct
@@ -93,7 +173,7 @@ func NewGasHelper(config *Config, backend Blockchain) (*GasHelper, error) {
 		pricePercentile = 100
 	}
 
-	cache, err := lru.New(100)
+	cache, err := newFeeHistoryCache(feeHistoryCacheMaxEntries, feeHistoryCacheMaxBytes)
 	if err != nil {
 		return nil, err
 	}

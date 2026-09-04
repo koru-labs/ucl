@@ -587,3 +587,189 @@ func newTestDispatcher(tb testing.TB, logger hclog.Logger, store JSONRPCStore, p
 
 	return d
 }
+
+type testRPCService struct {
+	lastCtx context.Context
+}
+
+func (s *testRPCService) Echo(ctx context.Context, v argUint64) (interface{}, error) {
+	s.lastCtx = ctx
+
+	return v, nil
+}
+
+func (s *testRPCService) Bad(_ argUint64) (interface{}, error) {
+	return nil, NewInvalidParamsError("bad")
+}
+
+func (s *testRPCService) Sleep(_ context.Context, ms argUint64) (interface{}, error) {
+	time.Sleep(time.Duration(ms) * time.Millisecond)
+
+	return ms, nil
+}
+
+func TestDispatcher_ContextInjectionAndErrorPassthrough(t *testing.T) {
+	t.Parallel()
+
+	svc := &testRPCService{}
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		requestTimeout: 2 * time.Second,
+	})
+	require.NoError(t, d.registerService("test", svc))
+
+	fd := d.serviceMap["test"].funcMap["echo"]
+	require.True(t, fd.hasCtx)
+	require.Equal(t, 1, fd.numParams())
+
+	res, err := d.Handle(context.Background(), []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"test_echo","params":["0x5"]}`,
+	))
+	require.NoError(t, err)
+
+	var resp SuccessResponse
+	require.NoError(t, json.Unmarshal(res, &resp))
+	require.Nil(t, resp.Error)
+	require.NotNil(t, svc.lastCtx)
+	_, ok := svc.lastCtx.Deadline()
+	require.True(t, ok)
+
+	res, err = d.Handle(context.Background(), []byte(
+		`{"jsonrpc":"2.0","id":2,"method":"test_bad","params":["0x1"]}`,
+	))
+	require.NoError(t, err)
+
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(res, &errResp))
+	require.Equal(t, -32602, errResp.Error.Code)
+}
+
+func TestMethodCost(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, uint64(20), MethodCost("eth_estimateGas"))
+	require.Equal(t, uint64(5), MethodCost("eth_call"))
+	require.Equal(t, uint64(50), MethodCost("debug_unknown"))
+	require.Equal(t, uint64(1), MethodCost("net_version"))
+
+	for method, cost := range methodCosts {
+		require.LessOrEqual(t, cost, uint64(200), method)
+	}
+}
+
+func TestDispatcherBatchCostLimit(t *testing.T) {
+	t.Parallel()
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		batchCostLimit: 10,
+	})
+	mock := &mockWsConn{
+		WriteMessageFn: func(int, []byte) error { return nil },
+	}
+
+	tooExpensive := []byte(`[
+		{"id":1,"jsonrpc":"2.0","method":"eth_estimateGas","params":[{}]},
+		{"id":2,"jsonrpc":"2.0","method":"eth_estimateGas","params":[{}]}
+	]`)
+
+	checkCostRejected := func(t *testing.T, res []byte) {
+		t.Helper()
+
+		var resp ErrorResponse
+		require.NoError(t, json.Unmarshal(res, &resp))
+		require.Equal(t, -32600, resp.Error.Code)
+		require.Equal(t, "Batch request cost too high", resp.Error.Message)
+	}
+
+	res, err := d.Handle(context.Background(), tooExpensive)
+	require.NoError(t, err)
+	checkCostRejected(t, res)
+
+	res, err = d.HandleWs(tooExpensive, mock)
+	require.NoError(t, err)
+	checkCostRejected(t, res)
+
+	cheap := []byte(`[
+		{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":2,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":3,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":4,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":5,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":6,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":7,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":8,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":9,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":10,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}
+	]`)
+
+	res, err = d.Handle(context.Background(), cheap)
+	require.NoError(t, err)
+
+	var batch []SuccessResponse
+	require.NoError(t, json.Unmarshal(res, &batch))
+	require.Len(t, batch, 10)
+}
+
+func TestDispatcherBatchDeadline(t *testing.T) {
+	t.Parallel()
+
+	svc := &testRPCService{}
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		requestTimeout: 80 * time.Millisecond,
+	})
+	require.NoError(t, d.registerService("test", svc))
+
+	body := []byte(`[
+		{"id":1,"jsonrpc":"2.0","method":"test_sleep","params":["0x32"]},
+		{"id":2,"jsonrpc":"2.0","method":"test_sleep","params":["0x32"]},
+		{"id":3,"jsonrpc":"2.0","method":"test_sleep","params":["0x32"]}
+	]`)
+
+	res, err := d.Handle(context.Background(), body)
+	require.NoError(t, err)
+
+	var batch []SuccessResponse
+	require.NoError(t, json.Unmarshal(res, &batch))
+	require.Len(t, batch, 3)
+	require.Nil(t, batch[0].Error)
+	require.Equal(t, float64(1), batch[0].ID)
+	require.Equal(t, -32000, batch[len(batch)-1].Error.Code)
+	require.Equal(t, "batch deadline exceeded", batch[len(batch)-1].Error.Message)
+	require.Equal(t, float64(3), batch[len(batch)-1].ID)
+}
+
+func TestDispatcherResponseSizeCap(t *testing.T) {
+	t.Parallel()
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		maxResponseSize: 1,
+	})
+
+	single := []byte(`{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`)
+	res, err := d.Handle(context.Background(), single)
+	require.NoError(t, err)
+
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(res, &errResp))
+	require.Equal(t, -32005, errResp.Error.Code)
+	require.Equal(t, "response too large", errResp.Error.Message)
+
+	d = newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		maxResponseSize: 180,
+	})
+
+	body := []byte(`[
+		{"id":1,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]},
+		{"id":2,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]},
+		{"id":3,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]}
+	]`)
+
+	res, err = d.Handle(context.Background(), body)
+	require.NoError(t, err)
+
+	var batch []SuccessResponse
+	require.NoError(t, json.Unmarshal(res, &batch))
+	require.Len(t, batch, 3)
+	require.Equal(t, -32005, batch[1].Error.Code)
+	require.Equal(t, "batch response too large", batch[1].Error.Message)
+	require.Equal(t, -32005, batch[2].Error.Code)
+}
