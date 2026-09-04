@@ -16,6 +16,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 	lru "github.com/hashicorp/golang-lru"
 )
 
@@ -1485,6 +1486,7 @@ func (b *Blockchain) writeBatchAndUpdate(
 	if isCanonnical {
 		b.headersCache.Add(header.Hash, header)
 		b.setCurrentHeader(header, newTD) // Update the blockchain reference
+		metrics.SetGauge(chainHead, float32(header.Number))
 	}
 
 	return nil
