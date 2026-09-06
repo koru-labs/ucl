@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"errors"
 	"math/big"
 	"testing"
@@ -570,7 +571,7 @@ func TestEth_Call(t *testing.T) {
 			Nonce:    argUintPtr(0),
 		}
 
-		res, err := eth.Call(contractCall, BlockNumberOrHash{}, nil)
+		res, err := eth.Call(context.Background(), contractCall, BlockNumberOrHash{}, nil)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), store.ethCallError.Error())
@@ -594,7 +595,7 @@ func TestEth_Call(t *testing.T) {
 			Nonce:    argUintPtr(0),
 		}
 
-		res, err := eth.Call(contractCall, BlockNumberOrHash{}, nil)
+		res, err := eth.Call(context.Background(), contractCall, BlockNumberOrHash{}, nil)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
@@ -620,7 +621,7 @@ func TestEth_Call(t *testing.T) {
 			Nonce:    argUintPtr(0),
 		}
 
-		res, err := eth.Call(contractCall, BlockNumberOrHash{}, nil)
+		res, err := eth.Call(context.Background(), contractCall, BlockNumberOrHash{}, nil)
 		assert.Error(t, err)
 		assert.NotNil(t, res)
 		bres := res.([]byte)
@@ -834,7 +835,7 @@ func (m *mockBlockStore) GetAvgGasPrice() *big.Int {
 	return big.NewInt(m.averageGasPrice)
 }
 
-func (m *mockBlockStore) ApplyTxn(_ *types.Header, _ *types.Transaction, _ types.StateOverride, _ bool) (*runtime.ExecutionResult, error) {
+func (m *mockBlockStore) ApplyTxn(_ context.Context, _ *types.Header, _ *types.Transaction, _ types.StateOverride, _ bool) (*runtime.ExecutionResult, error) {
 	return &runtime.ExecutionResult{
 		Err:         m.ethCallError,
 		ReturnValue: m.returnValue,

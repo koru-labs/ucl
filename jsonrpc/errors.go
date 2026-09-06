@@ -111,6 +111,22 @@ func NewLimitExceededError(msg string) *limitExceededError {
 	return &limitExceededError{msg}
 }
 
+type timeoutError struct {
+	err string
+}
+
+func (e *timeoutError) Error() string {
+	return e.err
+}
+
+func (e *timeoutError) ErrorCode() int {
+	return -32000
+}
+
+func NewTimeoutError(msg string) *timeoutError {
+	return &timeoutError{msg}
+}
+
 func constructErrorFromRevert(result *runtime.ExecutionResult) error {
 	revertErrMsg, unpackErr := abi.UnpackRevertError(result.ReturnValue)
 	if unpackErr != nil {

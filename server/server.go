@@ -902,6 +902,7 @@ func (j *jsonRPCHub) StorageRangeAt(storageRangeResult *state.StorageRangeResult
 }
 
 func (j *jsonRPCHub) ApplyTxn(
+	ctx context.Context,
 	header *types.Header,
 	txn *types.Transaction,
 	override types.StateOverride,
@@ -924,6 +925,7 @@ func (j *jsonRPCHub) ApplyTxn(
 	}
 
 	transition.SetNonPayable(nonPayable)
+	transition.SetExecutionContext(ctx)
 
 	result, err = transition.Apply(txn)
 
@@ -1071,6 +1073,7 @@ func (j *jsonRPCHub) TraceTxn(
 }
 
 func (j *jsonRPCHub) TraceCall(
+	ctx context.Context,
 	tx *types.Transaction,
 	parentHeader *types.Header,
 	tracer tracer.Tracer,
@@ -1086,6 +1089,7 @@ func (j *jsonRPCHub) TraceCall(
 	}
 
 	transition.SetTracer(tracer)
+	transition.SetExecutionContext(ctx)
 
 	if _, err := transition.Apply(tx); err != nil {
 		return nil, err
@@ -1133,6 +1137,9 @@ func (s *Server) setupJSONRPC() error {
 		PriceLimit:               s.config.PriceLimit,
 		BatchLengthLimit:         s.config.JSONRPC.BatchLengthLimit,
 		BlockRangeLimit:          s.config.JSONRPC.BlockRangeLimit,
+		RPCGasCap:                s.config.JSONRPC.RPCGasCap,
+		BatchCostLimit:           s.config.JSONRPC.BatchCostLimit,
+		MaxResponseSize:          s.config.JSONRPC.MaxResponseSize,
 		ConcurrentRequestsDebug:  s.config.JSONRPC.ConcurrentRequestsDebug,
 		WebSocketReadLimit:       s.config.JSONRPC.WebSocketReadLimit,
 		FilterLimit:              s.config.JSONRPC.FilterLimit,
