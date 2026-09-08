@@ -401,6 +401,13 @@ func setFlags(cmd *cobra.Command) {
 		"the timeout for JSON-RPC HTTP request processing (e.g. 30s, 1m, 1m30s)",
 	)
 
+	cmd.Flags().DurationVar(
+		&params.rawConfig.JSONRPCDebugTraceTimeout,
+		jsonRPCDebugTraceTimeoutFlag,
+		defaultConfig.JSONRPCDebugTraceTimeout,
+		"maximum timeout a debug_* tracer may run (caller-supplied timeout is clamped to this)",
+	)
+
 	cmd.Flags().Uint64Var(
 		&params.rawConfig.RPCGasCap,
 		rpcGasCapFlag,

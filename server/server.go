@@ -1155,6 +1155,7 @@ func (s *Server) setupJSONRPC() error {
 		BatchCostLimit:           s.config.JSONRPC.BatchCostLimit,
 		MaxResponseSize:          s.config.JSONRPC.MaxResponseSize,
 		ConcurrentRequestsDebug:  s.config.JSONRPC.ConcurrentRequestsDebug,
+		DebugTraceTimeout:        s.config.JSONRPC.DebugTraceTimeout,
 		WebSocketReadLimit:       s.config.JSONRPC.WebSocketReadLimit,
 		FilterLimit:              s.config.JSONRPC.FilterLimit,
 		FilterLimitPerConn:       s.config.JSONRPC.FilterLimitPerConn,

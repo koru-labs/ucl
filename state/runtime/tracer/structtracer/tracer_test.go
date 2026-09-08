@@ -378,6 +378,7 @@ func TestStructTracerCaptureState(t *testing.T) {
 					EnableStructLogs: true,
 				},
 				currentMemory: memory,
+				memoryBytes:   len(memory[0]),
 			},
 			expectedVMState: &mockState{},
 		},
@@ -964,6 +965,52 @@ func TestStructTracerGetResult(t *testing.T) {
 		require.Equal(t, "02", stresult.ReturnValue)
 		require.Equal(t, logs, stresult.StructLogs)
 		require.Equal(t, consumedGas, stresult.Gas)
+	})
+}
+
+func TestStructTracerCaps(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stops capturing after MaxLogs", func(t *testing.T) {
+		t.Parallel()
+
+		tr := NewStructTracer(Config{
+			EnableStructLogs: true,
+			MaxLogs:          2,
+		})
+		host := &mockHost{
+			getRefundFn: func() uint64 { return 0 },
+		}
+		state := &mockState{}
+
+		for i := 0; i < 5; i++ {
+			tr.CaptureState(nil, nil, 1, types.ZeroAddress, 0, host, state)
+			tr.ExecuteState(types.ZeroAddress, uint64(i), "ADD", 0, 0, nil, 1, nil, host)
+		}
+
+		require.Len(t, tr.logs, 2)
+		require.False(t, state.halted)
+	})
+
+	t.Run("truncates memory dumps at MaxMemoryBytes", func(t *testing.T) {
+		t.Parallel()
+
+		tr := NewStructTracer(Config{
+			EnableMemory:     true,
+			EnableStructLogs: true,
+			MaxMemoryBytes:   4,
+		})
+		host := &mockHost{
+			getRefundFn: func() uint64 { return 0 },
+		}
+
+		tr.CaptureState([]byte("abcdefgh"), nil, 1, types.ZeroAddress, 0, host, &mockState{})
+		require.Equal(t, []byte("abcd"), tr.currentMemory[0])
+		require.Equal(t, 4, tr.memoryBytes)
+
+		tr.CaptureState([]byte("zzzz"), nil, 1, types.ZeroAddress, 0, host, &mockState{})
+		require.Equal(t, []byte("abcd"), tr.currentMemory[0])
+		require.Equal(t, 4, tr.memoryBytes)
 	})
 }
 

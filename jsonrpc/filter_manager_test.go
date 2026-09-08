@@ -22,6 +22,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// padReceiptsToTxs fills empty receipts so len(receipts) matches len(txs).
+// setupLogs() is intentionally sparse; getLogsFromBlock now rejects a mismatch.
+func padReceiptsToTxs(store *mockBlockStore, blocks []*types.Block) {
+	if store.receipts == nil {
+		store.receipts = map[types.Hash][]*types.Receipt{}
+	}
+
+	for _, block := range blocks {
+		recs := store.receipts[block.Header.Hash]
+		for len(recs) < len(block.Transactions) {
+			recs = append(recs, &types.Receipt{})
+		}
+
+		store.receipts[block.Header.Hash] = recs
+	}
+}
+
 func Test_GetLogsForQuery(t *testing.T) {
 	t.Parallel()
 
@@ -162,15 +179,7 @@ func Test_GetLogsForQuery(t *testing.T) {
 	}
 
 	store.appendBlocksToStore(blocks)
-
-	for _, block := range blocks {
-		recs := store.receipts[block.Header.Hash]
-		for len(recs) < len(block.Transactions) {
-			recs = append(recs, &types.Receipt{})
-		}
-
-		store.receipts[block.Header.Hash] = recs
-	}
+	padReceiptsToTxs(store, blocks)
 
 	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
@@ -253,6 +262,7 @@ func Test_getLogsFromBlocks_ReceiptBudget(t *testing.T) {
 	}
 
 	store.appendBlocksToStore(blocks)
+	padReceiptsToTxs(store, blocks)
 
 	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	f.logLimits.MaxReceipts = 5
@@ -296,6 +306,7 @@ func Test_GetLogsForQuery_MaxResults(t *testing.T) {
 	}
 
 	store.appendBlocksToStore(blocks)
+	padReceiptsToTxs(store, blocks)
 
 	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	f.logLimits.MaxLogs = 2

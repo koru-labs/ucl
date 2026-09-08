@@ -49,8 +49,9 @@ type Config struct {
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
 
-	ConcurrentRequestsDebug uint64 `json:"concurrent_requests_debug" yaml:"concurrent_requests_debug"`
-	WebSocketReadLimit      uint64 `json:"web_socket_read_limit" yaml:"web_socket_read_limit"`
+	ConcurrentRequestsDebug  uint64        `json:"concurrent_requests_debug" yaml:"concurrent_requests_debug"`
+	JSONRPCDebugTraceTimeout time.Duration `json:"json_rpc_debug_trace_timeout" yaml:"json_rpc_debug_trace_timeout"`
+	WebSocketReadLimit       uint64        `json:"web_socket_read_limit" yaml:"web_socket_read_limit"`
 
 	// JSONRPCFilterLimit caps the filters and subscriptions active on the node, and
 	// JSONRPCFilterLimitPerConn caps those held by a single web socket connection. Zero
@@ -153,6 +154,9 @@ const (
 
 	// DefaultConcurrentRequestsDebug specifies max number of allowed concurrent requests for debug endpoints
 	DefaultConcurrentRequestsDebug uint64 = 32
+
+	// DefaultJSONRPCDebugTraceTimeout is the maximum debug_* tracer timeout a caller may request.
+	DefaultJSONRPCDebugTraceTimeout = 5 * time.Second
 
 	// DefaultWebSocketReadLimit specifies max size in bytes for a message read from the peer by Gorrila websocket lib.
 	// If a message exceeds the limit,
@@ -270,6 +274,7 @@ func DefaultConfig() *Config {
 		Relayer:                     false,
 		NumBlockConfirmations:       DefaultNumBlockConfirmations,
 		ConcurrentRequestsDebug:     DefaultConcurrentRequestsDebug,
+		JSONRPCDebugTraceTimeout:    DefaultJSONRPCDebugTraceTimeout,
 		WebSocketReadLimit:          DefaultWebSocketReadLimit,
 		JSONRPCFilterLimit:          DefaultJSONRPCFilterLimit,
 		JSONRPCFilterLimitPerConn:   DefaultJSONRPCFilterLimitPerConn,

@@ -803,3 +803,83 @@ func TestDispatcherResponseSizeCapDuringMarshal(t *testing.T) {
 	require.Equal(t, -32005, errResp.Error.Code)
 	require.Equal(t, "response too large", errResp.Error.Message)
 }
+
+func TestDispatcher_NoDebugMethodsWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		enableAllDebugEndpoints: false,
+	})
+
+	require.NotContains(t, d.serviceMap, "debug")
+	require.Empty(t, publicDebugMethods)
+
+	debugType := reflect.TypeOf(&Debug{})
+	require.Greater(t, debugType.NumMethod(), 0)
+
+	for i := 0; i < debugType.NumMethod(); i++ {
+		m := debugType.Method(i)
+		if m.PkgPath != "" {
+			continue
+		}
+
+		method := "debug_" + lowerCaseFirstRune(m.Name)
+		if _, ok := publicDebugMethods[method]; ok {
+			continue
+		}
+
+		res, err := d.Handle(context.Background(), []byte(fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":1,"method":%q,"params":[]}`, method,
+		)))
+		require.NoError(t, err, method)
+
+		var resp ErrorResponse
+		require.NoError(t, json.Unmarshal(res, &resp), method)
+		require.Equal(t, -32601, resp.Error.Code, method)
+		require.Contains(t, resp.Error.Message, "does not exist/is not available", method)
+	}
+}
+
+func TestDispatcher_DebugMethodsRegisteredWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		enableAllDebugEndpoints: true,
+	})
+
+	require.Contains(t, d.serviceMap, "debug")
+
+	for _, name := range []string{
+		"printBlock",
+		"traceTransaction",
+		"getAccessibleState",
+		"getModifiedAccountsByHash",
+		"traceBlockByHash",
+	} {
+		require.Contains(t, d.serviceMap["debug"].funcMap, name)
+	}
+}
+
+func TestDispatcher_DebugAllowListRegistration(t *testing.T) {
+	t.Parallel()
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		enableAllDebugEndpoints: false,
+	})
+
+	require.NoError(t, d.registerService("debug", NewDebug(newMockStore(), 1, 0, 0), map[string]struct{}{
+		"debug_printBlock": {},
+	}))
+
+	require.Contains(t, d.serviceMap["debug"].funcMap, "printBlock")
+	require.NotContains(t, d.serviceMap["debug"].funcMap, "traceTransaction")
+
+	res, err := d.Handle(context.Background(), []byte(
+		`{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":[]}`,
+	))
+	require.NoError(t, err)
+
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(res, &errResp))
+	require.Equal(t, -32601, errResp.Error.Code)
+}

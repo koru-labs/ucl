@@ -20,6 +20,8 @@ type Config struct {
 	EnableStorage    bool // enable storage capture
 	EnableReturnData bool // enable return data capture
 	EnableStructLogs bool // enable struct logs capture
+	MaxLogs          int  // max struct-log entries; 0 means unlimited
+	MaxMemoryBytes   int  // max EVM memory copied per trace; 0 means unlimited
 }
 
 type StructLog struct {
@@ -52,6 +54,7 @@ type StructTracer struct {
 	storage       []map[types.Address]map[types.Hash]types.Hash
 	currentMemory [][]byte
 	currentStack  [][]uint256.Int
+	memoryBytes   int
 }
 
 func NewStructTracer(config Config) *StructTracer {
@@ -81,6 +84,10 @@ func (t *StructTracer) cancelled() bool {
 	return t.interrupt
 }
 
+func (t *StructTracer) logsCapped() bool {
+	return t.Config.MaxLogs > 0 && len(t.logs) >= t.Config.MaxLogs
+}
+
 func (t *StructTracer) Clear() {
 	t.cancelLock.Lock()
 	defer t.cancelLock.Unlock()
@@ -97,6 +104,7 @@ func (t *StructTracer) Clear() {
 	}
 	t.currentMemory = make([][]byte, 1)
 	t.currentStack = make([][]uint256.Int, 1)
+	t.memoryBytes = 0
 }
 
 func (t *StructTracer) TxStart(gasLimit uint64) {
@@ -143,6 +151,10 @@ func (t *StructTracer) CaptureState(
 		return
 	}
 
+	if t.logsCapped() {
+		return
+	}
+
 	t.captureMemory(memory, opCode)
 	t.captureStack(stack, sp, opCode)
 	t.captureStorage(
@@ -162,9 +174,23 @@ func (t *StructTracer) captureMemory(
 		return
 	}
 
+	toCopy := memory
+
+	if t.Config.MaxMemoryBytes > 0 {
+		remaining := t.Config.MaxMemoryBytes - t.memoryBytes
+		if remaining <= 0 {
+			return
+		}
+
+		if len(toCopy) > remaining {
+			toCopy = toCopy[:remaining]
+		}
+	}
+
 	// always allocate new space to get new reference
-	currentMemory := make([]byte, len(memory))
-	copy(currentMemory, memory)
+	currentMemory := make([]byte, len(toCopy))
+	copy(currentMemory, toCopy)
+	t.memoryBytes += len(currentMemory)
 
 	t.currentMemory[len(t.currentMemory)-1] = currentMemory
 
@@ -313,7 +339,7 @@ func (t *StructTracer) ExecuteState(
 		errStr = err.Error()
 	}
 
-	if t.Config.EnableStructLogs {
+	if t.Config.EnableStructLogs && !t.logsCapped() {
 		t.logs = append(
 			t.logs,
 			StructLog{
