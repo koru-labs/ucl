@@ -1,6 +1,7 @@
 package gasprice
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -263,6 +264,66 @@ func TestGasHelper_FeeHistory(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateRewardPercentiles(t *testing.T) {
+	t.Parallel()
+
+	tooMany := make([]float64, MaxRewardPercentiles+1)
+	for i := range tooMany {
+		tooMany[i] = float64(i)
+	}
+
+	require.ErrorIs(t, ValidateRewardPercentiles(tooMany), ErrTooManyPercentiles)
+	require.ErrorIs(t, ValidateRewardPercentiles([]float64{10, 10}), ErrInvalidPercentile)
+	require.ErrorIs(t, ValidateRewardPercentiles([]float64{math.NaN()}), ErrInvalidPercentile)
+	require.ErrorIs(t, ValidateRewardPercentiles([]float64{101}), ErrInvalidPercentile)
+
+	ok := make([]float64, MaxRewardPercentiles)
+	for i := range ok {
+		ok[i] = float64(i)
+	}
+
+	require.NoError(t, ValidateRewardPercentiles(ok))
+	require.NoError(t, ValidateRewardPercentiles(nil))
+}
+
+func TestFeeHistoryCache(t *testing.T) {
+	t.Parallel()
+
+	cache, err := newFeeHistoryCache(10, 150)
+	require.NoError(t, err)
+
+	makeEntry := func(n uint64) (cacheKey, *processedFees) {
+		return cacheKey{number: n}, &processedFees{}
+	}
+
+	k1, v1 := makeEntry(1)
+	k2, v2 := makeEntry(2)
+	k3, v3 := makeEntry(3)
+	k4, v4 := makeEntry(4)
+
+	cache.add(k1, v1)
+	cache.add(k2, v2)
+	cache.add(k3, v3)
+
+	require.LessOrEqual(t, cache.bytes, cache.maxBytes)
+	_, ok := cache.get(k1)
+	require.False(t, ok, "oldest entry should have been evicted")
+	_, ok = cache.get(k3)
+	require.True(t, ok)
+
+	huge := &processedFees{reward: make([]uint64, 1000)}
+	cache.add(cacheKey{number: 99, percentiles: string(make([]byte, 200))}, huge)
+	_, ok = cache.get(cacheKey{number: 99, percentiles: string(make([]byte, 200))})
+	require.False(t, ok, "oversized entry must not be cached")
+
+	before := cache.bytes
+	cache.add(k3, v3)
+	require.Equal(t, before, cache.bytes, "re-adding an existing key must not double-count")
+
+	cache.add(k4, v4)
+	require.LessOrEqual(t, cache.bytes, cache.maxBytes)
 }
 
 var _ Blockchain = (*backendMock)(nil)

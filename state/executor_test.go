@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"testing"
@@ -12,6 +13,25 @@ import (
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 )
+
+func TestTransition_SetExecutionContextAborts(t *testing.T) {
+	t.Parallel()
+
+	addr := types.Address{0x1}
+	snap := newStateWithPreState(nil)
+	txn := newTxn(snap)
+	txn.SetCode(addr, []byte{0x5b, 0x60, 0x00, 0x56}) // JUMPDEST PUSH1 0 JUMP
+
+	tt := NewTransition(chain.AllForksEnabled.At(0), snap, txn)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tt.SetExecutionContext(ctx)
+
+	result := tt.Call2(types.Address{0x2}, addr, nil, big.NewInt(0), 1<<40)
+	require.ErrorIs(t, result.Err, runtime.ErrExecutionAborted)
+	require.Equal(t, uint64(0), result.GasLeft)
+}
 
 func TestOverride(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -355,6 +356,9 @@ func (t *Transition) WithStateOverride(override types.StateOverride) error {
 
 	return nil
 }
+
+// SetExecutionContext makes the EVM abort when ctx is done. Only for read-only RPC paths.
+func (t *Transition) SetExecutionContext(ctx context.Context) { t.evm.SetExecutionContext(ctx) }
 
 func (t *Transition) TotalGas() uint64 {
 	return t.totalGas

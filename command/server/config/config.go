@@ -42,6 +42,9 @@ type Config struct {
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
 	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
+	RPCGasCap                uint64        `json:"rpc_gas_cap" yaml:"rpc_gas_cap"`
+	JSONRPCBatchCostLimit    uint64        `json:"json_rpc_batch_cost_limit" yaml:"json_rpc_batch_cost_limit"`
+	JSONRPCMaxResponseSize   uint64        `json:"json_rpc_max_response_size" yaml:"json_rpc_max_response_size"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -175,6 +178,18 @@ const (
 
 	// JSON RPC request timeout
 	DefaultJSONRPCTimeout = 30 * time.Second
+
+	// DefaultRPCGasCap is the maximum gas eth_call / eth_estimateGas / debug_traceCall may use.
+	// Zero disables the cap.
+	DefaultRPCGasCap uint64 = 50_000_000
+
+	// DefaultJSONRPCBatchCostLimit is the maximum total method-cost weight of one batch.
+	// Zero disables the cost budget.
+	DefaultJSONRPCBatchCostLimit uint64 = 200
+
+	// DefaultJSONRPCMaxResponseSize is the maximum serialized JSON-RPC response size in bytes.
+	// Zero disables the cap.
+	DefaultJSONRPCMaxResponseSize uint64 = 25 << 20
 )
 
 // DefaultConfig returns the default server configuration
@@ -234,6 +249,9 @@ func DefaultConfig() *Config {
 		BlockCacheCapacity:          50,
 		MaxRequestBodySize:          DefaultRequestBodySize,
 		JSONRPCTimeout:              DefaultJSONRPCTimeout,
+		RPCGasCap:                   DefaultRPCGasCap,
+		JSONRPCBatchCostLimit:       DefaultJSONRPCBatchCostLimit,
+		JSONRPCMaxResponseSize:      DefaultJSONRPCMaxResponseSize,
 		JumpdestCacheSize:           evm.DefaultJumpdestCacheSize,
 		EnableTxPoolEndpoints:       false,
 		EnableAllDebugEndpoints:     false,

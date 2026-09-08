@@ -373,6 +373,27 @@ func setFlags(cmd *cobra.Command) {
 		"the timeout for JSON-RPC HTTP request processing (e.g. 30s, 1m, 1m30s)",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.RPCGasCap,
+		rpcGasCapFlag,
+		defaultConfig.RPCGasCap,
+		"maximum gas eth_call/eth_estimateGas/debug_traceCall may use, 0 disables the cap",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCBatchCostLimit,
+		jsonRPCBatchCostLimitFlag,
+		defaultConfig.JSONRPCBatchCostLimit,
+		"max total method-cost weight of a JSON-RPC batch request, value of 0 disables it",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCMaxResponseSize,
+		jsonRPCMaxResponseSizeFlag,
+		defaultConfig.JSONRPCMaxResponseSize,
+		"maximum JSON-RPC response size in bytes, value of 0 disables it",
+	)
+
 	cmd.Flags().BoolVar(
 		&params.rawConfig.EnableTxPoolEndpoints,
 		enableTxPoolEndpointsFlag,

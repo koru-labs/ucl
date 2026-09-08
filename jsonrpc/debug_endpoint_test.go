@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -39,7 +40,7 @@ type debugEndpointMockStore struct {
 	intermediateRootsFn   func(*types.Block, tracer.Tracer) ([]types.Hash, error)
 	storageRangeAtFn      func(*state.StorageRangeResult, *types.Block, *types.Address, []byte, int, int) error
 	traceTxnFn            func(*types.Block, types.Hash, tracer.Tracer) (interface{}, error)
-	traceCallFn           func(*types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
+	traceCallFn           func(context.Context, *types.Transaction, *types.Header, tracer.Tracer) (interface{}, error)
 	getNonceFn            func(types.Address) uint64
 	getAccountFn          func(types.Hash, types.Address) (*Account, error)
 }
@@ -124,8 +125,8 @@ func (s *debugEndpointMockStore) TraceTxn(block *types.Block, targetTx types.Has
 	return s.traceTxnFn(block, targetTx, tracer)
 }
 
-func (s *debugEndpointMockStore) TraceCall(tx *types.Transaction, parent *types.Header, tracer tracer.Tracer) (interface{}, error) {
-	return s.traceCallFn(tx, parent, tracer)
+func (s *debugEndpointMockStore) TraceCall(ctx context.Context, tx *types.Transaction, parent *types.Header, tracer tracer.Tracer) (interface{}, error) {
+	return s.traceCallFn(ctx, tx, parent, tracer)
 }
 
 func (s *debugEndpointMockStore) GetNonce(acc types.Address) uint64 {
@@ -368,7 +369,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.TraceBlockByNumber(test.blockNumber, test.config)
 
 			require.Equal(t, test.result, res)
@@ -431,7 +432,7 @@ func TestPrintBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, true)
+			endpoint := NewDebug(test.store, 100000, true, 0)
 			res, err := endpoint.PrintBlock(test.number)
 
 			require.Equal(t, test.result, res)
@@ -499,7 +500,7 @@ func TestTraceBlockByHash(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, true)
+			endpoint := NewDebug(test.store, 100000, true, 0)
 			res, err := endpoint.TraceBlockByHash(test.blockHash, test.config)
 
 			require.Equal(t, test.result, res)
@@ -570,7 +571,7 @@ func TestTraceBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.TraceBlock(test.input, test.config)
 
 			require.Equal(t, test.result, res)
@@ -654,7 +655,7 @@ func TestTraceBlockFromFile(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 
 			endpoint.ReadFileFunc = func(filename string) ([]byte, error) {
 				return test.input, test.fileErr
@@ -804,7 +805,7 @@ func TestTraceTransaction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, true)
+			endpoint := NewDebug(test.store, 100000, true, 0)
 			res, err := endpoint.TraceTransaction(test.txHash, test.config)
 
 			require.Equal(t, test.result, res)
@@ -885,7 +886,7 @@ func TestTraceCall(t *testing.T) {
 
 					return testHeader10, true
 				},
-				traceCallFn: func(tx *types.Transaction, header *types.Header, tracer tracer.Tracer) (interface{}, error) {
+				traceCallFn: func(_ context.Context, tx *types.Transaction, header *types.Header, tracer tracer.Tracer) (interface{}, error) {
 					require.Equal(t, decodedTx, tx)
 					require.Equal(t, testHeader10, header)
 
@@ -968,9 +969,9 @@ func TestTraceCall(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 
-			res, err := endpoint.TraceCall(test.arg, test.filter, test.config)
+			res, err := endpoint.TraceCall(context.Background(), test.arg, test.filter, test.config)
 
 			require.Equal(t, test.result, res)
 
@@ -981,6 +982,44 @@ func TestTraceCall(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTraceCall_GasCap(t *testing.T) {
+	t.Parallel()
+
+	from := types.StringToAddress("1")
+	to := types.StringToAddress("2")
+	gas := argUint64(10000)
+	blockNumber := BlockNumber(testBlock10.Number())
+
+	var seen uint64
+
+	store := &debugEndpointMockStore{
+		getHeaderByNumberFn: func(num uint64) (*types.Header, bool) {
+			return testHeader10, true
+		},
+		traceCallFn: func(_ context.Context, tx *types.Transaction, _ *types.Header, _ tracer.Tracer) (interface{}, error) {
+			seen = tx.Gas
+
+			return testTraceResult, nil
+		},
+		headerFn: func() *types.Header {
+			return testLatestHeader
+		},
+		getAccountFn: func(types.Hash, types.Address) (*Account, error) {
+			return &Account{Nonce: 1}, nil
+		},
+	}
+
+	endpoint := NewDebug(store, 100000, true, 5000)
+	_, err := endpoint.TraceCall(
+		context.Background(),
+		&txnArgs{From: &from, To: &to, Gas: &gas},
+		BlockNumberOrHash{BlockNumber: &blockNumber},
+		&TraceConfig{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(5000), seen)
 }
 
 func TestGetRawBlock(t *testing.T) {
@@ -1058,7 +1097,7 @@ func TestGetRawBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.GetRawBlock(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1123,7 +1162,7 @@ func TestGetRawHeader(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.GetRawHeader(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1272,7 +1311,7 @@ func TestGetRawTransaction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, _ := endpoint.GetRawTransaction(test.txHash)
 
 			require.Equal(t, test.result, res)
@@ -1376,7 +1415,7 @@ func TestGetRawReceipts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.GetRawReceipts(test.filter)
 
 			require.Equal(t, test.result, res)
@@ -1508,7 +1547,7 @@ func TestAccountRange(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 
 			res, err := endpoint.AccountRange(test.filter, []byte{}, 1, false, false, false)
 
@@ -1631,7 +1670,7 @@ func TestDumpBlock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 
 			res, err := endpoint.DumpBlock(test.blockNumber)
 
@@ -1759,7 +1798,7 @@ func TestGetAccessibleState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, true)
+			endpoint := NewDebug(test.store, 100000, true, 0)
 
 			res, err := endpoint.GetAccessibleState(test.start, test.end)
 
@@ -1865,7 +1904,7 @@ func TestIntermediateRoots(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.IntermediateRoots(test.blockHash, test.config)
 			require.Equal(t, test.result, res)
 
@@ -1967,7 +2006,7 @@ func TestStorageRangeAt(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.StorageRangeAt(test.blockHash, 0, addr0, []byte{}, 10)
 			require.Equal(t, test.result, res)
 
@@ -2057,7 +2096,7 @@ func TestGetModifiedAccountsByHash(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, false)
+			endpoint := NewDebug(test.store, 100000, false, 0)
 			res, err := endpoint.GetModifiedAccountsByHash(test.startblockHash, test.endblockHash)
 			require.Equal(t, test.result, res)
 
@@ -2165,7 +2204,7 @@ func TestGetModifiedAccountsByNumber(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			endpoint := NewDebug(test.store, 100000, test.enabled)
+			endpoint := NewDebug(test.store, 100000, test.enabled, 0)
 			res, err := endpoint.GetModifiedAccountsByNumber(test.startblockNumber, test.endblockNumber)
 			require.Equal(t, test.result, res)
 
