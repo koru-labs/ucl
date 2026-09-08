@@ -1486,7 +1486,7 @@ func (b *Blockchain) writeBatchAndUpdate(
 	if isCanonnical {
 		b.headersCache.Add(header.Hash, header)
 		b.setCurrentHeader(header, newTD) // Update the blockchain reference
-		metrics.SetGauge(chainHead, float32(header.Number))
+		metrics.SetPrecisionGauge(chainHead, float64(header.Number))
 	}
 
 	return nil
