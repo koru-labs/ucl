@@ -72,6 +72,8 @@ const (
 	jsonRPCFilterLimitPerConnFlag   = "json-rpc-filter-limit-per-connection"
 	jsonRPCLogQueryMaxAddressesFlag = "json-rpc-log-query-max-addresses"
 	jsonRPCLogQueryMaxTopicsFlag    = "json-rpc-log-query-max-topics"
+	jsonRPCLogQueryMaxLogsFlag      = "json-rpc-log-query-max-logs"
+	jsonRPCLogQueryMaxReceiptsFlag  = "json-rpc-log-query-max-receipts"
 	jsonRPCWSMaxConnectionsFlag     = "json-rpc-ws-max-connections"
 	jsonRPCWSMaxInFlightFlag        = "json-rpc-ws-max-in-flight"
 	jsonRPCWSMaxInFlightPerConnFlag = "json-rpc-ws-max-in-flight-per-connection"
@@ -252,6 +254,8 @@ func (p *serverParams) generateConfig() *server.Config {
 			FilterLimitPerConn:       p.rawConfig.JSONRPCFilterLimitPerConn,
 			LogQueryMaxAddresses:     p.rawConfig.JSONRPCLogQueryMaxAddresses,
 			LogQueryMaxTopics:        p.rawConfig.JSONRPCLogQueryMaxTopics,
+			LogQueryMaxLogs:          p.rawConfig.JSONRPCLogQueryMaxLogs,
+			LogQueryMaxReceipts:      p.rawConfig.JSONRPCLogQueryMaxReceipts,
 			WSMaxConnections:         p.rawConfig.JSONRPCWSMaxConnections,
 			WSMaxInFlight:            p.rawConfig.JSONRPCWSMaxInFlight,
 			WSMaxInFlightPerConn:     p.rawConfig.JSONRPCWSMaxInFlightPerConn,

@@ -108,6 +108,8 @@ type JSONRPC struct {
 	FilterLimitPerConn       uint64
 	LogQueryMaxAddresses     uint64
 	LogQueryMaxTopics        uint64
+	LogQueryMaxLogs          uint64
+	LogQueryMaxReceipts      uint64
 	WSMaxConnections         uint64
 	WSMaxInFlight            uint64
 	WSMaxInFlightPerConn     uint64

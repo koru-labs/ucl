@@ -118,6 +118,8 @@ func newDispatcher(
 
 	if store != nil {
 		d.filterManager = NewFilterManager(logger, store, params.blockRangeLimit, params.filterLimits)
+		d.filterManager.logLimits = params.logQueryLimits.withDefaults()
+
 		go d.filterManager.Run()
 	}
 
@@ -622,8 +624,12 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 	}
 
 	if res := output[0].Interface(); res != nil {
-		data, err = fastJSONIt.Marshal(res)
+		data, err = marshalCapped(res, d.params.maxResponseSize)
 		if err != nil {
+			if errors.Is(err, errResponseTooLarge) {
+				return nil, NewLimitExceededError("response too large")
+			}
+
 			d.logInternalError(req.Method, err)
 
 			return nil, NewInternalError("Internal error")

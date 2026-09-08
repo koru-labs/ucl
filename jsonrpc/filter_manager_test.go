@@ -99,6 +99,36 @@ func Test_GetLogsForQuery(t *testing.T) {
 			0,
 			ErrBlockRangeTooHigh,
 		},
+		{
+			// from=0 is rewritten to 1, then the inclusive span is 1001 (1..1001)
+			"Genesis off-by-one is not allowed past the range cap",
+			&LogQuery{
+				fromBlock: 0,
+				toBlock:   1001,
+				Topics:    topics,
+			},
+			0,
+			ErrBlockRangeTooHigh,
+		},
+		{
+			"Wide range without address or topic is rejected",
+			&LogQuery{
+				fromBlock: 1,
+				toBlock:   3,
+			},
+			0,
+			ErrLogQueryFilterRequired,
+		},
+		{
+			"Wide range with only wildcard topics is rejected",
+			&LogQuery{
+				fromBlock: 1,
+				toBlock:   3,
+				Topics:    [][]types.Hash{{}},
+			},
+			0,
+			ErrLogQueryFilterRequired,
+		},
 	}
 
 	// setup test
@@ -165,6 +195,148 @@ func Test_GetLogsForQuery(t *testing.T) {
 			assert.Lenf(t, foundLogs, testCase.expectedLength, "Invalid number of logs found")
 		})
 	}
+}
+
+func Test_getLogsFromBlocks_GenesisInclusiveSpanAllowed(t *testing.T) {
+	t.Parallel()
+
+	topic := types.StringToHash("4")
+	store := &mockBlockStore{topics: []types.Hash{topic}}
+	store.setupLogs()
+	store.appendBlocksToStore([]*types.Block{{
+		Header: &types.Header{
+			Number:    1,
+			Hash:      types.StringToHash("1"),
+			LogsBloom: types.CreateBloom(store.receipts[types.StringToHash("1")]),
+		},
+		Transactions: []*types.Transaction{{Value: big.NewInt(1)}},
+	}})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(f.Close)
+
+	// from=0 → 1; inclusive [1, 1000] is exactly the cap and must not be rejected.
+	_, err := f.GetLogsForQuery(&LogQuery{
+		fromBlock: 0,
+		toBlock:   1000,
+		Topics:    [][]types.Hash{{topic}},
+	})
+	require.NoError(t, err)
+}
+
+func Test_getLogsFromBlocks_ReceiptBudget(t *testing.T) {
+	t.Parallel()
+
+	topic1 := types.StringToHash("4")
+	topic2 := types.StringToHash("5")
+	topic3 := types.StringToHash("6")
+	topics := [][]types.Hash{{topic1}, {topic2}, {topic3}}
+
+	store := &mockBlockStore{topics: []types.Hash{topic1, topic2, topic3}}
+	store.setupLogs()
+
+	blocks := make([]*types.Block, 5)
+	for i := range blocks {
+		hash := types.StringToHash(strconv.Itoa(i))
+		blocks[i] = &types.Block{
+			Header: &types.Header{
+				Number:    uint64(i),
+				Hash:      hash,
+				LogsBloom: types.CreateBloom(store.receipts[hash]),
+			},
+			Transactions: []*types.Transaction{
+				{Value: big.NewInt(10)},
+				{Value: big.NewInt(11)},
+				{Value: big.NewInt(12)},
+			},
+		}
+	}
+
+	store.appendBlocksToStore(blocks)
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	f.logLimits.MaxReceipts = 5
+	t.Cleanup(f.Close)
+
+	// blocks 1..3 have 3 txs each → 9 receipts, over the budget of 5
+	_, err := f.GetLogsForQuery(&LogQuery{
+		fromBlock: 1,
+		toBlock:   3,
+		Topics:    topics,
+	})
+	require.ErrorIs(t, err, ErrBlockRangeTooHigh)
+}
+
+func Test_GetLogsForQuery_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	topic1 := types.StringToHash("4")
+	topic2 := types.StringToHash("5")
+	topic3 := types.StringToHash("6")
+	topics := [][]types.Hash{{topic1}, {topic2}, {topic3}}
+
+	store := &mockBlockStore{topics: []types.Hash{topic1, topic2, topic3}}
+	store.setupLogs()
+
+	blocks := make([]*types.Block, 5)
+	for i := range blocks {
+		hash := types.StringToHash(strconv.Itoa(i))
+		blocks[i] = &types.Block{
+			Header: &types.Header{
+				Number:    uint64(i),
+				Hash:      hash,
+				LogsBloom: types.CreateBloom(store.receipts[hash]),
+			},
+			Transactions: []*types.Transaction{
+				{Value: big.NewInt(10)},
+				{Value: big.NewInt(11)},
+				{Value: big.NewInt(12)},
+			},
+		}
+	}
+
+	store.appendBlocksToStore(blocks)
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	f.logLimits.MaxLogs = 2
+	t.Cleanup(f.Close)
+
+	_, err := f.GetLogsForQuery(&LogQuery{
+		fromBlock: 1,
+		toBlock:   3,
+		Topics:    topics,
+	})
+	require.ErrorIs(t, err, ErrLogQueryTooManyResults)
+	require.ErrorContains(t, err, "query returned more than 2 results")
+}
+
+func Test_getLogsFromBlock_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	block := &types.Block{
+		Header: &types.Header{Hash: types.StringToHash("someHash"), Number: 1},
+		Transactions: []*types.Transaction{
+			createTestTransaction(types.StringToHash("tx1")),
+			createTestTransaction(types.StringToHash("tx2")),
+			createTestTransaction(types.StringToHash("tx3")),
+		},
+	}
+
+	store := &mockBlockStore{receipts: map[types.Hash][]*types.Receipt{
+		block.Header.Hash: {
+			{Logs: []*types.Log{{Topics: []types.Hash{hash1}}, {Topics: []types.Hash{hash2}}}},
+			{Logs: []*types.Log{{Topics: []types.Hash{hash3}}}},
+			{Logs: []*types.Log{{Topics: []types.Hash{hash4}}}},
+		},
+	}}
+	store.appendBlocksToStore([]*types.Block{block})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	f.logLimits.MaxLogs = 2
+	t.Cleanup(f.Close)
+
+	_, err := f.getLogsFromBlock(&LogQuery{fromBlock: 1, toBlock: 1}, block)
+	require.ErrorIs(t, err, ErrLogQueryTooManyResults)
 }
 
 func Test_getLogsFromBlock(t *testing.T) {

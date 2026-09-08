@@ -21,12 +21,22 @@ const (
 	// DefaultMaxLogQueryTopicPositions is the geth-style cap on topic positions
 	// (Ethereum logs have at most 4: event signature + up to 3 indexed fields).
 	DefaultMaxLogQueryTopicPositions uint64 = 4
+
+	// DefaultMaxLogQueryResults is the maximum number of logs one query may return.
+	DefaultMaxLogQueryResults uint64 = 10_000
+
+	// DefaultMaxLogQueryReceipts is the maximum number of receipts a range query
+	// may examine. This is the blocks×receipts work budget, distinct from the
+	// block-span cap.
+	DefaultMaxLogQueryReceipts uint64 = 10_000
 )
 
 // LogQueryLimits caps log-filter complexity. A zero field means the default.
 type LogQueryLimits struct {
 	MaxAddresses      uint64
 	MaxTopicPositions uint64
+	MaxLogs           uint64
+	MaxReceipts       uint64
 }
 
 // DefaultLogQueryLimits returns the geth-style address and topic-position caps.
@@ -34,6 +44,8 @@ func DefaultLogQueryLimits() LogQueryLimits {
 	return LogQueryLimits{
 		MaxAddresses:      DefaultMaxLogQueryAddresses,
 		MaxTopicPositions: DefaultMaxLogQueryTopicPositions,
+		MaxLogs:           DefaultMaxLogQueryResults,
+		MaxReceipts:       DefaultMaxLogQueryReceipts,
 	}
 }
 
@@ -44,6 +56,14 @@ func (l LogQueryLimits) withDefaults() LogQueryLimits {
 
 	if l.MaxTopicPositions == 0 {
 		l.MaxTopicPositions = DefaultMaxLogQueryTopicPositions
+	}
+
+	if l.MaxLogs == 0 {
+		l.MaxLogs = DefaultMaxLogQueryResults
+	}
+
+	if l.MaxReceipts == 0 {
+		l.MaxReceipts = DefaultMaxLogQueryReceipts
 	}
 
 	return l
@@ -137,6 +157,20 @@ func (q *LogQuery) indexAddress(addr types.Address) {
 	}
 
 	q.addressSet[addr] = struct{}{}
+}
+
+func (q *LogQuery) hasAddressOrTopic() bool {
+	if len(q.Addresses) > 0 {
+		return true
+	}
+
+	for _, sub := range q.Topics {
+		if len(sub) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (q *LogQuery) indexAddresses() {
@@ -286,7 +320,13 @@ func (q *LogQuery) decodeTopics(topics []interface{}, limits LogQueryLimits) err
 }
 
 // MatchBloom reports whether the block bloom could contain a log that matches this query.
+// A zero bloom is treated as unknown (IBFT headers do not populate LogsBloom), so the
+// caller must fall through to per-log matching.
 func (q *LogQuery) MatchBloom(bloom types.Bloom) bool {
+	if bloom == (types.Bloom{}) {
+		return true
+	}
+
 	if len(q.Addresses) > 0 {
 		found := false
 

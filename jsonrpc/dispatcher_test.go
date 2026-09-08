@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -608,6 +609,15 @@ func (s *testRPCService) Sleep(_ context.Context, ms argUint64) (interface{}, er
 	return ms, nil
 }
 
+func (s *testRPCService) Bulk() (interface{}, error) {
+	out := make([]string, 64)
+	for i := range out {
+		out[i] = strings.Repeat("n", 64)
+	}
+
+	return out, nil
+}
+
 func TestDispatcher_ContextInjectionAndErrorPassthrough(t *testing.T) {
 	t.Parallel()
 
@@ -754,13 +764,13 @@ func TestDispatcherResponseSizeCap(t *testing.T) {
 	require.Equal(t, "response too large", errResp.Error.Message)
 
 	d = newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
-		maxResponseSize: 180,
+		maxResponseSize: 50,
 	})
 
 	body := []byte(`[
-		{"id":1,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]},
-		{"id":2,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]},
-		{"id":3,"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", true]}
+		{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":2,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},
+		{"id":3,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}
 	]`)
 
 	res, err = d.Handle(context.Background(), body)
@@ -772,4 +782,24 @@ func TestDispatcherResponseSizeCap(t *testing.T) {
 	require.Equal(t, -32005, batch[1].Error.Code)
 	require.Equal(t, "batch response too large", batch[1].Error.Message)
 	require.Equal(t, -32005, batch[2].Error.Code)
+}
+
+func TestDispatcherResponseSizeCapDuringMarshal(t *testing.T) {
+	t.Parallel()
+
+	svc := &testRPCService{}
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{
+		maxResponseSize: 256,
+	})
+	require.NoError(t, d.registerService("test", svc))
+
+	res, err := d.Handle(context.Background(), []byte(
+		`{"id":1,"jsonrpc":"2.0","method":"test_bulk","params":[]}`,
+	))
+	require.NoError(t, err)
+
+	var errResp ErrorResponse
+	require.NoError(t, json.Unmarshal(res, &errResp))
+	require.Equal(t, -32005, errResp.Error.Code)
+	require.Equal(t, "response too large", errResp.Error.Message)
 }

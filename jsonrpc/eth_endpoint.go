@@ -827,12 +827,33 @@ func (e *Eth) GetFilterLogs(id string) (interface{}, error) {
 		return nil, err
 	}
 
-	return e.filterManager.GetLogsForQuery(logFilter.query)
+	logs, err := e.filterManager.GetLogsForQuery(logFilter.query)
+	if err != nil {
+		return nil, wrapLogQueryError(err)
+	}
+
+	return logs, nil
 }
 
 // GetLogs returns an array of logs matching the filter options
 func (e *Eth) GetLogs(query *LogQuery) (interface{}, error) {
-	return e.filterManager.GetLogsForQuery(query)
+	logs, err := e.filterManager.GetLogsForQuery(query)
+	if err != nil {
+		return nil, wrapLogQueryError(err)
+	}
+
+	return logs, nil
+}
+
+func wrapLogQueryError(err error) error {
+	switch {
+	case errors.Is(err, ErrBlockRangeTooHigh),
+		errors.Is(err, ErrLogQueryFilterRequired),
+		errors.Is(err, ErrLogQueryTooManyResults):
+		return NewLimitExceededError(err.Error())
+	default:
+		return err
+	}
 }
 
 // GetBalance returns the account's balance at the referenced block.

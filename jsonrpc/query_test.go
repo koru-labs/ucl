@@ -406,6 +406,16 @@ func TestLogQuery_MatchBloom(t *testing.T) {
 		require.True(t, (&LogQuery{}).MatchBloom(bloom))
 	})
 
+	t.Run("zero bloom is unknown and does not skip a constrained query", func(t *testing.T) {
+		t.Parallel()
+
+		q := &LogQuery{
+			Addresses: []types.Address{addr1},
+			Topics:    [][]types.Hash{{hash1}},
+		}
+		require.True(t, q.MatchBloom(types.Bloom{}))
+	})
+
 	t.Run("address present in the bloom", func(t *testing.T) {
 		t.Parallel()
 

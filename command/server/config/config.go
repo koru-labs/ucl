@@ -63,6 +63,8 @@ type Config struct {
 	// Zero uses the built-in default.
 	JSONRPCLogQueryMaxAddresses uint64 `json:"json_rpc_log_query_max_addresses" yaml:"json_rpc_log_query_max_addresses"`
 	JSONRPCLogQueryMaxTopics    uint64 `json:"json_rpc_log_query_max_topics" yaml:"json_rpc_log_query_max_topics"`
+	JSONRPCLogQueryMaxLogs      uint64 `json:"json_rpc_log_query_max_logs" yaml:"json_rpc_log_query_max_logs"`
+	JSONRPCLogQueryMaxReceipts  uint64 `json:"json_rpc_log_query_max_receipts" yaml:"json_rpc_log_query_max_receipts"`
 
 	// Websocket request and connection ceilings. Zero disables the respective limit.
 	JSONRPCWSMaxConnections     uint64 `json:"json_rpc_ws_max_connections" yaml:"json_rpc_ws_max_connections"`
@@ -176,6 +178,13 @@ const (
 	// a log query may specify (Ethereum logs have at most 4).
 	DefaultJSONRPCLogQueryMaxTopics uint64 = 4
 
+	// DefaultJSONRPCLogQueryMaxLogs is the maximum number of logs a query may return.
+	DefaultJSONRPCLogQueryMaxLogs uint64 = 10_000
+
+	// DefaultJSONRPCLogQueryMaxReceipts is the maximum number of receipts a range
+	// query may examine (blocks×receipts work, not just the block span).
+	DefaultJSONRPCLogQueryMaxReceipts uint64 = 10_000
+
 	// DefaultJSONRPCWSMaxConnections is how many websocket connections the node
 	// accepts at once. Each connection owns a writer goroutine and an outbound
 	// queue, so this bounds baseline memory before any request is in flight.
@@ -266,6 +275,8 @@ func DefaultConfig() *Config {
 		JSONRPCFilterLimitPerConn:   DefaultJSONRPCFilterLimitPerConn,
 		JSONRPCLogQueryMaxAddresses: DefaultJSONRPCLogQueryMaxAddresses,
 		JSONRPCLogQueryMaxTopics:    DefaultJSONRPCLogQueryMaxTopics,
+		JSONRPCLogQueryMaxLogs:      DefaultJSONRPCLogQueryMaxLogs,
+		JSONRPCLogQueryMaxReceipts:  DefaultJSONRPCLogQueryMaxReceipts,
 		JSONRPCWSMaxConnections:     DefaultJSONRPCWSMaxConnections,
 		JSONRPCWSMaxInFlight:        DefaultJSONRPCWSMaxInFlight,
 		JSONRPCWSMaxInFlightPerConn: DefaultJSONRPCWSMaxInFlightPerConn,

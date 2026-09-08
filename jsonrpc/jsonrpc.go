@@ -65,6 +65,8 @@ type Config struct {
 	FilterLimitPerConn      uint64
 	LogQueryMaxAddresses    uint64
 	LogQueryMaxTopics       uint64
+	LogQueryMaxLogs         uint64
+	LogQueryMaxReceipts     uint64
 	WSMaxConnections        uint64
 	WSMaxInFlight           uint64
 	WSMaxInFlightPerConn    uint64
@@ -103,6 +105,8 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			logQueryLimits: LogQueryLimits{
 				MaxAddresses:      config.LogQueryMaxAddresses,
 				MaxTopicPositions: config.LogQueryMaxTopics,
+				MaxLogs:           config.LogQueryMaxLogs,
+				MaxReceipts:       config.LogQueryMaxReceipts,
 			},
 			concurrentRequestsDebug:  config.ConcurrentRequestsDebug,
 			blockCacheTTL:            config.BlockCacheTTL,
