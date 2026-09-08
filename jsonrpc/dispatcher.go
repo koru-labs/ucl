@@ -251,6 +251,10 @@ func (d *Dispatcher) handleSubscribe(req Request, conn wsConn) (string, Error) {
 	case subscribeMethod == "newHeads":
 		filterID, filterEr = d.filterManager.NewBlockFilter(conn)
 	case subscribeMethod == "logs":
+		if len(params) < 2 {
+			return "", NewInvalidParamsError("Invalid params")
+		}
+
 		logQuery, err := decodeLogQueryFromInterface(params[1])
 		if err != nil {
 			return "", NewInternalError(err.Error())

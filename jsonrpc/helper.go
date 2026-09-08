@@ -321,15 +321,16 @@ func DecodeTxn(arg *txnArgs, blockNumber uint64, store nonceGetter, forceSetNonc
 
 // GetTransactionByBlockAndIndex returns the transaction for the given block and index.
 func GetTransactionByBlockAndIndex(block *types.Block, index argUint64) (interface{}, error) {
-	idx := int(index)
 	size := len(block.Transactions)
 
-	if size == 0 || size < idx {
+	if size == 0 || index >= argUint64(size) {
 		return nil, ErrIndexOutOfRange
 	}
 
+	idx := int(index)
+
 	return toTransaction(
-		block.Transactions[index],
+		block.Transactions[idx],
 		block.Header,
 		&idx,
 	), nil
