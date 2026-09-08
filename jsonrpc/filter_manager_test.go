@@ -110,10 +110,12 @@ func Test_GetLogsForQuery(t *testing.T) {
 	blocks := make([]*types.Block, 5)
 
 	for i := range blocks {
+		hash := types.StringToHash(strconv.Itoa(i))
 		blocks[i] = &types.Block{
 			Header: &types.Header{
-				Number: uint64(i),
-				Hash:   types.StringToHash(strconv.Itoa(i)),
+				Number:    uint64(i),
+				Hash:      hash,
+				LogsBloom: types.CreateBloom(store.receipts[hash]),
 			},
 			Transactions: []*types.Transaction{
 				{
@@ -1142,4 +1144,85 @@ func TestFilterManager_RunRecoversFromPanic(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("filter manager did not continue after recovering from panic")
 	}
+}
+
+func Test_getLogsFromBlock_BloomMissSkipsReceipts(t *testing.T) {
+	t.Parallel()
+
+	matching := &types.Log{Address: addr1, Topics: []types.Hash{hash1}}
+	block := &types.Block{
+		Header: &types.Header{
+			Hash:      types.StringToHash("bloom-miss"),
+			Number:    1,
+			LogsBloom: types.CreateBloom([]*types.Receipt{{Logs: []*types.Log{matching}}}),
+		},
+		Transactions: []*types.Transaction{createTestTransaction(types.StringToHash("tx1"))},
+	}
+
+	store := &mockBlockStore{
+		receipts: map[types.Hash][]*types.Receipt{
+			block.Header.Hash: {
+				{Logs: []*types.Log{matching}},
+			},
+		},
+	}
+	store.appendBlocksToStore([]*types.Block{block})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(f.Close)
+
+	logs, err := f.getLogsFromBlock(&LogQuery{
+		Addresses: []types.Address{addr2},
+	}, block)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+
+	logs, err = f.getLogsFromBlock(&LogQuery{
+		Addresses: []types.Address{addr1},
+	}, block)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+}
+
+func Test_appendLogsToFilters_BloomMissSkipsMatch(t *testing.T) {
+	t.Parallel()
+
+	matching := &types.Log{Address: addr1, Topics: []types.Hash{hash1}}
+	block := &types.Block{
+		Header: &types.Header{
+			Hash:      types.StringToHash("append-bloom"),
+			Number:    1,
+			LogsBloom: types.CreateBloom([]*types.Receipt{{Logs: []*types.Log{matching}}}),
+		},
+		Transactions: []*types.Transaction{createTestTransaction(types.StringToHash("tx1"))},
+	}
+
+	store := &mockBlockStore{
+		receipts: map[types.Hash][]*types.Receipt{
+			block.Header.Hash: {
+				{Logs: []*types.Log{matching}},
+			},
+		},
+	}
+	store.appendBlocksToStore([]*types.Block{block})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(f.Close)
+
+	miss := &logFilter{
+		filterBase: newFilterBase(nil),
+		query:      &LogQuery{Addresses: []types.Address{addr2}},
+	}
+	hit := &logFilter{
+		filterBase: newFilterBase(nil),
+		query:      &LogQuery{Addresses: []types.Address{addr1}},
+	}
+	f.filters = map[string]filter{
+		"miss": miss,
+		"hit":  hit,
+	}
+
+	require.NoError(t, f.appendLogsToFilters(toBlock(block, false)))
+	require.Empty(t, miss.logs)
+	require.Len(t, hit.logs, 1)
 }

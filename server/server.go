@@ -1158,6 +1158,8 @@ func (s *Server) setupJSONRPC() error {
 		WebSocketReadLimit:       s.config.JSONRPC.WebSocketReadLimit,
 		FilterLimit:              s.config.JSONRPC.FilterLimit,
 		FilterLimitPerConn:       s.config.JSONRPC.FilterLimitPerConn,
+		LogQueryMaxAddresses:     s.config.JSONRPC.LogQueryMaxAddresses,
+		LogQueryMaxTopics:        s.config.JSONRPC.LogQueryMaxTopics,
 		WSMaxConnections:         s.config.JSONRPC.WSMaxConnections,
 		WSMaxInFlight:            s.config.JSONRPC.WSMaxInFlight,
 		WSMaxInFlightPerConn:     s.config.JSONRPC.WSMaxInFlightPerConn,

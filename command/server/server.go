@@ -297,6 +297,20 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCLogQueryMaxAddresses,
+		jsonRPCLogQueryMaxAddressesFlag,
+		defaultConfig.JSONRPCLogQueryMaxAddresses,
+		"maximum addresses in one eth_getLogs / filter query, zero uses the default",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCLogQueryMaxTopics,
+		jsonRPCLogQueryMaxTopicsFlag,
+		defaultConfig.JSONRPCLogQueryMaxTopics,
+		"maximum topic positions in one eth_getLogs / filter query (geth-style 4), zero uses the default",
+	)
+
+	cmd.Flags().Uint64Var(
 		&params.rawConfig.JSONRPCWSMaxConnections,
 		jsonRPCWSMaxConnectionsFlag,
 		defaultConfig.JSONRPCWSMaxConnections,

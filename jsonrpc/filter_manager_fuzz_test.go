@@ -28,10 +28,12 @@ func FuzzGetLogsForQuery(f *testing.F) {
 	blocks := make([]*types.Block, 5)
 
 	for i := range blocks {
+		hash := types.StringToHash(strconv.Itoa(i))
 		blocks[i] = &types.Block{
 			Header: &types.Header{
-				Number: uint64(i),
-				Hash:   types.StringToHash(strconv.Itoa(i)),
+				Number:    uint64(i),
+				Hash:      hash,
+				LogsBloom: types.CreateBloom(store.receipts[hash]),
 			},
 			Transactions: []*types.Transaction{
 				{

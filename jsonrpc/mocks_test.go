@@ -99,6 +99,10 @@ func (m *mockStore) emitEvent(evnt *mockEvent) {
 	}
 
 	for _, i := range evnt.NewChain {
+		if i.header.LogsBloom == (types.Bloom{}) && len(i.receipts) > 0 {
+			i.header.LogsBloom = types.CreateBloom(i.receipts)
+		}
+
 		m.receipts[i.header.Hash] = i.receipts
 		bEvnt.NewChain = append(bEvnt.NewChain, i.header)
 	}

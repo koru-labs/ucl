@@ -498,6 +498,10 @@ func (f *FilterManager) Exists(id string) bool {
 }
 
 func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([]*Log, error) {
+	if !query.MatchBloom(block.Header.LogsBloom) {
+		return []*Log{}, nil
+	}
+
 	receipts, err := f.store.GetReceiptsByHash(block.Number(), block.Header.Hash)
 	if err != nil {
 		return nil, err
@@ -853,22 +857,24 @@ func (f *FilterManager) processBlockEvent(evnt *blockchain.Event) {
 
 // appendLogsToFilters makes each LogFilters append logs in the header
 func (f *FilterManager) appendLogsToFilters(header *block) error {
-	receipts, err := f.store.GetReceiptsByHash(uint64(header.Number), header.Hash)
-	if err != nil {
-		return err
-	}
-
 	// Get logFilters from filters
 	logFilters := make([]*logFilter, 0)
 
-	for _, f := range f.filters {
-		if logFilter, ok := f.(*logFilter); ok {
-			logFilters = append(logFilters, logFilter)
+	for _, filter := range f.filters {
+		if logFilter, ok := filter.(*logFilter); ok {
+			if logFilter.query.MatchBloom(header.LogsBloom) {
+				logFilters = append(logFilters, logFilter)
+			}
 		}
 	}
 
 	if len(logFilters) == 0 {
 		return nil
+	}
+
+	receipts, err := f.store.GetReceiptsByHash(uint64(header.Number), header.Hash)
+	if err != nil {
+		return err
 	}
 
 	block, ok := f.store.GetBlockByHash(header.Hash, true)
@@ -891,9 +897,9 @@ func (f *FilterManager) appendLogsToFilters(header *block) error {
 		}
 		// check the logs with the filters
 		for _, log := range receipt.Logs {
-			for _, f := range logFilters {
-				if f.query.Match(log) {
-					f.appendLog(toLog(log, logIndex, uint64(indx), block.Header, receipt.TxHash))
+			for _, logFilter := range logFilters {
+				if logFilter.query.Match(log) {
+					logFilter.appendLog(toLog(log, logIndex, uint64(indx), block.Header, receipt.TxHash))
 				}
 			}
 

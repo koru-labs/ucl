@@ -77,6 +77,7 @@ type dispatcherParams struct {
 	jsonRPCBatchLengthLimit uint64
 	blockRangeLimit         uint64
 	filterLimits            FilterLimits
+	logQueryLimits          LogQueryLimits
 
 	concurrentRequestsDebug uint64
 
@@ -109,6 +110,10 @@ func newDispatcher(
 	d := &Dispatcher{
 		logger: logger.Named("dispatcher"),
 		params: params,
+	}
+
+	if params != nil && (params.logQueryLimits.MaxAddresses != 0 || params.logQueryLimits.MaxTopicPositions != 0) {
+		setActiveLogQueryLimits(params.logQueryLimits)
 	}
 
 	if store != nil {
