@@ -21,7 +21,17 @@ var (
 	ErrNoDataInContractCreation = errors.New("contract creation without data provided")
 	ErrIndexOutOfRange          = errors.New("the index is invalid, it is out of range of expected values")
 	ErrInsufficientFunds        = errors.New("insufficient funds for execution")
+	ErrReceiptsTxsMismatch      = errors.New("receipts and transactions length mismatch")
 )
+
+// checkReceiptsMatchTxs returns an error when a block's receipts cannot be zipped with its transactions.
+func checkReceiptsMatchTxs(receipts []*types.Receipt, txs []*types.Transaction) error {
+	if len(receipts) != len(txs) {
+		return ErrReceiptsTxsMismatch
+	}
+
+	return nil
+}
 
 const (
 	maxCallDataSize              = 128 * 1024

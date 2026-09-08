@@ -131,6 +131,15 @@ func Test_GetLogsForQuery(t *testing.T) {
 
 	store.appendBlocksToStore(blocks)
 
+	for _, block := range blocks {
+		recs := store.receipts[block.Header.Hash]
+		for len(recs) < len(block.Transactions) {
+			recs = append(recs, &types.Receipt{})
+		}
+
+		store.receipts[block.Header.Hash] = recs
+	}
+
 	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	t.Cleanup(func() {
@@ -230,6 +239,32 @@ func Test_getLogsFromBlock(t *testing.T) {
 	for i := 0; i < numOfLogs; i++ {
 		require.Equal(t, uint64(i), uint64(logs[i].LogIndex))
 	}
+}
+
+func Test_getLogsFromBlock_ReceiptsTxsMismatch(t *testing.T) {
+	t.Parallel()
+
+	block := &types.Block{
+		Header: &types.Header{Hash: types.StringToHash("mismatch"), Number: 1},
+		Transactions: []*types.Transaction{
+			createTestTransaction(types.StringToHash("tx1")),
+		},
+	}
+
+	store := &mockBlockStore{receipts: map[types.Hash][]*types.Receipt{
+		block.Header.Hash: {
+			{Logs: []*types.Log{{Topics: []types.Hash{hash1}}}},
+			{Logs: []*types.Log{{Topics: []types.Hash{hash2}}}},
+		},
+	}}
+	store.appendBlocksToStore([]*types.Block{block})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(f.Close)
+
+	logs, err := f.getLogsFromBlock(&LogQuery{fromBlock: 1, toBlock: 1}, block)
+	require.ErrorIs(t, err, ErrReceiptsTxsMismatch)
+	require.Nil(t, logs)
 }
 
 func Test_GetLogFilterFromID(t *testing.T) {
@@ -1036,5 +1071,75 @@ func Test_appendLogsToFilters(t *testing.T) {
 
 	for i := 0; i < numOfLogs; i++ {
 		require.Equal(t, uint64(i), uint64(logFilter.logs[i].LogIndex))
+	}
+}
+
+func Test_appendLogsToFilters_ReceiptsTxsMismatch(t *testing.T) {
+	t.Parallel()
+
+	block := &types.Block{
+		Header: &types.Header{Hash: types.StringToHash("mismatch"), Number: 1},
+		Transactions: []*types.Transaction{
+			createTestTransaction(types.StringToHash("tx1")),
+		},
+	}
+
+	store := &mockBlockStore{receipts: map[types.Hash][]*types.Receipt{
+		block.Header.Hash: {
+			{Logs: []*types.Log{{Topics: []types.Hash{hash1}}}},
+			{Logs: []*types.Log{{Topics: []types.Hash{hash2}}}},
+		},
+	}}
+	store.appendBlocksToStore([]*types.Block{block})
+
+	f := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(f.Close)
+
+	f.filters = map[string]filter{
+		"test": &logFilter{
+			filterBase: newFilterBase(nil),
+			query:      &LogQuery{fromBlock: 1, toBlock: 1},
+		},
+	}
+
+	err := f.appendLogsToFilters(toBlock(block, false))
+	require.ErrorIs(t, err, ErrReceiptsTxsMismatch)
+}
+
+type receiptsPanicStore struct {
+	*mockStore
+	panicsLeft atomic.Int32
+}
+
+func (s *receiptsPanicStore) GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error) {
+	if s.panicsLeft.Add(-1) >= 0 {
+		panic("receipts storage inconsistency") //nolint:gocritic
+	}
+
+	return s.mockStore.GetReceiptsByHash(bn, hash)
+}
+
+func TestFilterManager_RunRecoversFromPanic(t *testing.T) {
+	t.Parallel()
+
+	store := &receiptsPanicStore{mockStore: newMockStore()}
+	store.panicsLeft.Store(1)
+
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
+	t.Cleanup(m.Close)
+
+	go m.Run()
+
+	mock, msgCh := newMockWsConnWithMsgCh()
+	_, err := m.NewBlockFilter(mock)
+	require.NoError(t, err)
+
+	store.emitEvent(newBlockEvent("1"))
+	store.emitEvent(newBlockEvent("2"))
+
+	select {
+	case <-msgCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("filter manager did not continue after recovering from panic")
 	}
 }
