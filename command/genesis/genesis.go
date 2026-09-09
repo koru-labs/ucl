@@ -74,7 +74,9 @@ func setFlags(cmd *cobra.Command) {
 		&params.burnContract,
 		burnContractFlag,
 		"",
-		"the burn contract block and address (format: <block>:<address>[:<burn destination>])",
+		"optional burn contract block and address (format: <block>:<address>[:<burn destination>]). "+
+			"When set, the EIP-1559 base fee is sent to this address; when omitted, the base fee "+
+			"is paid to the block proposer together with the priority tip",
 	)
 
 	cmd.Flags().StringVar(
