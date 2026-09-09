@@ -37,6 +37,16 @@ var (
 	// externalDroppedEvents counts events lost by subscribers that relay to remote clients,
 	// which happens whenever a client cannot keep up with the chain.
 	externalDroppedEvents = []string{blockchainMetrics, "subscription_events_dropped"}
+
+	// chainHead tracks the height of the local canonical chain. It is recorded where the
+	// canonical head advances rather than in the consensus engine, so that nodes which
+	// only ever receive blocks through the syncer report it too: comparing heights across
+	// the fleet is what catches a node falling silently behind, and those are exactly the
+	// nodes it has to cover.
+	//
+	// A go-metrics gauge carries a float32, which stops representing consecutive integers
+	// above 2^24, so single block increments become invisible past ~16.7M blocks.
+	chainHead = []string{blockchainMetrics, "chain_head"}
 )
 
 // Subscription is the blockchain subscription interface
