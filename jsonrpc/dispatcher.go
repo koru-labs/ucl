@@ -80,6 +80,7 @@ type dispatcherParams struct {
 	logQueryLimits          LogQueryLimits
 
 	concurrentRequestsDebug uint64
+	debugTraceTimeout       time.Duration
 
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
@@ -156,8 +157,8 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 	d.endpoints.Debug = NewDebug(
 		store,
 		d.params.concurrentRequestsDebug,
-		d.params.enableAllDebugEndpoints,
 		d.params.rpcGasCap,
+		d.params.debugTraceTimeout,
 	)
 	d.endpoints.Consensus = &Consensus{
 		store: store,
@@ -193,7 +194,15 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 		}
 	}
 
-	return d.registerService("debug", d.endpoints.Debug)
+	if d.params.enableAllDebugEndpoints {
+		return d.registerService("debug", d.endpoints.Debug)
+	}
+
+	if len(publicDebugMethods) == 0 {
+		return nil
+	}
+
+	return d.registerService("debug", d.endpoints.Debug, publicDebugMethods)
 }
 
 func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, Error) {
@@ -643,13 +652,18 @@ func (d *Dispatcher) logInternalError(method string, err error) {
 	d.logger.Warn("failed to dispatch", "method", method, "err", err)
 }
 
-func (d *Dispatcher) registerService(serviceName string, service interface{}) error {
+func (d *Dispatcher) registerService(serviceName string, service interface{}, allow ...map[string]struct{}) error {
 	if d.serviceMap == nil {
 		d.serviceMap = map[string]*serviceData{}
 	}
 
 	if serviceName == "" {
 		return errors.New("jsonrpc: serviceName cannot be empty")
+	}
+
+	var allowList map[string]struct{}
+	if len(allow) > 0 {
+		allowList = allow[0]
 	}
 
 	st := reflect.TypeOf(service)
@@ -668,6 +682,13 @@ func (d *Dispatcher) registerService(serviceName string, service interface{}) er
 
 		name := lowerCaseFirstRune(mv.Name)
 		funcName := serviceName + "_" + name
+
+		if allowList != nil {
+			if _, ok := allowList[funcName]; !ok {
+				continue
+			}
+		}
+
 		fd := &funcData{
 			fv: mv.Func,
 		}

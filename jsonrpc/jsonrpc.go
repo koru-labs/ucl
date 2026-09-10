@@ -60,6 +60,7 @@ type Config struct {
 	JSONRPCTimeout           time.Duration
 
 	ConcurrentRequestsDebug uint64
+	DebugTraceTimeout       time.Duration
 	WebSocketReadLimit      uint64
 	FilterLimit             uint64
 	FilterLimitPerConn      uint64
@@ -109,6 +110,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 				MaxReceipts:       config.LogQueryMaxReceipts,
 			},
 			concurrentRequestsDebug:  config.ConcurrentRequestsDebug,
+			debugTraceTimeout:        config.DebugTraceTimeout,
 			blockCacheTTL:            config.BlockCacheTTL,
 			blockCacheCapacity:       config.BlockCacheCapacity,
 			enableTxPoolEndpoints:    config.EnableTxPoolEndpoints,

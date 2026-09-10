@@ -103,6 +103,7 @@ type JSONRPC struct {
 	BatchLengthLimit         uint64
 	BlockRangeLimit          uint64
 	ConcurrentRequestsDebug  uint64
+	DebugTraceTimeout        time.Duration
 	WebSocketReadLimit       uint64
 	FilterLimit              uint64
 	FilterLimitPerConn       uint64

@@ -52,16 +52,17 @@ const (
 	txGossipBatchSizeFlag        = "tx-gossip-batch-size"
 	journalRotateSizeFlag        = "journal-rotate-size"
 
-	useTLSFlag                 = "use-tls"
-	tlsCertFileLocationFlag    = "tls-cert-file"
-	tlsKeyFileLocationFlag     = "tls-key-file"
-	blockCacheTTLFlag          = "block-cache-ttl"
-	blockCacheCapacityFlag     = "block-cache-capacity"
-	MaxRequestBodySizeFlag     = "max-request-body-size"
-	JSONRPCTimeoutFlag         = "json-rpc-timeout"
-	rpcGasCapFlag              = "rpc-gas-cap"
-	jsonRPCBatchCostLimitFlag  = "json-rpc-batch-cost-limit"
-	jsonRPCMaxResponseSizeFlag = "json-rpc-max-response-size"
+	useTLSFlag                   = "use-tls"
+	tlsCertFileLocationFlag      = "tls-cert-file"
+	tlsKeyFileLocationFlag       = "tls-key-file"
+	blockCacheTTLFlag            = "block-cache-ttl"
+	blockCacheCapacityFlag       = "block-cache-capacity"
+	MaxRequestBodySizeFlag       = "max-request-body-size"
+	JSONRPCTimeoutFlag           = "json-rpc-timeout"
+	jsonRPCDebugTraceTimeoutFlag = "json-rpc-debug-trace-timeout"
+	rpcGasCapFlag                = "rpc-gas-cap"
+	jsonRPCBatchCostLimitFlag    = "json-rpc-batch-cost-limit"
+	jsonRPCMaxResponseSizeFlag   = "json-rpc-max-response-size"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
@@ -249,6 +250,7 @@ func (p *serverParams) generateConfig() *server.Config {
 			BatchCostLimit:           p.rawConfig.JSONRPCBatchCostLimit,
 			MaxResponseSize:          p.rawConfig.JSONRPCMaxResponseSize,
 			ConcurrentRequestsDebug:  p.rawConfig.ConcurrentRequestsDebug,
+			DebugTraceTimeout:        p.rawConfig.JSONRPCDebugTraceTimeout,
 			WebSocketReadLimit:       p.rawConfig.WebSocketReadLimit,
 			FilterLimit:              p.rawConfig.JSONRPCFilterLimit,
 			FilterLimitPerConn:       p.rawConfig.JSONRPCFilterLimitPerConn,
