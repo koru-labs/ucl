@@ -39,11 +39,13 @@ func (w *SnapshotValidatorStoreWrapper) Close() error {
 		snapshots = w.GetSnapshots()
 	)
 
-	if err := writeDataStore(filepath.Join(w.dirPath, snapshotMetadataFilename), metadata); err != nil {
+	// Snapshots first, then LastBlock. A crash between the writes leaves
+	// LastBlock behind the list; initialize will replay and replace by height.
+	if err := writeDataStore(filepath.Join(w.dirPath, snapshotSnapshotsFilename), snapshots); err != nil {
 		return err
 	}
 
-	if err := writeDataStore(filepath.Join(w.dirPath, snapshotSnapshotsFilename), snapshots); err != nil {
+	if err := writeDataStore(filepath.Join(w.dirPath, snapshotMetadataFilename), metadata); err != nil {
 		return err
 	}
 

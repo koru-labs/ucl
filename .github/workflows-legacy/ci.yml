@@ -11,7 +11,7 @@ on: # yamllint disable-line rule:truthy
 
   push:
     branches:
-      - develop
+      - main
 
   pull_request: {}
 
@@ -90,7 +90,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     if: |
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
 
@@ -100,7 +100,7 @@ jobs:
     needs: build
     if: |
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
 
@@ -111,7 +111,7 @@ jobs:
     if: |
       inputs.unit_test ||
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule'
 
   fuzz_test:
@@ -121,7 +121,7 @@ jobs:
     if: |
       inputs.fuzz_test ||
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule'
 
   e2e_ibft_test:
@@ -131,7 +131,7 @@ jobs:
     if: |
       inputs.e2e_ibft_test ||
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule'
 
   e2e_ibft_liveness_test:
@@ -149,7 +149,7 @@ jobs:
     if: |
       inputs.benchmark_test || 
       github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule'
 
   notification:

@@ -114,6 +114,8 @@ type TestClusterConfig struct {
 	EpochReward          int
 	NativeTokenConfigRaw string
 	BaseFeeConfig        string
+	FixedBaseFee         bool
+	PriceLimit           uint64
 	SecretsCallback      func([]types.Address, *TestClusterConfig)
 	RewardWallet         string
 
@@ -271,6 +273,21 @@ func WithBaseFeeConfig(config string) ClusterOption {
 		} else {
 			h.BaseFeeConfig = config
 		}
+	}
+}
+
+// WithFixedBaseFee starts every node with --with-base-fee-fixed so the base fee never
+// moves away from the genesis value.
+func WithFixedBaseFee() ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.FixedBaseFee = true
+	}
+}
+
+// WithPriceLimit sets the txpool minimum gas price (wei) on every node.
+func WithPriceLimit(priceLimit uint64) ClusterOption {
+	return func(h *TestClusterConfig) {
+		h.PriceLimit = priceLimit
 	}
 }
 
@@ -632,6 +649,8 @@ func (c *TestCluster) InitTestServer(t *testing.T,
 		config.TLSKeyFile = c.Config.TLSKeyFile
 		config.AllDebugEndpointsEnabled = c.Config.AllDebugEndpointsEnabled
 		config.TxPoolEndpointsEnabled = c.Config.TxPoolEndpointsEnabled
+		config.FixedBaseFee = c.Config.FixedBaseFee
+		config.PriceLimit = c.Config.PriceLimit
 	})
 
 	// watch the server for stop signals. It is important to fix the specific
@@ -941,7 +960,6 @@ func (t *TestTxn) Failed() bool {
 func (t *TestTxn) Reverted() bool {
 	return t.Failed() && t.txn.Gas == t.receipt.GasUsed
 }
-
 
 func dockerComposeUp(logsDir string) {
 	// Create a log file for docker-compose output
