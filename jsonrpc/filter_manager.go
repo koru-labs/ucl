@@ -29,7 +29,13 @@ var (
 	ErrUnknownSubscriptionType          = errors.New("unknown subscription type")
 	ErrFilterLimitExceeded              = errors.New("node filter limit reached, try again later")
 	ErrConnectionFilterLimitExceeded    = errors.New("filter limit for this connection reached")
+	ErrLogQueryFilterRequired           = errors.New("at least one address or topic is required for wide block ranges")
+	ErrLogQueryTooManyResults           = errors.New("query returned more than the configured maximum results")
 )
+
+func errTooManyLogs(limit uint64) error {
+	return fmt.Errorf("%w: query returned more than %d results", ErrLogQueryTooManyResults, limit)
+}
 
 // FilterLimits caps how many filters may be active, so that a client cannot install
 // subscriptions in a loop. A zero value means the corresponding limit is disabled.
@@ -337,6 +343,7 @@ type FilterManager struct {
 	blockStream     *blockStream
 	blockRangeLimit uint64
 	limits          FilterLimits
+	logLimits       LogQueryLimits
 
 	filters  map[string]filter
 	timeouts timeHeapImpl
@@ -357,6 +364,7 @@ func NewFilterManager(
 		store:           store,
 		blockRangeLimit: blockRangeLimit,
 		limits:          limits,
+		logLimits:       DefaultLogQueryLimits(),
 		filters:         make(map[string]filter),
 		timeouts:        timeHeapImpl{},
 		updateCh:        make(chan struct{}),
@@ -498,6 +506,10 @@ func (f *FilterManager) Exists(id string) bool {
 }
 
 func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([]*Log, error) {
+	if !query.MatchBloom(block.Header.LogsBloom) {
+		return []*Log{}, nil
+	}
+
 	receipts, err := f.store.GetReceiptsByHash(block.Number(), block.Header.Hash)
 	if err != nil {
 		return nil, err
@@ -509,10 +521,15 @@ func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([
 
 	logIdx := uint64(0)
 	logs := make([]*Log, 0)
+	maxLogs := f.logLimits.MaxLogs
 
 	for idx, receipt := range receipts {
 		for _, log := range receipt.Logs {
 			if query.Match(log) {
+				if maxLogs != 0 && uint64(len(logs)+1) > maxLogs {
+					return nil, errTooManyLogs(maxLogs)
+				}
+
 				logs = append(logs, toLog(log, logIdx, uint64(idx), block.Header, block.Transactions[idx].Hash))
 			}
 
@@ -538,18 +555,31 @@ func (f *FilterManager) getLogsFromBlocks(query *LogQuery) ([]*Log, error) {
 		return nil, ErrIncorrectBlockRange
 	}
 
-	// If from equals genesis block
-	// skip it
+	// Genesis has no logs; skip it before measuring the inclusive span so
+	// from=0,to=N is N blocks (1..N), not N+1.
 	if from == 0 {
 		from = 1
 	}
 
-	// if not disabled, avoid handling large block ranges
-	if f.blockRangeLimit != 0 && to-from > f.blockRangeLimit {
+	if to < from {
+		return nil, ErrIncorrectBlockRange
+	}
+
+	// Inclusive block count: [from, to] is (to-from+1) blocks.
+	if f.blockRangeLimit != 0 && to-from+1 > f.blockRangeLimit {
 		return nil, ErrBlockRangeTooHigh
 	}
 
+	if to > from && !query.hasAddressOrTopic() {
+		return nil, ErrLogQueryFilterRequired
+	}
+
 	logs := make([]*Log, 0)
+
+	var receiptsSeen uint64
+
+	maxReceipts := f.logLimits.MaxReceipts
+	maxLogs := f.logLimits.MaxLogs
 
 	for i := from; i <= to; i++ {
 		block, ok := f.store.GetBlockByNumber(i, true)
@@ -557,14 +587,24 @@ func (f *FilterManager) getLogsFromBlocks(query *LogQuery) ([]*Log, error) {
 			break
 		}
 
-		if len(block.Transactions) == 0 {
+		n := uint64(len(block.Transactions))
+		if n == 0 {
 			// do not check logs if no txs
 			continue
+		}
+
+		receiptsSeen += n
+		if maxReceipts != 0 && receiptsSeen > maxReceipts {
+			return nil, ErrBlockRangeTooHigh
 		}
 
 		blockLogs, err := f.getLogsFromBlock(query, block)
 		if err != nil {
 			return nil, err
+		}
+
+		if maxLogs != 0 && uint64(len(logs)+len(blockLogs)) > maxLogs {
+			return nil, errTooManyLogs(maxLogs)
 		}
 
 		logs = append(logs, blockLogs...)
@@ -585,6 +625,10 @@ func (f *FilterManager) GetLogsForQuery(query *LogQuery) ([]*Log, error) {
 		if len(block.Transactions) == 0 {
 			// no txs in block, return empty response
 			return []*Log{}, nil
+		}
+
+		if receiptLimit := f.logLimits.MaxReceipts; receiptLimit != 0 && uint64(len(block.Transactions)) > receiptLimit {
+			return nil, ErrBlockRangeTooHigh
 		}
 
 		return f.getLogsFromBlock(query, block)
@@ -853,22 +897,24 @@ func (f *FilterManager) processBlockEvent(evnt *blockchain.Event) {
 
 // appendLogsToFilters makes each LogFilters append logs in the header
 func (f *FilterManager) appendLogsToFilters(header *block) error {
-	receipts, err := f.store.GetReceiptsByHash(uint64(header.Number), header.Hash)
-	if err != nil {
-		return err
-	}
-
 	// Get logFilters from filters
 	logFilters := make([]*logFilter, 0)
 
-	for _, f := range f.filters {
-		if logFilter, ok := f.(*logFilter); ok {
-			logFilters = append(logFilters, logFilter)
+	for _, filter := range f.filters {
+		if logFilter, ok := filter.(*logFilter); ok {
+			if logFilter.query.MatchBloom(header.LogsBloom) {
+				logFilters = append(logFilters, logFilter)
+			}
 		}
 	}
 
 	if len(logFilters) == 0 {
 		return nil
+	}
+
+	receipts, err := f.store.GetReceiptsByHash(uint64(header.Number), header.Hash)
+	if err != nil {
+		return err
 	}
 
 	block, ok := f.store.GetBlockByHash(header.Hash, true)
@@ -891,9 +937,9 @@ func (f *FilterManager) appendLogsToFilters(header *block) error {
 		}
 		// check the logs with the filters
 		for _, log := range receipt.Logs {
-			for _, f := range logFilters {
-				if f.query.Match(log) {
-					f.appendLog(toLog(log, logIndex, uint64(indx), block.Header, receipt.TxHash))
+			for _, logFilter := range logFilters {
+				if logFilter.query.Match(log) {
+					logFilter.appendLog(toLog(log, logIndex, uint64(indx), block.Header, receipt.TxHash))
 				}
 			}
 

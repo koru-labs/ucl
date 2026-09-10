@@ -107,6 +107,14 @@ func (b *Bloom) setEncode(hasher *keccak.Keccak, h []byte) {
 	}
 }
 
+// Contains reports whether the address or topic bytes may be present in the bloom.
+func (b *Bloom) Contains(data []byte) bool {
+	hasher := keccak.DefaultKeccakPool.Get()
+	defer keccak.DefaultKeccakPool.Put(hasher)
+
+	return b.isByteArrPresent(hasher, data)
+}
+
 // IsLogInBloom checks if the log has a possible presence in the bloom filter
 func (b *Bloom) IsLogInBloom(log *Log) bool {
 	hasher := keccak.DefaultKeccakPool.Get()

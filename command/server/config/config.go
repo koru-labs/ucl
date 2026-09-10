@@ -58,6 +58,14 @@ type Config struct {
 	JSONRPCFilterLimit        uint64 `json:"json_rpc_filter_limit" yaml:"json_rpc_filter_limit"`
 	JSONRPCFilterLimitPerConn uint64 `json:"json_rpc_filter_limit_per_connection" yaml:"json_rpc_filter_limit_per_connection"` //nolint:lll
 
+	// JSONRPCLogQueryMaxAddresses caps addresses in one eth_getLogs / filter query.
+	// JSONRPCLogQueryMaxTopics caps topic positions (geth-style default is 4).
+	// Zero uses the built-in default.
+	JSONRPCLogQueryMaxAddresses uint64 `json:"json_rpc_log_query_max_addresses" yaml:"json_rpc_log_query_max_addresses"`
+	JSONRPCLogQueryMaxTopics    uint64 `json:"json_rpc_log_query_max_topics" yaml:"json_rpc_log_query_max_topics"`
+	JSONRPCLogQueryMaxLogs      uint64 `json:"json_rpc_log_query_max_logs" yaml:"json_rpc_log_query_max_logs"`
+	JSONRPCLogQueryMaxReceipts  uint64 `json:"json_rpc_log_query_max_receipts" yaml:"json_rpc_log_query_max_receipts"`
+
 	// Websocket request and connection ceilings. Zero disables the respective limit.
 	JSONRPCWSMaxConnections     uint64 `json:"json_rpc_ws_max_connections" yaml:"json_rpc_ws_max_connections"`
 	JSONRPCWSMaxInFlight        uint64 `json:"json_rpc_ws_max_in_flight" yaml:"json_rpc_ws_max_in_flight"`
@@ -162,6 +170,21 @@ const (
 	// installing filters in a loop.
 	DefaultJSONRPCFilterLimitPerConn uint64 = 100
 
+	// DefaultJSONRPCLogQueryMaxAddresses is the maximum number of addresses a
+	// single log query may list. Zero in config means this default.
+	DefaultJSONRPCLogQueryMaxAddresses uint64 = 1000
+
+	// DefaultJSONRPCLogQueryMaxTopics is the maximum number of topic positions
+	// a log query may specify (Ethereum logs have at most 4).
+	DefaultJSONRPCLogQueryMaxTopics uint64 = 4
+
+	// DefaultJSONRPCLogQueryMaxLogs is the maximum number of logs a query may return.
+	DefaultJSONRPCLogQueryMaxLogs uint64 = 10_000
+
+	// DefaultJSONRPCLogQueryMaxReceipts is the maximum number of receipts a range
+	// query may examine (blocks×receipts work, not just the block span).
+	DefaultJSONRPCLogQueryMaxReceipts uint64 = 10_000
+
 	// DefaultJSONRPCWSMaxConnections is how many websocket connections the node
 	// accepts at once. Each connection owns a writer goroutine and an outbound
 	// queue, so this bounds baseline memory before any request is in flight.
@@ -250,6 +273,10 @@ func DefaultConfig() *Config {
 		WebSocketReadLimit:          DefaultWebSocketReadLimit,
 		JSONRPCFilterLimit:          DefaultJSONRPCFilterLimit,
 		JSONRPCFilterLimitPerConn:   DefaultJSONRPCFilterLimitPerConn,
+		JSONRPCLogQueryMaxAddresses: DefaultJSONRPCLogQueryMaxAddresses,
+		JSONRPCLogQueryMaxTopics:    DefaultJSONRPCLogQueryMaxTopics,
+		JSONRPCLogQueryMaxLogs:      DefaultJSONRPCLogQueryMaxLogs,
+		JSONRPCLogQueryMaxReceipts:  DefaultJSONRPCLogQueryMaxReceipts,
 		JSONRPCWSMaxConnections:     DefaultJSONRPCWSMaxConnections,
 		JSONRPCWSMaxInFlight:        DefaultJSONRPCWSMaxInFlight,
 		JSONRPCWSMaxInFlightPerConn: DefaultJSONRPCWSMaxInFlightPerConn,
