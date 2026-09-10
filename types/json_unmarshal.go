@@ -136,10 +136,20 @@ func (h *Header) unmarshalJSON(v *fastjson.Value) error {
 		return err
 	}
 
-	if h.BaseFee, err = unmarshalJSONUint64(v, "baseFee"); err != nil {
-		if err.Error() != "field 'baseFee' not found" {
+	// JSON-RPC headers carry the base fee as "baseFeePerGas" (the Header json tag); older
+	// producers used "baseFee". Pre-London headers omit the field entirely.
+	h.BaseFee = 0
+
+	for _, key := range []string{"baseFeePerGas", "baseFee"} {
+		if v.Get(key) == nil {
+			continue
+		}
+
+		if h.BaseFee, err = unmarshalJSONUint64(v, key); err != nil {
 			return err
 		}
+
+		break
 	}
 
 	return nil

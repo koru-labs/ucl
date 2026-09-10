@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -158,9 +159,31 @@ func (e *Executor) ProcessBlock(
 	block *types.Block,
 	blockCreator types.Address,
 ) (*Transition, error) {
+	return e.processBlock(parentRoot, block, blockCreator, false)
+}
+
+// ProcessBlockWithOutcomes executes a block and records per-tx local fingerprints.
+func (e *Executor) ProcessBlockWithOutcomes(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+) (*Transition, error) {
+	return e.processBlock(parentRoot, block, blockCreator, true)
+}
+
+func (e *Executor) processBlock(
+	parentRoot types.Hash,
+	block *types.Block,
+	blockCreator types.Address,
+	traceOutcomes bool,
+) (*Transition, error) {
 	txn, err := e.BeginTxn(parentRoot, block.Header, blockCreator)
 	if err != nil {
 		return nil, err
+	}
+
+	if traceOutcomes {
+		txn.EnableOutcomeTrace()
 	}
 
 	for _, t := range block.Transactions {
@@ -187,6 +210,29 @@ func (e *Executor) GetForksInTime(blockNumber uint64) chain.ForksInTime {
 	return e.config.Forks.At(blockNumber)
 }
 
+// baseFeeRecipient returns the account credited with the base fee portion of every
+// transaction fee (gasUsed * baseFee) once London is active.
+//
+// If the chain configures a burn contract, the base fee is sent there (classic EIP-1559
+// burn). If no burn contract is configured, the base fee is paid to the block proposer
+// together with the priority tip, so validators collect the whole transaction fee.
+// Before London there is no base fee and the whole gas price already goes to the proposer.
+func (e *Executor) baseFeeRecipient(
+	forks chain.ForksInTime,
+	blockNumber uint64,
+	coinbase types.Address,
+) (types.Address, error) {
+	if !forks.London {
+		return types.ZeroAddress, nil
+	}
+
+	if len(e.config.BurnContract) == 0 {
+		return coinbase, nil
+	}
+
+	return e.config.CalculateBurnContract(blockNumber)
+}
+
 func (e *Executor) BeginTxn(
 	parentRoot types.Hash,
 	header *types.Header,
@@ -199,12 +245,9 @@ func (e *Executor) BeginTxn(
 		return nil, err
 	}
 
-	burnContract := types.ZeroAddress
-	if forkConfig.London {
-		burnContract, err = e.config.CalculateBurnContract(header.Number)
-		if err != nil {
-			return nil, err
-		}
+	baseFeeRecipient, err := e.baseFeeRecipient(forkConfig, header.Number, coinbaseReceiver)
+	if err != nil {
+		return nil, err
 	}
 
 	newTxn := NewTxn(auxSnap2)
@@ -217,7 +260,7 @@ func (e *Executor) BeginTxn(
 		BaseFee:      new(big.Int).SetUint64(header.BaseFee),
 		GasLimit:     int64(header.GasLimit),
 		ChainID:      e.config.ChainID,
-		BurnContract: burnContract,
+		BurnContract: baseFeeRecipient,
 	}
 
 	txn := &Transition{
@@ -298,6 +341,26 @@ type Transition struct {
 	txnBlockList        *addresslist.AddressList
 	bridgeAllowList     *addresslist.AddressList
 	bridgeBlockList     *addresslist.AddressList
+
+	traceOutcomes bool
+	outcomes      []TxExecOutcome
+}
+
+// TxExecOutcome is this node's local result for one transaction in a block.
+type TxExecOutcome struct {
+	Hash       types.Hash
+	Status     types.ReceiptStatus
+	GasUsed    uint64
+	ReturnHash types.Hash
+	DeltaHash  types.Hash
+}
+
+func (t *Transition) EnableOutcomeTrace() {
+	t.traceOutcomes = true
+}
+
+func (t *Transition) Outcomes() []TxExecOutcome {
+	return t.outcomes
 }
 
 func NewTransition(config chain.ForksInTime, snap Snapshot, radix *Txn) *Transition {
@@ -355,6 +418,9 @@ func (t *Transition) WithStateOverride(override types.StateOverride) error {
 
 	return nil
 }
+
+// SetExecutionContext makes the EVM abort when ctx is done. Only for read-only RPC paths.
+func (t *Transition) SetExecutionContext(ctx context.Context) { t.evm.SetExecutionContext(ctx) }
 
 func (t *Transition) TotalGas() uint64 {
 	return t.totalGas
@@ -422,6 +488,25 @@ func (t *Transition) Write(txn *types.Transaction) error {
 	receipt.Logs = logs
 	receipt.LogsBloom = types.CreateBloom([]*types.Receipt{receipt})
 	t.receipts = append(t.receipts, receipt)
+
+	if t.traceOutcomes {
+		status := types.ReceiptSuccess
+		if result.Failed() {
+			status = types.ReceiptFailed
+		}
+
+		if txn.Hash == types.ZeroHash {
+			txn.ComputeHash(uint64(t.ctx.Number))
+		}
+
+		t.outcomes = append(t.outcomes, TxExecOutcome{
+			Hash:       txn.Hash,
+			Status:     status,
+			GasUsed:    result.GasUsed,
+			ReturnHash: crypto.Keccak256Hash(result.ReturnValue),
+			DeltaHash:  t.state.DirtyFingerprint(),
+		})
+	}
 
 	return nil
 }
@@ -744,8 +829,9 @@ func (t *Transition) apply(msg *types.Transaction) (result *runtime.ExecutionRes
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), effectiveTip)
 	t.state.AddBalance(t.ctx.Coinbase, coinbaseFee)
 
-	// Burn some amount if the london hardfork is applied.
-	// Basically, burn amount is just transferred to the current burn contract.
+	// Pay the base fee portion (gasUsed * baseFee) once London is active. It goes to the
+	// configured burn contract, or to the block proposer when no burn contract is set
+	// (see Executor.baseFeeRecipient).
 	if t.config.London && msg.Type != types.StateTx {
 		burnAmount := new(big.Int).Mul(new(big.Int).SetUint64(result.GasUsed), t.ctx.BaseFee)
 		t.state.AddBalance(t.ctx.BurnContract, burnAmount)

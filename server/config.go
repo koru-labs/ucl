@@ -66,8 +66,16 @@ type Config struct {
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
 
-	EnableTxPoolEndpoints   bool
-	EnableAllDebugEndpoints bool
+	EnableTxPoolEndpoints    bool
+	EnableAllDebugEndpoints  bool
+	EnableConsensusEndpoints bool
+
+	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
+	ConsensusStatePushURL string
+	// ConsensusStatePushToken is the bearer token sent with push requests.
+	ConsensusStatePushToken string
+	// ConsensusStatePushInterval is the recovery heartbeat between snapshots.
+	ConsensusStatePushInterval time.Duration
 
 	// JumpdestCacheSize controls the size of the per-process JUMPDEST bitmap
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).
@@ -96,4 +104,12 @@ type JSONRPC struct {
 	BlockRangeLimit          uint64
 	ConcurrentRequestsDebug  uint64
 	WebSocketReadLimit       uint64
+	FilterLimit              uint64
+	FilterLimitPerConn       uint64
+	WSMaxConnections         uint64
+	WSMaxInFlight            uint64
+	WSMaxInFlightPerConn     uint64
+	RPCGasCap                uint64
+	BatchCostLimit           uint64
+	MaxResponseSize          uint64
 }

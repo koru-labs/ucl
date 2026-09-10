@@ -8,6 +8,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzGetLogsForQuery(f *testing.F) {
@@ -48,7 +49,7 @@ func FuzzGetLogsForQuery(f *testing.F) {
 
 	store.appendBlocksToStore(blocks)
 
-	fm := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	fm := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 
 	f.Cleanup(func() {
 		defer fm.Close()
@@ -106,7 +107,7 @@ func FuzzGetLogsForQuery(f *testing.F) {
 func FuzzGetLogFilterFromID(f *testing.F) {
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store, 1000)
+	m := NewFilterManager(hclog.NewNullLogger(), store, 1000, FilterLimits{})
 	defer m.Close()
 
 	go m.Run()
@@ -153,9 +154,10 @@ func FuzzGetLogFilterFromID(f *testing.F) {
 			fromBlock: BlockNumber(fromBlock),
 		}
 
-		retrivedLogFilter, err := m.GetLogFilterFromID(
-			m.NewLogFilter(logFilter, &MockClosedWSConnection{}),
-		)
+		id, err := m.NewLogFilter(logFilter, &MockClosedWSConnection{})
+		require.NoError(t, err)
+
+		retrivedLogFilter, err := m.GetLogFilterFromID(id)
 		if err != nil {
 			assert.Equal(t, logFilter, retrivedLogFilter.query)
 		}

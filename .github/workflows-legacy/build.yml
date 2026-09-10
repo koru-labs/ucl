@@ -65,10 +65,10 @@ jobs:
         with:
           name: polygon-edge
           path: polygon-edge
-          retention-days: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && 90 || 3 }}
+          retention-days: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 90 || 3 }}
 
       - name: Generate Revision File
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           cat <<EOF > revision.yml
           ---
@@ -84,7 +84,7 @@ jobs:
   
       - name: Upload Revision Artifact
         uses: actions/upload-artifact@v7.0.0
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         with:
           path: revision.yml
           retention-days: 90

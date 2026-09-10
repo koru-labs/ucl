@@ -22,6 +22,12 @@ func (b *batchPebbleDB) Put(t uint8, k []byte, v []byte) {
 	_ = b.b.Set(k, v, nil)
 }
 
+func (b *batchPebbleDB) Delete(t uint8, k []byte) {
+	mc := tableMapper[t]
+	k = append(append(make([]byte, 0, len(k)+len(mc)), k...), mc...)
+	_ = b.b.Delete(k, nil)
+}
+
 func (b *batchPebbleDB) Write() error {
 	return b.b.Commit(nil)
 }

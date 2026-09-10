@@ -98,11 +98,6 @@ func FuzzDispatcherFuncDecode(f *testing.F) {
 
 func FuzzDispatcherBatchRequest(f *testing.F) {
 	mock := &mockWsConn{
-		SetFilterIDFn: func(s string) {
-		},
-		GetFilterIDFn: func() string {
-			return ""
-		},
 		WriteMessageFn: func(i int, b []byte) error {
 			return nil
 		},
@@ -173,11 +168,6 @@ func FuzzDispatcherWebsocketConnectionUnsubscribe(f *testing.F) {
 		},
 	)
 	mockConn := &mockWsConn{
-		SetFilterIDFn: func(s string) {
-		},
-		GetFilterIDFn: func() string {
-			return ""
-		},
 		WriteMessageFn: func(i int, b []byte) error {
 			return nil
 		},

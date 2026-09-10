@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/command/server/config"
@@ -16,6 +19,10 @@ import (
 )
 
 const (
+	// consensusStatePushTokenEnv is consulted when --consensus-state-push-token
+	// is not set, so the secret does not have to appear in argv / process lists.
+	consensusStatePushTokenEnv = "CONSENSUS_STATE_PUSH_TOKEN"
+
 	configFlag                   = "config"
 	genesisPathFlag              = "chain"
 	dataDirFlag                  = "data-dir"
@@ -45,24 +52,37 @@ const (
 	txGossipBatchSizeFlag        = "tx-gossip-batch-size"
 	journalRotateSizeFlag        = "journal-rotate-size"
 
-	useTLSFlag              = "use-tls"
-	tlsCertFileLocationFlag = "tls-cert-file"
-	tlsKeyFileLocationFlag  = "tls-key-file"
-	blockCacheTTLFlag       = "block-cache-ttl"
-	blockCacheCapacityFlag  = "block-cache-capacity"
-	MaxRequestBodySizeFlag  = "max-request-body-size"
-	JSONRPCTimeoutFlag      = "json-rpc-timeout"
+	useTLSFlag                 = "use-tls"
+	tlsCertFileLocationFlag    = "tls-cert-file"
+	tlsKeyFileLocationFlag     = "tls-key-file"
+	blockCacheTTLFlag          = "block-cache-ttl"
+	blockCacheCapacityFlag     = "block-cache-capacity"
+	MaxRequestBodySizeFlag     = "max-request-body-size"
+	JSONRPCTimeoutFlag         = "json-rpc-timeout"
+	rpcGasCapFlag              = "rpc-gas-cap"
+	jsonRPCBatchCostLimitFlag  = "json-rpc-batch-cost-limit"
+	jsonRPCMaxResponseSizeFlag = "json-rpc-max-response-size"
 
 	relayerFlag               = "relayer"
 	numBlockConfirmationsFlag = "num-block-confirmations"
 
-	concurrentRequestsDebugFlag = "concurrent-requests-debug"
-	webSocketReadLimitFlag      = "websocket-read-limit"
+	concurrentRequestsDebugFlag     = "concurrent-requests-debug"
+	webSocketReadLimitFlag          = "websocket-read-limit"
+	jsonRPCFilterLimitFlag          = "json-rpc-filter-limit"
+	jsonRPCFilterLimitPerConnFlag   = "json-rpc-filter-limit-per-connection"
+	jsonRPCWSMaxConnectionsFlag     = "json-rpc-ws-max-connections"
+	jsonRPCWSMaxInFlightFlag        = "json-rpc-ws-max-in-flight"
+	jsonRPCWSMaxInFlightPerConnFlag = "json-rpc-ws-max-in-flight-per-connection"
 
 	metricsIntervalFlag = "metrics-interval"
 
-	enableTxPoolEndpointsFlag   = "enable-tx-pool-endpoints"
-	enableAllDebugEndpointsFlag = "enable-all-debug-endpoints"
+	enableTxPoolEndpointsFlag    = "enable-tx-pool-endpoints"
+	enableAllDebugEndpointsFlag  = "enable-all-debug-endpoints"
+	enableConsensusEndpointsFlag = "enable-consensus-endpoints"
+
+	consensusStatePushURLFlag      = "consensus-state-push-url"
+	consensusStatePushTokenFlag    = "consensus-state-push-token"
+	consensusStatePushIntervalFlag = "consensus-state-push-interval"
 
 	// Deprecated: use enable-tx-pool-endpoints (inverted semantics).
 	disableTxPoolEndpointsFlagLEGACY = "disable-tx-pool-endpoints"
@@ -187,6 +207,29 @@ func (p *serverParams) validateFlags() error {
 		return fmt.Errorf("max-request-body-size must be greater than zero")
 	}
 
+	pushURL := strings.TrimSpace(p.rawConfig.ConsensusStatePushURL)
+	if pushURL != "" {
+		parsed, err := url.ParseRequestURI(pushURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("consensus-state-push-url must be a valid http(s) URL")
+		}
+
+		if strings.TrimSpace(p.rawConfig.ConsensusStatePushToken) == "" {
+			p.rawConfig.ConsensusStatePushToken = strings.TrimSpace(os.Getenv(consensusStatePushTokenEnv))
+		}
+
+		if p.rawConfig.ConsensusStatePushToken == "" {
+			return fmt.Errorf(
+				"consensus-state-push-token (or %s) is required when consensus-state-push-url is set",
+				consensusStatePushTokenEnv,
+			)
+		}
+
+		if p.rawConfig.ConsensusStatePushInterval <= 0 {
+			return fmt.Errorf("consensus-state-push-interval must be greater than zero")
+		}
+	}
+
 	return nil
 }
 
@@ -198,8 +241,16 @@ func (p *serverParams) generateConfig() *server.Config {
 			AccessControlAllowOrigin: p.rawConfig.CorsAllowedOrigins,
 			BatchLengthLimit:         p.rawConfig.JSONRPCBatchRequestLimit,
 			BlockRangeLimit:          p.rawConfig.JSONRPCBlockRangeLimit,
+			RPCGasCap:                p.rawConfig.RPCGasCap,
+			BatchCostLimit:           p.rawConfig.JSONRPCBatchCostLimit,
+			MaxResponseSize:          p.rawConfig.JSONRPCMaxResponseSize,
 			ConcurrentRequestsDebug:  p.rawConfig.ConcurrentRequestsDebug,
 			WebSocketReadLimit:       p.rawConfig.WebSocketReadLimit,
+			FilterLimit:              p.rawConfig.JSONRPCFilterLimit,
+			FilterLimitPerConn:       p.rawConfig.JSONRPCFilterLimitPerConn,
+			WSMaxConnections:         p.rawConfig.JSONRPCWSMaxConnections,
+			WSMaxInFlight:            p.rawConfig.JSONRPCWSMaxInFlight,
+			WSMaxInFlightPerConn:     p.rawConfig.JSONRPCWSMaxInFlightPerConn,
 		},
 		GRPCAddr:   p.grpcAddress,
 		LibP2PAddr: p.libp2pAddress,
@@ -234,20 +285,24 @@ func (p *serverParams) generateConfig() *server.Config {
 		JSONLogFormat:      p.rawConfig.JSONLogFormat,
 		LogFilePath:        p.logFileLocation,
 
-		Relayer:                 p.relayer,
-		NumBlockConfirmations:   p.rawConfig.NumBlockConfirmations,
-		MetricsInterval:         p.rawConfig.MetricsInterval,
-		UseTLS:                  p.rawConfig.UseTLS,
-		TLSCertFile:             p.rawConfig.TLSCertFile,
-		TLSKeyFile:              p.rawConfig.TLSKeyFile,
-		BlockCacheTTL:           p.rawConfig.BlockCacheTTL,
-		BlockCacheCapacity:      p.rawConfig.BlockCacheCapacity,
-		MaxRequestBodySize:      p.rawConfig.MaxRequestBodySize,
-		JSONRPCTimeout:          p.rawConfig.JSONRPCTimeout,
-		EnableTxPoolEndpoints:   p.rawConfig.EnableTxPoolEndpoints,
-		EnableAllDebugEndpoints: p.rawConfig.EnableAllDebugEndpoints,
-		WithTrieCaching:         p.rawConfig.WithTrieCaching,
-		WithBaseFeeFixed:        p.rawConfig.WithBaseFeeFixed,
+		Relayer:                    p.relayer,
+		NumBlockConfirmations:      p.rawConfig.NumBlockConfirmations,
+		MetricsInterval:            p.rawConfig.MetricsInterval,
+		UseTLS:                     p.rawConfig.UseTLS,
+		TLSCertFile:                p.rawConfig.TLSCertFile,
+		TLSKeyFile:                 p.rawConfig.TLSKeyFile,
+		BlockCacheTTL:              p.rawConfig.BlockCacheTTL,
+		BlockCacheCapacity:         p.rawConfig.BlockCacheCapacity,
+		MaxRequestBodySize:         p.rawConfig.MaxRequestBodySize,
+		JSONRPCTimeout:             p.rawConfig.JSONRPCTimeout,
+		EnableTxPoolEndpoints:      p.rawConfig.EnableTxPoolEndpoints,
+		EnableAllDebugEndpoints:    p.rawConfig.EnableAllDebugEndpoints,
+		EnableConsensusEndpoints:   p.rawConfig.EnableConsensusEndpoints,
+		ConsensusStatePushURL:      p.rawConfig.ConsensusStatePushURL,
+		ConsensusStatePushToken:    p.rawConfig.ConsensusStatePushToken,
+		ConsensusStatePushInterval: p.rawConfig.ConsensusStatePushInterval,
+		WithTrieCaching:            p.rawConfig.WithTrieCaching,
+		WithBaseFeeFixed:           p.rawConfig.WithBaseFeeFixed,
 
 		JumpdestCacheSize: p.rawConfig.JumpdestCacheSize,
 	}

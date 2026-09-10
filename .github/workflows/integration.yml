@@ -1,0 +1,107 @@
+---
+name: integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: branch, tag, or SHA to build
+        required: true
+        default: main
+  pull_request:
+    types: [opened, synchronize, closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
+
+jobs:
+  resolve-trigger:
+    name: resolve-trigger
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed') || (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env_name: ${{ steps.trigger.outputs.deploy_env_name }}
+      artifact_publish_stamp: ${{ steps.trigger.outputs.artifact_publish_stamp }}
+      build_profile: ${{ steps.trigger.outputs.build_profile }}
+    steps:
+      - id: trigger
+        uses: koru-labs/pipeline_main/.github/actions/resolve-trigger@main
+        with:
+          event_name: ${{ github.event_name }}
+
+  git-rebase:
+    name: git-rebase
+    needs: resolve-trigger
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.rebase.outputs.source_ref }}
+      deploy_env_name: ${{ needs.resolve-trigger.outputs.deploy_env_name }}
+      artifact_publish_stamp: ${{ needs.resolve-trigger.outputs.artifact_publish_stamp }}
+      build_profile: ${{ needs.resolve-trigger.outputs.build_profile }}
+    steps:
+      - id: rebase
+        uses: koru-labs/pipeline_main/.github/actions/git-rebase@main
+        with:
+          event_name: ${{ github.event_name }}
+          dispatch_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
+
+  build-for-development:
+    name: build-for-development
+    needs: git-rebase
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: koru-labs/pipeline_main/.github/actions/build-and-publish-dev-golang@main
+        with:
+          artifact: ucl
+          event_name: ${{ github.event_name }}
+          source_ref: ${{ needs.git-rebase.outputs.source_ref }}
+          deploy_env_name: ${{ needs.git-rebase.outputs.deploy_env_name }}
+          artifact_publish_stamp: ${{ needs.git-rebase.outputs.artifact_publish_stamp }}
+          git_url: github.com/${{ github.repository }}
+          app_id: ${{ secrets.APP_ID }}
+          app_private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          gh_sa_artifacts_access_key_id: ${{ secrets.PIPELINE_GH_SA_ARTIFACTS_DEV_ACCESS_KEY_ID }}
+          gh_sa_artifacts_secret_access_key: ${{ secrets.PIPELINE_GH_SA_ARTIFACTS_DEV_SECRET_ACCESS_KEY }}
+
+  build-when-pr-created:
+    name: build-when-pr-created
+    needs: git-rebase
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: koru-labs/pipeline_main/.github/actions/build-golang@main
+        with:
+          artifact: ucl
+          event_name: ${{ github.event_name }}
+          source_ref: ${{ needs.git-rebase.outputs.source_ref }}
+          build_image_name: pipeline-runner-golang
+          build_command: |
+            set -euo pipefail
+            mkdir -p "dist/${ARTIFACT}"
+            go build -buildvcs=false -ldflags="-s -w" -o "dist/${ARTIFACT}/${ARTIFACT}" .
+            tar czf "dist/${ARTIFACT}.tar.gz" -C "dist/${ARTIFACT}" "${ARTIFACT}"
+
+  # Standard build + publish to artifacts-main today.
+  # Future: SonarQube scan and SBOM publish will run here before release.
+  build-when-pr-merged:
+    name: build-when-pr-merged
+    needs: git-rebase
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: koru-labs/pipeline_main/.github/actions/build-and-publish-release-golang@main
+        with:
+          artifact: ucl
+          event_name: ${{ github.event_name }}
+          source_ref: ${{ needs.git-rebase.outputs.source_ref }}
+          deploy_env_name: ${{ needs.git-rebase.outputs.deploy_env_name }}
+          artifact_publish_stamp: ${{ needs.git-rebase.outputs.artifact_publish_stamp }}
+          git_url: github.com/${{ github.repository }}
+          app_id: ${{ secrets.APP_ID }}
+          app_private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          gh_sa_artifacts_access_key_id: ${{ secrets.PIPELINE_GH_SA_ARTIFACTS_MAIN_ACCESS_KEY_ID }}
+          gh_sa_artifacts_secret_access_key: ${{ secrets.PIPELINE_GH_SA_ARTIFACTS_MAIN_SECRET_ACCESS_KEY }}

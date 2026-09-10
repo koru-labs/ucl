@@ -32,23 +32,30 @@ type serviceData struct {
 }
 
 type funcData struct {
-	inNum int
-	reqt  []reflect.Type
-	fv    reflect.Value
-	isDyn bool
+	inNum  int
+	reqt   []reflect.Type
+	fv     reflect.Value
+	isDyn  bool
+	hasCtx bool
 }
 
 func (f *funcData) numParams() int {
-	return f.inNum - 1
+	n := f.inNum - 1
+	if f.hasCtx {
+		n--
+	}
+
+	return n
 }
 
 type endpoints struct {
-	Eth    *Eth
-	Web3   *Web3
-	Net    *Net
-	TxPool *TxPool
-	Bridge *Bridge
-	Debug  *Debug
+	Eth       *Eth
+	Web3      *Web3
+	Net       *Net
+	TxPool    *TxPool
+	Bridge    *Bridge
+	Debug     *Debug
+	Consensus *Consensus
 }
 
 // Dispatcher handles all json rpc requests by delegating
@@ -69,18 +76,29 @@ type dispatcherParams struct {
 	priceLimit              uint64
 	jsonRPCBatchLengthLimit uint64
 	blockRangeLimit         uint64
+	filterLimits            FilterLimits
 
 	concurrentRequestsDebug uint64
 
 	blockCacheTTL      time.Duration
 	blockCacheCapacity uint64
 
-	enableTxPoolEndpoints   bool
-	enableAllDebugEndpoints bool
+	enableTxPoolEndpoints    bool
+	enableAllDebugEndpoints  bool
+	enableConsensusEndpoints bool
+
+	requestTimeout  time.Duration
+	rpcGasCap       uint64
+	batchCostLimit  uint64
+	maxResponseSize uint64
 }
 
 func (dp dispatcherParams) isExceedingBatchLengthLimit(value uint64) bool {
 	return dp.jsonRPCBatchLengthLimit != 0 && value > dp.jsonRPCBatchLengthLimit
+}
+
+func (dp dispatcherParams) isExceedingBatchCostLimit(value uint64) bool {
+	return dp.batchCostLimit != 0 && value > dp.batchCostLimit
 }
 
 func newDispatcher(
@@ -94,7 +112,7 @@ func newDispatcher(
 	}
 
 	if store != nil {
-		d.filterManager = NewFilterManager(logger, store, params.blockRangeLimit)
+		d.filterManager = NewFilterManager(logger, store, params.blockRangeLimit, params.filterLimits)
 		go d.filterManager.Run()
 	}
 
@@ -107,12 +125,13 @@ func newDispatcher(
 
 func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 	d.endpoints.Eth = &Eth{
-		d.logger,
-		store,
-		d.params.chainID,
-		d.filterManager,
-		d.params.priceLimit,
-		initRPCCache(store, d.logger, d.params.blockCacheTTL, d.params.blockCacheCapacity),
+		logger:        d.logger,
+		store:         store,
+		chainID:       d.params.chainID,
+		filterManager: d.filterManager,
+		priceLimit:    d.params.priceLimit,
+		cache:         initRPCCache(store, d.logger, d.params.blockCacheTTL, d.params.blockCacheCapacity),
+		rpcGasCap:     d.params.rpcGasCap,
 	}
 	d.endpoints.Net = &Net{
 		store,
@@ -127,7 +146,15 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 	d.endpoints.Bridge = &Bridge{
 		store,
 	}
-	d.endpoints.Debug = NewDebug(store, d.params.concurrentRequestsDebug, d.params.enableAllDebugEndpoints)
+	d.endpoints.Debug = NewDebug(
+		store,
+		d.params.concurrentRequestsDebug,
+		d.params.enableAllDebugEndpoints,
+		d.params.rpcGasCap,
+	)
+	d.endpoints.Consensus = &Consensus{
+		store: store,
+	}
 
 	var err error
 
@@ -151,6 +178,12 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 
 	if err = d.registerService("bridge", d.endpoints.Bridge); err != nil {
 		return err
+	}
+
+	if d.params.enableConsensusEndpoints {
+		if err = d.registerService("consensus", d.endpoints.Consensus); err != nil {
+			return err
+		}
 	}
 
 	return d.registerService("debug", d.endpoints.Debug)
@@ -180,8 +213,10 @@ func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, Error) 
 
 type wsConn interface {
 	WriteMessage(messageType int, data []byte) error
-	GetFilterID() string
-	SetFilterID(string)
+	AddFilterID(id string)
+	RemoveFilterID(id string)
+	GetFilterIDs() []string
+	Close() error
 }
 
 // as per https://www.jsonrpc.org/specification, the `id` in JSON-RPC 2.0
@@ -218,22 +253,29 @@ func (d *Dispatcher) handleSubscribe(req Request, conn wsConn) (string, Error) {
 		return "", NewSubscriptionNotFoundError(subscribeMethod)
 	}
 
-	var filterID string
+	var (
+		filterID string
+		filterEr error
+	)
 
 	switch {
 	case subscribeMethod == "newHeads":
-		filterID = d.filterManager.NewBlockFilter(conn)
+		filterID, filterEr = d.filterManager.NewBlockFilter(conn)
 	case subscribeMethod == "logs":
 		logQuery, err := decodeLogQueryFromInterface(params[1])
 		if err != nil {
 			return "", NewInternalError(err.Error())
 		}
 
-		filterID = d.filterManager.NewLogFilter(logQuery, conn)
+		filterID, filterEr = d.filterManager.NewLogFilter(logQuery, conn)
 	case subscribeMethod == "newPendingTransactions":
-		filterID = d.filterManager.NewPendingTxFilter(conn)
+		filterID, filterEr = d.filterManager.NewPendingTxFilter(conn)
 	default:
 		return "", NewSubscriptionNotFoundError(subscribeMethod)
+	}
+
+	if filterEr != nil {
+		return "", NewLimitExceededError(filterEr.Error())
 	}
 
 	return filterID, nil
@@ -261,17 +303,33 @@ func (d *Dispatcher) RemoveFilterByWs(conn wsConn) {
 	d.filterManager.RemoveFilterByWs(conn)
 }
 
+// RefreshFilterTimeouts pushes back the expiry of the connection's filters, called whenever
+// the peer proves it is still alive
+func (d *Dispatcher) RefreshFilterTimeouts(conn wsConn) {
+	d.filterManager.RefreshFilterTimeouts(conn)
+}
+
+// newRequestContext bounds one HTTP body / WS frame (single or batch) by the configured timeout.
+func (d *Dispatcher) newRequestContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	if d.params.requestTimeout <= 0 {
+		return context.WithCancel(parent)
+	}
+
+	return context.WithTimeout(parent, d.params.requestTimeout)
+}
+
 func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
-	const (
-		openSquareBracket  byte = '['
-		closeSquareBracket byte = ']'
-		comma              byte = ','
-	)
+	ctx, cancel := d.newRequestContext(context.Background())
+	defer cancel()
 
 	reqBody = bytes.TrimLeft(reqBody, " \t\r\n")
 
 	// if body begins with [ consider it as a batch request
-	if len(reqBody) > 0 && reqBody[0] == openSquareBracket {
+	if len(reqBody) > 0 && reqBody[0] == '[' {
 		var batchReq BatchRequest
 
 		err := jsonIt.Unmarshal(reqBody, &batchReq)
@@ -280,34 +338,9 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 				NewInvalidRequestError("Invalid json batch request")).Bytes()
 		}
 
-		// if not disabled, avoid handling long batch requests
-		if d.params.isExceedingBatchLengthLimit(uint64(len(batchReq))) {
-			return NewRPCResponse(
-				nil,
-				"2.0",
-				nil,
-				NewInvalidRequestError("Batch request length too long"),
-			).Bytes()
-		}
-
-		responses := make([][]byte, len(batchReq))
-
-		for i, req := range batchReq {
-			responses[i], err = d.handleSingleWs(req, conn).Bytes()
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		var buf bytes.Buffer
-
-		// batch output should look like:
-		// [ { "requestId": "1", "status": 200 }, { "requestId": "2", "status": 200 } ]
-		buf.WriteByte(openSquareBracket)                // [
-		buf.Write(bytes.Join(responses, []byte{comma})) // join responses with the comma separator
-		buf.WriteByte(closeSquareBracket)               // ]
-
-		return buf.Bytes(), nil
+		return d.handleBatch(ctx, batchReq, func(ctx context.Context, req Request) Response {
+			return d.handleSingleWs(ctx, req, conn)
+		})
 	}
 
 	var req Request
@@ -315,10 +348,15 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 		return NewRPCResponse(req.ID, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 	}
 
-	return d.handleSingleWs(req, conn).Bytes()
+	resp, err := d.handleSingleWs(ctx, req, conn).Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return d.capSingleResponse(req.ID, resp)
 }
 
-func (d *Dispatcher) handleSingleWs(req Request, conn wsConn) Response {
+func (d *Dispatcher) handleSingleWs(ctx context.Context, req Request, conn wsConn) Response {
 	id, err := formatID(req.ID)
 	if err != nil {
 		return NewRPCResponse(nil, "2.0", nil, err)
@@ -343,13 +381,16 @@ func (d *Dispatcher) handleSingleWs(req Request, conn wsConn) Response {
 	default:
 		// its a normal query that we handle with the dispatcher. WS connections
 		// are long-lived with no per-message traceparent, so start a fresh trace.
-		response, err = d.handleReq(context.Background(), req)
+		response, err = d.handleReq(ctx, req)
 	}
 
 	return NewRPCResponse(id, "2.0", response, err)
 }
 
 func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error) {
+	ctx, cancel := d.newRequestContext(ctx)
+	defer cancel()
+
 	x := bytes.TrimLeft(reqBody, " \t\r\n")
 	if len(x) == 0 {
 		return NewRPCResponse(nil, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
@@ -367,7 +408,12 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 
 		resp, err := d.handleReq(ctx, req)
 
-		return NewRPCResponse(req.ID, "2.0", resp, err).Bytes()
+		out, marshalErr := NewRPCResponse(req.ID, "2.0", resp, err).Bytes()
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+
+		return d.capSingleResponse(req.ID, out)
 	}
 
 	// handle batch requests
@@ -381,7 +427,19 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 		).Bytes()
 	}
 
-	// if not disabled, avoid handling long batch requests
+	return d.handleBatch(ctx, requests, func(ctx context.Context, req Request) Response {
+		data, err := d.handleReq(ctx, req)
+
+		return NewRPCResponse(req.ID, "2.0", data, err)
+	})
+}
+
+// handleBatch runs a batch under the shared cost budget, deadline and response-size cap.
+func (d *Dispatcher) handleBatch(
+	ctx context.Context,
+	requests BatchRequest,
+	handle func(context.Context, Request) Response,
+) ([]byte, error) {
 	if d.params.isExceedingBatchLengthLimit(uint64(len(requests))) {
 		return NewRPCResponse(
 			nil,
@@ -391,27 +449,90 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 		).Bytes()
 	}
 
-	responses := make([]Response, 0)
-
+	var total uint64
 	for _, req := range requests {
-		var response, err = d.handleReq(ctx, req)
-		if err != nil {
-			errorResponse := NewRPCResponse(req.ID, "2.0", response, err)
-			responses = append(responses, errorResponse)
+		total += MethodCost(req.Method)
+	}
 
-			continue
+	if d.params.isExceedingBatchCostLimit(total) {
+		return NewRPCResponse(
+			nil,
+			"2.0",
+			nil,
+			NewInvalidRequestError("Batch request cost too high"),
+		).Bytes()
+	}
+
+	responses := make([][]byte, 0, len(requests))
+
+	var size uint64
+
+	for i, req := range requests {
+		var (
+			rpcErr Error
+			b      []byte
+			err    error
+		)
+
+		switch {
+		case ctx.Err() != nil:
+			rpcErr = NewTimeoutError("batch deadline exceeded")
+			for _, remaining := range requests[i:] {
+				b, err = NewRPCResponse(remaining.ID, "2.0", nil, rpcErr).Bytes()
+				if err != nil {
+					return nil, err
+				}
+
+				responses = append(responses, b)
+			}
+
+			return joinBatch(responses), nil
+		default:
+			resp := handle(ctx, req)
+
+			b, err = resp.Bytes()
+			if err != nil {
+				return nil, err
+			}
+
+			size += uint64(len(b))
+			if d.params.maxResponseSize != 0 && size > d.params.maxResponseSize {
+				rpcErr = NewLimitExceededError("batch response too large")
+				for _, remaining := range requests[i:] {
+					b, err = NewRPCResponse(remaining.ID, "2.0", nil, rpcErr).Bytes()
+					if err != nil {
+						return nil, err
+					}
+
+					responses = append(responses, b)
+				}
+
+				return joinBatch(responses), nil
+			}
+
+			responses = append(responses, b)
 		}
-
-		resp := NewRPCResponse(req.ID, "2.0", response, nil)
-		responses = append(responses, resp)
 	}
 
-	respBytes, err := jsonIt.Marshal(responses)
-	if err != nil {
-		return NewRPCResponse(nil, "2.0", nil, NewInternalError("Internal error")).Bytes()
+	return joinBatch(responses), nil
+}
+
+func joinBatch(responses [][]byte) []byte {
+	var buf bytes.Buffer
+
+	buf.WriteByte('[')
+	buf.Write(bytes.Join(responses, []byte{','}))
+	buf.WriteByte(']')
+
+	return buf.Bytes()
+}
+
+func (d *Dispatcher) capSingleResponse(id interface{}, resp []byte) ([]byte, error) {
+	if d.params.maxResponseSize != 0 && uint64(len(resp)) > d.params.maxResponseSize {
+		return NewRPCResponse(id, "2.0", nil, NewLimitExceededError("response too large")).Bytes()
 	}
 
-	return respBytes, nil
+	return resp, nil
 }
 
 func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error) {
@@ -437,12 +558,19 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 	inArgs := make([]reflect.Value, fd.inNum)
 	inArgs[0] = service.sv
 
+	offset := 1
+
+	if fd.hasCtx {
+		inArgs[1] = reflect.ValueOf(ctx)
+		offset = 2
+	}
+
 	inputs := make([]interface{}, fd.numParams())
 
-	for i := 0; i < fd.inNum-1; i++ {
-		val := reflect.New(fd.reqt[i+1])
+	for i := 0; i < fd.numParams(); i++ {
+		val := reflect.New(fd.reqt[i+offset])
 		inputs[i] = val.Interface()
-		inArgs[i+1] = val.Elem()
+		inArgs[i+offset] = val.Elem()
 	}
 
 	if fd.numParams() > 0 {
@@ -474,6 +602,11 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 			if !ok {
 				return nil, NewInternalError(err.Error())
 			}
+		}
+
+		var rpcErr Error
+		if errors.As(err, &rpcErr) {
+			return data, rpcErr
 		}
 
 		return data, NewInvalidRequestError(err.Error())
@@ -529,9 +662,12 @@ func (d *Dispatcher) registerService(serviceName string, service interface{}) er
 		if fd.inNum, fd.reqt, err = validateFunc(funcName, fd.fv, true); err != nil {
 			return fmt.Errorf("jsonrpc: %w", err)
 		}
+
+		fd.hasCtx = fd.inNum >= 2 && fd.reqt[1] == contextType
+
 		// check if last item is a pointer
 		if fd.numParams() != 0 {
-			last := fd.reqt[fd.numParams()]
+			last := fd.reqt[fd.inNum-1]
 			if last.Kind() == reflect.Ptr {
 				fd.isDyn = true
 			}
@@ -589,7 +725,10 @@ func validateFunc(funcName string, fv reflect.Value, _ bool) (inNum int, reqt []
 	return
 }
 
-var errt = reflect.TypeOf((*error)(nil)).Elem()
+var (
+	errt        = reflect.TypeOf((*error)(nil)).Elem()
+	contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
+)
 
 func isErrorType(t reflect.Type) bool {
 	return t.Implements(errt)

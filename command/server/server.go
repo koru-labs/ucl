@@ -282,6 +282,41 @@ func setFlags(cmd *cobra.Command) {
 		"maximum size in bytes for a message read from the peer by websocket",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCFilterLimit,
+		jsonRPCFilterLimitFlag,
+		defaultConfig.JSONRPCFilterLimit,
+		"maximum number of active filters and subscriptions on the node, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCFilterLimitPerConn,
+		jsonRPCFilterLimitPerConnFlag,
+		defaultConfig.JSONRPCFilterLimitPerConn,
+		"maximum number of active subscriptions per websocket connection, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxConnections,
+		jsonRPCWSMaxConnectionsFlag,
+		defaultConfig.JSONRPCWSMaxConnections,
+		"maximum number of active websocket connections, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxInFlight,
+		jsonRPCWSMaxInFlightFlag,
+		defaultConfig.JSONRPCWSMaxInFlight,
+		"maximum number of in-flight websocket JSON-RPC requests across all connections, zero means no limit",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCWSMaxInFlightPerConn,
+		jsonRPCWSMaxInFlightPerConnFlag,
+		defaultConfig.JSONRPCWSMaxInFlightPerConn,
+		"maximum number of in-flight websocket JSON-RPC requests per connection, zero means no limit",
+	)
+
 	cmd.Flags().DurationVar(
 		&params.rawConfig.MetricsInterval,
 		metricsIntervalFlag,
@@ -338,6 +373,27 @@ func setFlags(cmd *cobra.Command) {
 		"the timeout for JSON-RPC HTTP request processing (e.g. 30s, 1m, 1m30s)",
 	)
 
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.RPCGasCap,
+		rpcGasCapFlag,
+		defaultConfig.RPCGasCap,
+		"maximum gas eth_call/eth_estimateGas/debug_traceCall may use, 0 disables the cap",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCBatchCostLimit,
+		jsonRPCBatchCostLimitFlag,
+		defaultConfig.JSONRPCBatchCostLimit,
+		"max total method-cost weight of a JSON-RPC batch request, value of 0 disables it",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.JSONRPCMaxResponseSize,
+		jsonRPCMaxResponseSizeFlag,
+		defaultConfig.JSONRPCMaxResponseSize,
+		"maximum JSON-RPC response size in bytes, value of 0 disables it",
+	)
+
 	cmd.Flags().BoolVar(
 		&params.rawConfig.EnableTxPoolEndpoints,
 		enableTxPoolEndpointsFlag,
@@ -350,6 +406,34 @@ func setFlags(cmd *cobra.Command) {
 		enableAllDebugEndpointsFlag,
 		defaultConfig.EnableAllDebugEndpoints,
 		"enable all debug JSON-RPC endpoints",
+	)
+
+	cmd.Flags().BoolVar(
+		&params.rawConfig.EnableConsensusEndpoints,
+		enableConsensusEndpointsFlag,
+		defaultConfig.EnableConsensusEndpoints,
+		"enable consensus JSON-RPC endpoints (consensus_state)",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.ConsensusStatePushURL,
+		consensusStatePushURLFlag,
+		defaultConfig.ConsensusStatePushURL,
+		"HTTP(S) URL that receives periodic consensus_state snapshots (empty disables push)",
+	)
+
+	cmd.Flags().StringVar(
+		&params.rawConfig.ConsensusStatePushToken,
+		consensusStatePushTokenFlag,
+		defaultConfig.ConsensusStatePushToken,
+		"bearer token sent with consensus state push requests (prefer the CONSENSUS_STATE_PUSH_TOKEN env var)",
+	)
+
+	cmd.Flags().DurationVar(
+		&params.rawConfig.ConsensusStatePushInterval,
+		consensusStatePushIntervalFlag,
+		defaultConfig.ConsensusStatePushInterval,
+		"recovery heartbeat between pushes when no consensus diagnostics events arrive",
 	)
 
 	cmd.Flags().Uint64Var(

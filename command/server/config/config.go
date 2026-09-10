@@ -42,6 +42,9 @@ type Config struct {
 	BlockCacheCapacity       uint64        `json:"block_cache_capacity" yaml:"block_cache_capacity"`
 	MaxRequestBodySize       int64         `json:"max_request_body_size" yaml:"max_request_body_size"`
 	JSONRPCTimeout           time.Duration `json:"json_rpc_timeout" yaml:"json_rpc_timeout"`
+	RPCGasCap                uint64        `json:"rpc_gas_cap" yaml:"rpc_gas_cap"`
+	JSONRPCBatchCostLimit    uint64        `json:"json_rpc_batch_cost_limit" yaml:"json_rpc_batch_cost_limit"`
+	JSONRPCMaxResponseSize   uint64        `json:"json_rpc_max_response_size" yaml:"json_rpc_max_response_size"`
 
 	Relayer               bool   `json:"relayer" yaml:"relayer"`
 	NumBlockConfirmations uint64 `json:"num_block_confirmations" yaml:"num_block_confirmations"`
@@ -49,10 +52,29 @@ type Config struct {
 	ConcurrentRequestsDebug uint64 `json:"concurrent_requests_debug" yaml:"concurrent_requests_debug"`
 	WebSocketReadLimit      uint64 `json:"web_socket_read_limit" yaml:"web_socket_read_limit"`
 
+	// JSONRPCFilterLimit caps the filters and subscriptions active on the node, and
+	// JSONRPCFilterLimitPerConn caps those held by a single web socket connection. Zero
+	// disables the respective limit.
+	JSONRPCFilterLimit        uint64 `json:"json_rpc_filter_limit" yaml:"json_rpc_filter_limit"`
+	JSONRPCFilterLimitPerConn uint64 `json:"json_rpc_filter_limit_per_connection" yaml:"json_rpc_filter_limit_per_connection"` //nolint:lll
+
+	// Websocket request and connection ceilings. Zero disables the respective limit.
+	JSONRPCWSMaxConnections     uint64 `json:"json_rpc_ws_max_connections" yaml:"json_rpc_ws_max_connections"`
+	JSONRPCWSMaxInFlight        uint64 `json:"json_rpc_ws_max_in_flight" yaml:"json_rpc_ws_max_in_flight"`
+	JSONRPCWSMaxInFlightPerConn uint64 `json:"json_rpc_ws_max_in_flight_per_connection" yaml:"json_rpc_ws_max_in_flight_per_connection"` //nolint:lll
+
 	MetricsInterval time.Duration `json:"metrics_interval" yaml:"metrics_interval"`
 
-	EnableTxPoolEndpoints   bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
-	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+	EnableTxPoolEndpoints    bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
+	EnableAllDebugEndpoints  bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+	EnableConsensusEndpoints bool `json:"enable_consensus_endpoints" yaml:"enable_consensus_endpoints"`
+
+	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
+	ConsensusStatePushURL string `json:"consensus_state_push_url" yaml:"consensus_state_push_url"`
+	// ConsensusStatePushToken is the bearer token sent with push requests.
+	ConsensusStatePushToken string `json:"consensus_state_push_token" yaml:"consensus_state_push_token"`
+	// ConsensusStatePushInterval is the recovery heartbeat between snapshots.
+	ConsensusStatePushInterval time.Duration `json:"consensus_state_push_interval" yaml:"consensus_state_push_interval"`
 
 	// Deprecated: use enable_tx_pool_endpoints (inverted). Honored when true.
 	//nolint:lll
@@ -129,15 +151,57 @@ const (
 	// the connection sends a close message to the peer and returns ErrReadLimit to the application.
 	DefaultWebSocketReadLimit uint64 = 8192
 
+	// DefaultJSONRPCFilterLimit is the maximum number of filters and subscriptions the node
+	// keeps active at once. Every log filter is matched against every log of every block, so
+	// this bounds per-block work as well as memory.
+	DefaultJSONRPCFilterLimit uint64 = 10000
+
+	// DefaultJSONRPCFilterLimitPerConn is the maximum number of subscriptions a single web
+	// socket connection may hold. Ordinary clients use a handful; the allowance is generous
+	// enough for a backend that watches many contracts, while stopping one socket from
+	// installing filters in a loop.
+	DefaultJSONRPCFilterLimitPerConn uint64 = 100
+
+	// DefaultJSONRPCWSMaxConnections is how many websocket connections the node
+	// accepts at once. Each connection owns a writer goroutine and an outbound
+	// queue, so this bounds baseline memory before any request is in flight.
+	DefaultJSONRPCWSMaxConnections uint64 = 1024
+
+	// DefaultJSONRPCWSMaxInFlight is how many websocket JSON-RPC handlers may
+	// run at once across every connection. This is the ceiling that stops a
+	// request flood, from one connection or many, from creating unbounded work.
+	DefaultJSONRPCWSMaxInFlight uint64 = 256
+
+	// DefaultJSONRPCWSMaxInFlightPerConn is how many handlers one connection
+	// may run at once. Large enough for ordinary pipelining; small enough that
+	// a single socket cannot consume the global ceiling by itself.
+	DefaultJSONRPCWSMaxInFlightPerConn uint64 = 16
+
 	// DefaultMetricsInterval specifies the time interval after which Prometheus metrics will be generated.
 	// A value of 0 means the metrics are disabled.
 	DefaultMetricsInterval time.Duration = time.Second * 8
+
+	// DefaultConsensusStatePushInterval is the recovery heartbeat used when no
+	// consensus diagnostics events arrive.
+	DefaultConsensusStatePushInterval time.Duration = 30 * time.Second
 
 	// JSON RPC max request body size
 	DefaultRequestBodySize = 5 << 20 // 5 MiB
 
 	// JSON RPC request timeout
 	DefaultJSONRPCTimeout = 30 * time.Second
+
+	// DefaultRPCGasCap is the maximum gas eth_call / eth_estimateGas / debug_traceCall may use.
+	// Zero disables the cap.
+	DefaultRPCGasCap uint64 = 50_000_000
+
+	// DefaultJSONRPCBatchCostLimit is the maximum total method-cost weight of one batch.
+	// Zero disables the cost budget.
+	DefaultJSONRPCBatchCostLimit uint64 = 200
+
+	// DefaultJSONRPCMaxResponseSize is the maximum serialized JSON-RPC response size in bytes.
+	// Zero disables the cap.
+	DefaultJSONRPCMaxResponseSize uint64 = 25 << 20
 )
 
 // DefaultConfig returns the default server configuration
@@ -177,26 +241,38 @@ func DefaultConfig() *Config {
 		Headers: &Headers{
 			AccessControlAllowOrigins: []string{"*"},
 		},
-		LogFilePath:              "",
-		JSONRPCBatchRequestLimit: DefaultJSONRPCBatchRequestLimit,
-		JSONRPCBlockRangeLimit:   DefaultJSONRPCBlockRangeLimit,
-		Relayer:                  false,
-		NumBlockConfirmations:    DefaultNumBlockConfirmations,
-		ConcurrentRequestsDebug:  DefaultConcurrentRequestsDebug,
-		WebSocketReadLimit:       DefaultWebSocketReadLimit,
-		MetricsInterval:          DefaultMetricsInterval,
-		UseTLS:                   false,
-		TLSCertFile:              "",
-		TLSKeyFile:               "",
-		BlockCacheTTL:            3 * time.Minute,
-		BlockCacheCapacity:       50,
-		MaxRequestBodySize:       DefaultRequestBodySize,
-		JSONRPCTimeout:           DefaultJSONRPCTimeout,
-		JumpdestCacheSize:        evm.DefaultJumpdestCacheSize,
-		EnableTxPoolEndpoints:    false,
-		EnableAllDebugEndpoints:  false,
-		WithTrieCaching:          true,
-		WithBaseFeeFixed:         false,
+		LogFilePath:                 "",
+		JSONRPCBatchRequestLimit:    DefaultJSONRPCBatchRequestLimit,
+		JSONRPCBlockRangeLimit:      DefaultJSONRPCBlockRangeLimit,
+		Relayer:                     false,
+		NumBlockConfirmations:       DefaultNumBlockConfirmations,
+		ConcurrentRequestsDebug:     DefaultConcurrentRequestsDebug,
+		WebSocketReadLimit:          DefaultWebSocketReadLimit,
+		JSONRPCFilterLimit:          DefaultJSONRPCFilterLimit,
+		JSONRPCFilterLimitPerConn:   DefaultJSONRPCFilterLimitPerConn,
+		JSONRPCWSMaxConnections:     DefaultJSONRPCWSMaxConnections,
+		JSONRPCWSMaxInFlight:        DefaultJSONRPCWSMaxInFlight,
+		JSONRPCWSMaxInFlightPerConn: DefaultJSONRPCWSMaxInFlightPerConn,
+		MetricsInterval:             DefaultMetricsInterval,
+		UseTLS:                      false,
+		TLSCertFile:                 "",
+		TLSKeyFile:                  "",
+		BlockCacheTTL:               3 * time.Minute,
+		BlockCacheCapacity:          50,
+		MaxRequestBodySize:          DefaultRequestBodySize,
+		JSONRPCTimeout:              DefaultJSONRPCTimeout,
+		RPCGasCap:                   DefaultRPCGasCap,
+		JSONRPCBatchCostLimit:       DefaultJSONRPCBatchCostLimit,
+		JSONRPCMaxResponseSize:      DefaultJSONRPCMaxResponseSize,
+		JumpdestCacheSize:           evm.DefaultJumpdestCacheSize,
+		EnableTxPoolEndpoints:       false,
+		EnableAllDebugEndpoints:     false,
+		EnableConsensusEndpoints:    false,
+		ConsensusStatePushURL:       "",
+		ConsensusStatePushToken:     "",
+		ConsensusStatePushInterval:  DefaultConsensusStatePushInterval,
+		WithTrieCaching:             true,
+		WithBaseFeeFixed:            false,
 	}
 }
 

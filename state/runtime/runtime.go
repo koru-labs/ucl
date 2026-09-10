@@ -13,17 +13,19 @@ import (
 
 // TxContext is the context of the transaction
 type TxContext struct {
-	GasPrice     types.Hash
-	Origin       types.Address
-	Coinbase     types.Address
-	Number       int64
-	Timestamp    int64
-	GasLimit     int64
-	ChainID      int64
-	Difficulty   types.Hash
-	Tracer       tracer.Tracer
-	NonPayable   bool
-	BaseFee      *big.Int
+	GasPrice   types.Hash
+	Origin     types.Address
+	Coinbase   types.Address
+	Number     int64
+	Timestamp  int64
+	GasLimit   int64
+	ChainID    int64
+	Difficulty types.Hash
+	Tracer     tracer.Tracer
+	NonPayable bool
+	BaseFee    *big.Int
+	// BurnContract receives the base fee portion of each transaction fee: the configured
+	// burn contract, or the block proposer (Coinbase) when the chain has no burn contract.
 	BurnContract types.Address
 }
 
@@ -147,6 +149,7 @@ var (
 	ErrInvalidInputData         = errors.New("invalid input data")
 	ErrNotAuth                  = errors.New("not in allow list")
 	ErrInvalidCode              = errors.New("invalid code: must not begin with 0xef")
+	ErrExecutionAborted         = errors.New("execution aborted (timeout or client disconnect)")
 )
 
 // StackUnderflowError wraps an evm error when the items on the stack less

@@ -40,6 +40,10 @@ type TestServerConfig struct {
 	TLSKeyFile               string
 	AllDebugEndpointsEnabled bool
 	TxPoolEndpointsEnabled   bool
+	// FixedBaseFee keeps the EIP-1559 base fee constant at the genesis value (--with-base-fee-fixed).
+	FixedBaseFee bool
+	// PriceLimit is the txpool minimum gas price in wei (--price-limit); 0 keeps the node default.
+	PriceLimit uint64
 }
 
 type TestServerConfigCallback func(*TestServerConfig)
@@ -194,6 +198,14 @@ func (t *TestServer) Start() {
 
 	if config.TxPoolEndpointsEnabled {
 		args = append(args, "--enable-tx-pool-endpoints")
+	}
+
+	if config.FixedBaseFee {
+		args = append(args, "--with-base-fee-fixed")
+	}
+
+	if config.PriceLimit != 0 {
+		args = append(args, "--price-limit", strconv.FormatUint(config.PriceLimit, 10))
 	}
 
 	// Start the server

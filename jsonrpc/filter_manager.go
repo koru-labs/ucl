@@ -27,7 +27,19 @@ var (
 	ErrBlockRangeTooHigh                = errors.New("block range too high")
 	ErrNoWSConnection                   = errors.New("no websocket connection")
 	ErrUnknownSubscriptionType          = errors.New("unknown subscription type")
+	ErrFilterLimitExceeded              = errors.New("node filter limit reached, try again later")
+	ErrConnectionFilterLimitExceeded    = errors.New("filter limit for this connection reached")
 )
+
+// FilterLimits caps how many filters may be active, so that a client cannot install
+// subscriptions in a loop. A zero value means the corresponding limit is disabled.
+type FilterLimits struct {
+	// PerConnection caps the filters a single web socket connection may hold
+	PerConnection uint64
+
+	// Global caps the filters active on the node, across every connection and HTTP client
+	Global uint64
+}
 
 // defaultTimeout is the timeout to remove the filters that don't have a web socket stream
 var defaultTimeout = 1 * time.Minute
@@ -296,8 +308,8 @@ type filterManagerStore interface {
 	// Header returns the current header of the chain (genesis if empty)
 	Header() *types.Header
 
-	// SubscribeEvents subscribes for chain head events
-	SubscribeEvents() blockchain.Subscription
+	// SubscribeEventsLossy subscribes for chain head events, tolerating dropped events
+	SubscribeEventsLossy() blockchain.Subscription
 
 	// GetReceiptsByHash returns the receipts for a block number and hash
 	GetReceiptsByHash(bn uint64, hash types.Hash) ([]*types.Receipt, error)
@@ -324,6 +336,7 @@ type FilterManager struct {
 	subscription    blockchain.Subscription
 	blockStream     *blockStream
 	blockRangeLimit uint64
+	limits          FilterLimits
 
 	filters  map[string]filter
 	timeouts timeHeapImpl
@@ -332,12 +345,18 @@ type FilterManager struct {
 	closeCh  chan struct{}
 }
 
-func NewFilterManager(logger hclog.Logger, store filterManagerStore, blockRangeLimit uint64) *FilterManager {
+func NewFilterManager(
+	logger hclog.Logger,
+	store filterManagerStore,
+	blockRangeLimit uint64,
+	limits FilterLimits,
+) *FilterManager {
 	m := &FilterManager{
 		logger:          logger.Named("filter"),
 		timeout:         defaultTimeout,
 		store:           store,
 		blockRangeLimit: blockRangeLimit,
+		limits:          limits,
 		filters:         make(map[string]filter),
 		timeouts:        timeHeapImpl{},
 		updateCh:        make(chan struct{}),
@@ -350,8 +369,9 @@ func NewFilterManager(logger hclog.Logger, store filterManagerStore, blockRangeL
 	block := toBlock(&types.Block{Header: header}, false)
 	m.blockStream = newBlockStream(block)
 
-	// start the head watcher
-	m.subscription = store.SubscribeEvents()
+	// start the head watcher. It is a lossy subscription: this manager fans events out to
+	// web socket clients, so it must not be able to stall the block write path
+	m.subscription = store.SubscribeEventsLossy()
 
 	return m
 }
@@ -411,11 +431,7 @@ func (f *FilterManager) Run() {
 			}
 
 		case <-timeoutCh:
-			// timeout for filter
-			// if filter still exists
-			if !f.Uninstall(filterID) {
-				f.logger.Warn("failed to uninstall filter", "id", filterID)
-			}
+			f.uninstallIfExpired(filterID)
 
 		case <-f.updateCh:
 			// filters change, reset the loop to start the timeout timer
@@ -433,46 +449,28 @@ func (f *FilterManager) Close() {
 }
 
 // NewBlockFilter adds new BlockFilter
-func (f *FilterManager) NewBlockFilter(ws wsConn) string {
-	filter := &blockFilter{
+func (f *FilterManager) NewBlockFilter(ws wsConn) (string, error) {
+	return f.addFilter(&blockFilter{
 		filterBase: newFilterBase(ws),
 		block:      f.blockStream.getHead(),
-	}
-
-	if filter.hasWSConn() {
-		ws.SetFilterID(filter.id)
-	}
-
-	return f.addFilter(filter)
+	})
 }
 
 // NewLogFilter adds new LogFilter
-func (f *FilterManager) NewLogFilter(logQuery *LogQuery, ws wsConn) string {
-	filter := &logFilter{
+func (f *FilterManager) NewLogFilter(logQuery *LogQuery, ws wsConn) (string, error) {
+	return f.addFilter(&logFilter{
 		filterBase: newFilterBase(ws),
 		query:      logQuery,
 		logs:       []*Log{},
-	}
-
-	if filter.hasWSConn() {
-		ws.SetFilterID(filter.id)
-	}
-
-	return f.addFilter(filter)
+	})
 }
 
 // NewPendingTxFilter adds new PendingTxFilter
-func (f *FilterManager) NewPendingTxFilter(ws wsConn) string {
-	filter := &pendingTxFilter{
+func (f *FilterManager) NewPendingTxFilter(ws wsConn) (string, error) {
+	return f.addFilter(&pendingTxFilter{
 		filterBase: newFilterBase(ws),
 		txHashes:   []string{},
-	}
-
-	if filter.hasWSConn() {
-		ws.SetFilterID(filter.id)
-	}
-
-	return f.addFilter(filter)
+	})
 }
 
 // Exists checks the filter with given ID exists
@@ -658,19 +656,69 @@ func (f *FilterManager) removeFilterByID(id string) bool {
 
 	delete(f.filters, id)
 
-	if removed := f.timeouts.removeFilter(filter.getFilterBase()); removed {
+	base := filter.getFilterBase()
+
+	// Keep the connection's view in sync, so a client that subscribes and unsubscribes in a
+	// loop neither grows that set nor burns through its per-connection allowance
+	if base.ws != nil {
+		base.ws.RemoveFilterID(id)
+	}
+
+	if removed := f.timeouts.removeFilter(base); removed {
 		f.emitSignalToUpdateCh()
 	}
 
 	return true
 }
 
-// RemoveFilterByWs removes the filter with given WS [Thread safe]
+// RemoveFilterByWs removes every filter belonging to the given WS connection [Thread safe]
 func (f *FilterManager) RemoveFilterByWs(ws wsConn) {
 	f.Lock()
 	defer f.Unlock()
 
-	f.removeFilterByID(ws.GetFilterID())
+	// GetFilterIDs returns a snapshot, so removing from the set while iterating is safe
+	for _, id := range ws.GetFilterIDs() {
+		f.removeFilterByID(id)
+	}
+}
+
+// RefreshFilterTimeouts pushes back the expiry of every filter owned by the connection. It is
+// called when the peer proves it is still alive, by answering a keepalive ping or by sending a
+// request, and is what keeps a live subscription from being reaped by the timeout heap.
+func (f *FilterManager) RefreshFilterTimeouts(ws wsConn) {
+	ids := ws.GetFilterIDs()
+	if len(ids) == 0 {
+		return
+	}
+
+	f.Lock()
+	defer f.Unlock()
+
+	for _, id := range ids {
+		if filter, ok := f.filters[id]; ok {
+			f.refreshFilterTimeout(filter.getFilterBase())
+		}
+	}
+}
+
+// uninstallIfExpired removes the filter only once its expiry has really passed [Thread safe].
+// A fired timer is not proof of that on its own: the filter can be refreshed while the timer
+// is pending, and select picks at random between a ready timer and the update signal, so
+// acting on the timer alone would drop live subscriptions at random.
+func (f *FilterManager) uninstallIfExpired(id string) {
+	f.Lock()
+	defer f.Unlock()
+
+	filter, ok := f.filters[id]
+	if !ok {
+		return
+	}
+
+	if time.Now().UTC().Before(filter.getFilterBase().expiresAt) {
+		return
+	}
+
+	f.removeFilterByID(id)
 }
 
 // refreshFilterTimeout updates the timeout for a filter to the current time
@@ -687,20 +735,33 @@ func (f *FilterManager) addFilterTimeout(filter *filterBase) {
 }
 
 // addFilter is an internal method to add given filter to list and heap
-func (f *FilterManager) addFilter(filter filter) string {
+func (f *FilterManager) addFilter(filter filter) (string, error) {
 	f.Lock()
 	defer f.Unlock()
 
 	base := filter.getFilterBase()
 
-	f.filters[base.id] = filter
-
-	// Set timeout and add to heap if filter doesn't have web socket connection
-	if !filter.hasWSConn() {
-		f.addFilterTimeout(base)
+	if f.limits.Global != 0 && uint64(len(f.filters)) >= f.limits.Global {
+		return "", ErrFilterLimitExceeded
 	}
 
-	return base.id
+	if base.ws != nil && f.limits.PerConnection != 0 &&
+		uint64(len(base.ws.GetFilterIDs())) >= f.limits.PerConnection {
+		return "", ErrConnectionFilterLimitExceeded
+	}
+
+	f.filters[base.id] = filter
+
+	// Every filter expires, web socket ones included. For a subscription the expiry is
+	// refreshed by the connection's keepalive, so it only fires once the peer stops proving
+	// it is alive, which reclaims filters left behind by connections that died silently.
+	f.addFilterTimeout(base)
+
+	if base.ws != nil {
+		base.ws.AddFilterID(base.id)
+	}
+
+	return base.id, nil
 }
 
 func (f *FilterManager) emitSignalToUpdateCh() {
@@ -836,21 +897,40 @@ func (f *FilterManager) processTxEvent(evnt *proto.TxPoolEvent) {
 // flushWsFilters make each filters with web socket connection write the updates to web socket stream
 // flushWsFilters also removes the filters if flushWsFilters notices the connection is closed
 func (f *FilterManager) flushWsFilters(subType subscriptionType) error {
-	closedFilterIDs := make([]string, 0)
-
+	// Snapshot the matching filters so that the flush below, which writes to peers, never
+	// runs while a FilterManager lock is held. A single unresponsive peer would otherwise
+	// stall every other filter operation.
 	f.RLock()
+
+	wsFilters := make(map[string]filter)
 
 	for id, filter := range f.filters {
 		if !filter.hasWSConn() || filter.getSubscriptionType() != subType {
 			continue
 		}
 
+		wsFilters[id] = filter
+	}
+
+	f.RUnlock()
+
+	closedFilterIDs := make([]string, 0)
+
+	for id, filter := range wsFilters {
 		if flushErr := filter.sendUpdates(); flushErr != nil {
-			// mark as closed if the connection is closed
-			if errors.Is(flushErr, websocket.ErrCloseSent) || errors.Is(flushErr, net.ErrClosed) {
+			// mark as closed if the connection is closed, or if the peer has fallen so far
+			// behind that its outbound queue overflowed
+			if errors.Is(flushErr, websocket.ErrCloseSent) ||
+				errors.Is(flushErr, net.ErrClosed) ||
+				errors.Is(flushErr, errWSWriteQueueFull) {
 				closedFilterIDs = append(closedFilterIDs, id)
 
 				f.logger.Warn(fmt.Sprintf("Subscription %s has been closed", id))
+
+				// Drop the peer instead of keeping a subscription-less connection alive
+				if errors.Is(flushErr, errWSWriteQueueFull) {
+					_ = filter.getFilterBase().ws.Close()
+				}
 
 				continue
 			}
@@ -858,8 +938,6 @@ func (f *FilterManager) flushWsFilters(subType subscriptionType) error {
 			f.logger.Error(fmt.Sprintf("Unable to process flush, %v", flushErr))
 		}
 	}
-
-	f.RUnlock()
 
 	// remove filters with closed web socket connections from FilterManager
 	if len(closedFilterIDs) > 0 {

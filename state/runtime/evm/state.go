@@ -34,7 +34,10 @@ func releaseState(s *state) {
 	statePool.Put(s)
 }
 
-const stackSize = 1024
+const (
+	stackSize           = 1024
+	cancelCheckInterval = 1024
+)
 
 var (
 	errOutOfGas              = runtime.ErrOutOfGas
@@ -197,13 +200,22 @@ func (c *state) Run() ([]byte, error) {
 	var (
 		vmerr error
 
-		op OpCode
-		ok bool
+		op    OpCode
+		ok    bool
+		steps uint64
 	)
 
 	tracer := c.host.GetTracer()
 
 	for !c.stop {
+		if steps%cancelCheckInterval == 0 && c.evm.cancelled() {
+			c.exit(runtime.ErrExecutionAborted)
+
+			break
+		}
+
+		steps++
+
 		op, ok = c.CurrentOpCode()
 		gasCopy, ipCopy := c.gas, uint64(c.ip)
 
@@ -261,6 +273,10 @@ func (c *state) Run() ([]byte, error) {
 		}
 
 		c.ip++
+	}
+
+	if c.err == nil && c.evm.cancelled() {
+		c.err = runtime.ErrExecutionAborted
 	}
 
 	if err := c.err; err != nil {
