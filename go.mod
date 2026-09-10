@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.46.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.32
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
-	github.com/aws/aws-sdk-go-v2/service/kms v1.55.2
+	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.49.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/cockroachdb/pebble v1.1.5
