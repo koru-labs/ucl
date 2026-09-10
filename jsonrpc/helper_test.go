@@ -887,3 +887,14 @@ func TestDecodeTxn(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckReceiptsMatchTxs(t *testing.T) {
+	t.Parallel()
+
+	tx := createTestTransaction(testTxHash1)
+
+	assert.NoError(t, checkReceiptsMatchTxs(nil, nil))
+	assert.NoError(t, checkReceiptsMatchTxs([]*types.Receipt{{}}, []*types.Transaction{tx}))
+	assert.ErrorIs(t, checkReceiptsMatchTxs([]*types.Receipt{{}}, nil), ErrReceiptsTxsMismatch)
+	assert.ErrorIs(t, checkReceiptsMatchTxs(nil, []*types.Transaction{tx}), ErrReceiptsTxsMismatch)
+}

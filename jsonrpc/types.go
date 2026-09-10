@@ -254,11 +254,16 @@ type receipt struct {
 
 func toReceipt(src *types.Receipt, tx *types.Transaction,
 	txIndex uint64, header *types.Header, logs []*Log) *receipt {
+	var status argUint64
+	if src.Status != nil {
+		status = argUint64(*src.Status)
+	}
+
 	return &receipt{
 		Root:              src.Root,
 		CumulativeGasUsed: argUint64(src.CumulativeGasUsed),
 		LogsBloom:         src.LogsBloom,
-		Status:            argUint64(*src.Status),
+		Status:            status,
 		TxHash:            tx.Hash,
 		TxIndex:           argUint64(txIndex),
 		BlockHash:         header.Hash,

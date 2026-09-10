@@ -409,35 +409,49 @@ func (f *FilterManager) Run() {
 	var timeoutCh <-chan time.Time
 
 	for {
-		// check for the next filter to be removed
-		filterID, filterExpiresAt := f.nextTimeoutFilter()
+		stop := false
 
-		// set timer to remove filter
-		if filterID != "" {
-			timeoutCh = time.After(time.Until(filterExpiresAt))
-		}
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					f.logger.Error("filter manager recovered from panic", "panic", rec)
+				}
+			}()
 
-		select {
-		case evnt := <-blockWatchCh:
-			// new blockchain event
-			if err := f.dispatchEvent(evnt); err != nil {
-				f.logger.Error("failed to dispatch block event", "err", err)
+			// check for the next filter to be removed
+			filterID, filterExpiresAt := f.nextTimeoutFilter()
+
+			// set timer to remove filter
+			if filterID != "" {
+				timeoutCh = time.After(time.Until(filterExpiresAt))
 			}
 
-		case evnt := <-txWatchCh:
-			// new tx pool event
-			if err := f.dispatchEvent(evnt); err != nil {
-				f.logger.Error("failed to dispatch tx pool event", "err", err)
+			select {
+			case evnt := <-blockWatchCh:
+				// new blockchain event
+				if err := f.dispatchEvent(evnt); err != nil {
+					f.logger.Error("failed to dispatch block event", "err", err)
+				}
+
+			case evnt := <-txWatchCh:
+				// new tx pool event
+				if err := f.dispatchEvent(evnt); err != nil {
+					f.logger.Error("failed to dispatch tx pool event", "err", err)
+				}
+
+			case <-timeoutCh:
+				f.uninstallIfExpired(filterID)
+
+			case <-f.updateCh:
+				// filters change, reset the loop to start the timeout timer
+
+			case <-f.closeCh:
+				// stop the filter manager
+				stop = true
 			}
+		}()
 
-		case <-timeoutCh:
-			f.uninstallIfExpired(filterID)
-
-		case <-f.updateCh:
-			// filters change, reset the loop to start the timeout timer
-
-		case <-f.closeCh:
-			// stop the filter manager
+		if stop {
 			return
 		}
 	}
@@ -486,6 +500,10 @@ func (f *FilterManager) Exists(id string) bool {
 func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([]*Log, error) {
 	receipts, err := f.store.GetReceiptsByHash(block.Number(), block.Header.Hash)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := checkReceiptsMatchTxs(receipts, block.Transactions); err != nil {
 		return nil, err
 	}
 
@@ -858,6 +876,10 @@ func (f *FilterManager) appendLogsToFilters(header *block) error {
 		f.logger.Error("could not find block in store", "hash", header.Hash.String())
 
 		return nil
+	}
+
+	if err := checkReceiptsMatchTxs(receipts, block.Transactions); err != nil {
+		return err
 	}
 
 	logIndex := uint64(0)

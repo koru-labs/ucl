@@ -346,6 +346,16 @@ func Test_toReceipt(t *testing.T) {
 		receipt := toReceipt(originReceipt, tx, txIdx, header, toLogs(logs, 0, txIdx, header, tx.Hash))
 		testReceipt("testsuite/receipt-with-logs.json", receipt)
 	})
+
+	t.Run("nil status defaults to 0", func(t *testing.T) {
+		tx := createTestTransaction(types.StringToHash("tx1"))
+		header := createTestHeader(15, nil)
+		rec := createTestReceipt(nil, cumulativeGasUsed, gasUsed, tx.Hash)
+		rec.Status = nil
+
+		got := toReceipt(rec, tx, 0, header, nil)
+		require.Equal(t, argUint64(0), got.Status)
+	})
 }
 
 func Test_toBlock(t *testing.T) {

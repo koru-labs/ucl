@@ -377,7 +377,11 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 		return nil, nil
 	}
 
-	blockCache := e.cache.getBlockCache(blockNum)
+	blockCache, err := e.cache.getBlockCache(blockNum)
+	if err != nil {
+		return nil, err
+	}
+
 	if blockCache == nil {
 		// block or receipts not found
 		e.logger.Warn(
@@ -441,6 +445,10 @@ func (e *Eth) GetBlockReceipts(number BlockNumber) (interface{}, error) {
 	receiptsNum := len(receipts)
 	if receiptsNum == 0 {
 		return nil, nil
+	}
+
+	if err := checkReceiptsMatchTxs(receipts, block.Transactions); err != nil {
+		return nil, err
 	}
 
 	resReceipts := make([]*receipt, receiptsNum)

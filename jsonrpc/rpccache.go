@@ -33,24 +33,28 @@ func initRPCCache(store ethStore, logger hclog.Logger, ttl time.Duration, capaci
 	return &rpcCache{blockCache: cache, store: store, logger: logger}
 }
 
-func (r *rpcCache) getBlockCache(num uint64) *blockCache {
+func (r *rpcCache) getBlockCache(num uint64) (*blockCache, error) {
 	r.logger.Debug("rpccache", "getBlockCache called with block number", num)
 
-	if r.blockCache.Has(num) {
-		return r.blockCache.Get(num).Value()
+	if item := r.blockCache.Get(num); item != nil {
+		return item.Value(), nil
 	}
 
 	// load block
 	block, ok := r.store.GetBlockByNumber(num, true)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	// load receipts
 	receipts, err := r.store.GetReceiptsByHash(num, block.Hash())
 	if err != nil {
 		// block receipts not found
-		return nil
+		return nil, err
+	}
+
+	if err := checkReceiptsMatchTxs(receipts, block.Transactions); err != nil {
+		return nil, err
 	}
 
 	fullBlock := &types.FullBlock{Block: block, Receipts: receipts}
@@ -58,7 +62,7 @@ func (r *rpcCache) getBlockCache(num uint64) *blockCache {
 
 	// don't cache small blocks, so return at this place with block and receipts
 	if len(block.Transactions) < 10 {
-		return retVal
+		return retVal, nil
 	}
 
 	txHashToIndex := make(map[types.Hash]int, len(block.Transactions))
@@ -77,7 +81,7 @@ func (r *rpcCache) getBlockCache(num uint64) *blockCache {
 	r.blockCache.Set(num, retVal, ttlcache.DefaultTTL)
 	r.logger.Debug("rpccache", "added to cache block with number", num)
 
-	return retVal
+	return retVal, nil
 }
 
 func (b *blockCache) getBlock() *types.Block {

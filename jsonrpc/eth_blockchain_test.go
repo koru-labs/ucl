@@ -372,6 +372,27 @@ func TestEth_GetTransactionReceipt(t *testing.T) {
 		assert.Equal(t, uint64(3), uint64(response.Logs[0].LogIndex))
 		assert.Equal(t, uint64(1), uint64(response.Logs[0].TxIndex))
 	})
+
+	t.Run("returns error when receipts and transactions lengths differ", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMockBlockStore()
+		eth := newTestEthEndpoint(store)
+		block := newTestBlock(1, hash4)
+
+		txn0 := newTestTransaction(uint64(0), addr0)
+		txn1 := newTestTransaction(uint64(1), addr1)
+		block.Transactions = []*types.Transaction{txn0, txn1}
+		store.add(block)
+
+		receipt := &types.Receipt{}
+		receipt.SetStatus(types.ReceiptSuccess)
+		store.receipts[hash4] = []*types.Receipt{receipt}
+
+		res, err := eth.GetTransactionReceipt(txn0.Hash)
+		assert.ErrorIs(t, err, ErrReceiptsTxsMismatch)
+		assert.Nil(t, res)
+	})
 }
 
 func TestEth_GetBlockReceipts(t *testing.T) {
@@ -434,6 +455,25 @@ func TestEth_GetBlockReceipts(t *testing.T) {
 	assert.Len(t, response[1].Logs, 1)
 	assert.Equal(t, uint64(3), uint64(response[1].Logs[0].LogIndex))
 	assert.Equal(t, uint64(1), uint64(response[1].Logs[0].TxIndex))
+}
+
+func TestEth_GetBlockReceipts_ReceiptsTxsMismatch(t *testing.T) {
+	store := newMockBlockStore()
+	eth := newTestEthEndpoint(store)
+	block := newTestBlock(1, hash4)
+
+	txn0 := newTestTransaction(uint64(0), addr0)
+	txn1 := newTestTransaction(uint64(1), addr1)
+	block.Transactions = []*types.Transaction{txn0, txn1}
+	store.add(block)
+
+	receipt := &types.Receipt{}
+	receipt.SetStatus(types.ReceiptSuccess)
+	store.receipts[hash4] = []*types.Receipt{receipt}
+
+	res, err := eth.GetBlockReceipts(1)
+	assert.ErrorIs(t, err, ErrReceiptsTxsMismatch)
+	assert.Nil(t, res)
 }
 
 func TestEth_Syncing(t *testing.T) {
