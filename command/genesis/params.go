@@ -353,11 +353,10 @@ func (p *genesisParams) generateGenesis() error {
 }
 
 func (p *genesisParams) initGenesisConfig() error {
-	// Disable london hardfork if burn contract address is not provided
+	// London (EIP-1559) is always enabled. The base fee is burned only when a burn contract
+	// is configured; otherwise the executor pays it to the block proposer together with
+	// the priority tip, so validators collect the whole transaction fee.
 	enabledForks := chain.AllForksEnabled
-	if !p.isBurnContractEnabled() {
-		enabledForks.RemoveFork(chain.London)
-	}
 
 	chainConfig := &chain.Chain{
 		Name: p.name,
@@ -376,11 +375,12 @@ func (p *genesisParams) initGenesisConfig() error {
 		Bootnodes: p.bootnodes,
 	}
 
-	// burn contract can be set only for non mintable native token
+	chainConfig.Genesis.BaseFee = p.parsedBaseFeeConfig.baseFee
+	chainConfig.Genesis.BaseFeeEM = p.parsedBaseFeeConfig.baseFeeEM
+	chainConfig.Genesis.BaseFeeChangeDenom = p.parsedBaseFeeConfig.baseFeeChangeDenom
+
+	// Optional: burn the base fee instead of paying it to the proposer.
 	if p.isBurnContractEnabled() {
-		chainConfig.Genesis.BaseFee = p.parsedBaseFeeConfig.baseFee
-		chainConfig.Genesis.BaseFeeEM = p.parsedBaseFeeConfig.baseFeeEM
-		chainConfig.Genesis.BaseFeeChangeDenom = p.parsedBaseFeeConfig.baseFeeChangeDenom
 		chainConfig.Params.BurnContract = make(map[uint64]types.Address, 1)
 
 		burnContractInfo, err := parseBurnContractInfo(p.burnContract)
