@@ -1,0 +1,35 @@
+---
+name: main-guard
+
+# The integration and lint workflows only fire on pull_request, so a merge whose
+# conflicts were resolved locally and pushed lands on main without ever being built.
+# This job is the post-merge safety net for exactly that case.
+on: # yamllint disable-line rule:truthy
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
+
+      # Read the version from go.mod rather than a GitHub Actions variable: setup-go pins
+      # GOTOOLCHAIN=local, so a runner Go older than the `go` directive fails the build
+      # outright instead of upgrading itself.
+      - name: Setup Go environment
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify go.mod and go.sum agree
+        run: go mod tidy -diff
+
+      - name: Build
+        run: go build ./...
