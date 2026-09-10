@@ -2,6 +2,7 @@ package state
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/crypto"
+	"github.com/0xPolygon/polygon-edge/helper/keccak"
 	"github.com/0xPolygon/polygon-edge/state/runtime"
 	"github.com/0xPolygon/polygon-edge/types"
 )
@@ -812,6 +814,61 @@ func (txn *Txn) cleanDeleteObjects(deleteEmptyObjects bool) error {
 	txn.txn.Delete(refundIndex)
 
 	return nil
+}
+
+// DirtyFingerprint hashes in-memory account/storage writes so two nodes can
+// compare local execution of the same block without agreeing on a state root.
+func (txn *Txn) DirtyFingerprint() types.Hash {
+	h := keccak.DefaultKeccakPool.Get()
+	defer keccak.DefaultKeccakPool.Put(h)
+
+	txn.txn.Root().Walk(func(k []byte, v interface{}) bool {
+		obj, ok := v.(*StateObject)
+		if !ok {
+			return false
+		}
+
+		_, _ = h.Write(k)
+
+		if obj.Deleted {
+			_, _ = h.Write([]byte{1})
+
+			return false
+		}
+
+		_, _ = h.Write([]byte{0})
+		_ = binary.Write(h, binary.BigEndian, obj.Account.Nonce)
+
+		if obj.Account.Balance != nil {
+			_, _ = h.Write(obj.Account.Balance.Bytes())
+		}
+
+		_, _ = h.Write(obj.Account.CodeHash)
+
+		if obj.Txn != nil {
+			obj.Txn.Root().Walk(func(sk []byte, sv interface{}) bool {
+				_, _ = h.Write(sk)
+
+				if sv == nil {
+					_, _ = h.Write([]byte{1})
+
+					return false
+				}
+
+				_, _ = h.Write([]byte{0})
+				_, _ = h.Write(sv.([]byte)) //nolint:forcetypeassert
+
+				return false
+			})
+		}
+
+		return false
+	})
+
+	var out types.Hash
+	copy(out[:], h.Sum(nil))
+
+	return out
 }
 
 func (txn *Txn) Commit(deleteEmptyObjects bool) ([]*Object, error) {

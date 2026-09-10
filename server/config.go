@@ -66,8 +66,16 @@ type Config struct {
 	NumBlockConfirmations uint64
 	MetricsInterval       time.Duration
 
-	EnableTxPoolEndpoints   bool
-	EnableAllDebugEndpoints bool
+	EnableTxPoolEndpoints    bool
+	EnableAllDebugEndpoints  bool
+	EnableConsensusEndpoints bool
+
+	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
+	ConsensusStatePushURL string
+	// ConsensusStatePushToken is the bearer token sent with push requests.
+	ConsensusStatePushToken string
+	// ConsensusStatePushInterval is the recovery heartbeat between snapshots.
+	ConsensusStatePushInterval time.Duration
 
 	// JumpdestCacheSize controls the size of the per-process JUMPDEST bitmap
 	// cache used by the EVM (see `state/runtime/evm/jumpdest_cache.go`).

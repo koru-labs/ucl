@@ -303,56 +303,53 @@ func (s *snapshotStore) updateLastBlock(num uint64) {
 	atomic.StoreUint64(&s.lastNumber, num)
 }
 
-// deleteLower deletes snapshots that have a block number lower than the passed in parameter
+// deleteLower drops snapshots with Number < num.
+// If every snapshot is below num, the newest one is kept so lookups still work.
 func (s *snapshotStore) deleteLower(num uint64) {
 	s.Lock()
 	defer s.Unlock()
 
-	pruneIndex := s.findClosestSnapshotIndex(num)
-	s.list = s.list[pruneIndex:]
+	if len(s.list) == 0 {
+		return
+	}
+
+	i := sort.Search(len(s.list), func(i int) bool {
+		return s.list[i].Number >= num
+	})
+
+	if i == len(s.list) {
+		s.list = s.list[len(s.list)-1:]
+
+		return
+	}
+
+	s.list = s.list[i:]
 }
 
-// findClosestSnapshotIndex finds the closest snapshot index for the specified
-// block number
-func (s *snapshotStore) findClosestSnapshotIndex(blockNum uint64) int {
-	// Check if the block number is lower than the highest saved snapshot
-	if blockNum < s.list[0].Number {
-		return 0
-	}
+// deleteAbove drops snapshots with Number > num.
+func (s *snapshotStore) deleteAbove(num uint64) {
+	s.Lock()
+	defer s.Unlock()
 
-	// Check if the block number if higher than the highest saved snapshot
-	if blockNum > s.list[len(s.list)-1].Number {
-		return len(s.list) - 1
-	}
+	i := sort.Search(len(s.list), func(i int) bool {
+		return s.list[i].Number > num
+	})
 
-	var (
-		low  = 0
-		high = len(s.list) - 1
-	)
-
-	// Find the closest value using binary search
-	for low <= high {
-		mid := (high + low) / 2
-
-		switch {
-		case blockNum < s.list[mid].Number:
-			high = mid - 1
-		case blockNum > s.list[mid].Number:
-			low = mid + 1
-		default:
-			return mid
-		}
-	}
-
-	// Check which of the two positions is closest (and has a higher block num)
-	if s.list[low].Number-blockNum < blockNum-s.list[high].Number {
-		return high
-	}
-
-	return low
+	s.list = s.list[:i]
 }
 
-// find returns the index of the first closest snapshot to the number specified
+// copyList returns a shallow copy of the snapshot list.
+func (s *snapshotStore) copyList() []*Snapshot {
+	s.RLock()
+	defer s.RUnlock()
+
+	out := make([]*Snapshot, len(s.list))
+	copy(out, s.list)
+
+	return out
+}
+
+// find returns the newest snapshot whose Number is <= num.
 func (s *snapshotStore) find(num uint64) *Snapshot {
 	s.RLock()
 	defer s.RUnlock()
@@ -362,40 +359,30 @@ func (s *snapshotStore) find(num uint64) *Snapshot {
 	}
 
 	// fast track, check the last item
-	if last := s.list[len(s.list)-1]; last.Number < num {
+	if last := s.list[len(s.list)-1]; last.Number <= num {
 		return last
 	}
 
-	// find the index of the element
-	// whose Number is bigger than or equals to num, and smallest
+	// first snapshot with Number >= num
 	i := sort.Search(len(s.list), func(i int) bool {
 		return s.list[i].Number >= num
 	})
 
-	if i < len(s.list) {
-		if i == 0 {
-			return s.list[0]
-		}
-
-		if s.list[i].Number == num {
-			return s.list[i]
-		}
-
-		return s.list[i-1]
+	if i < len(s.list) && s.list[i].Number == num {
+		return s.list[i]
 	}
 
-	// should not reach here
-	return nil
+	if i == 0 {
+		// every snapshot is after num
+		return nil
+	}
+
+	return s.list[i-1]
 }
 
-// add adds a new snapshot to the snapshot store
+// add inserts or replaces a snapshot by Number.
 func (s *snapshotStore) add(snap *Snapshot) {
-	s.Lock()
-	defer s.Unlock()
-
-	// append and sort the list
-	s.list = append(s.list, snap)
-	sort.Sort(&s.list)
+	s.putByNumber(snap)
 }
 
 // putByNumber replaces snapshot if the snapshot whose Number matches with the given snapshot's Number
@@ -404,18 +391,20 @@ func (s *snapshotStore) putByNumber(snap *Snapshot) {
 	s.Lock()
 	defer s.Unlock()
 
+	if snap == nil {
+		return
+	}
+
 	i := sort.Search(len(s.list), func(i int) bool {
-		return s.list[i].Number == snap.Number
+		return s.list[i].Number >= snap.Number
 	})
 
-	if i < len(s.list) {
-		// replace if found
+	if i < len(s.list) && s.list[i].Number == snap.Number {
 		s.list[i] = snap
 
 		return
 	}
 
-	// append if not found
 	s.list = append(s.list, snap)
 	sort.Sort(&s.list)
 }
