@@ -114,7 +114,7 @@ func TestStructTracer_canceled(t *testing.T) {
 func TestStructTracerClear(t *testing.T) {
 	t.Parallel()
 
-	tracer := StructTracer{
+	tracer := &StructTracer{
 		Config: Config{
 			EnableMemory:     true,
 			EnableStack:      true,
@@ -149,9 +149,11 @@ func TestStructTracerClear(t *testing.T) {
 
 	tracer.Clear()
 
+	// Compared as pointers: StructTracer embeds a sync.RWMutex, and passing it by value
+	// would copy that lock (go vet copylocks).
 	assert.Equal(
 		t,
-		StructTracer{
+		&StructTracer{
 			Config: Config{
 				EnableMemory:     true,
 				EnableStack:      true,
@@ -172,7 +174,7 @@ func TestStructTracerClear(t *testing.T) {
 			currentMemory: make([]([]byte), 1),
 			currentStack:  make([]([]uint256.Int), 1),
 		},
-		tracer, //nolint:govet
+		tracer,
 	)
 }
 
