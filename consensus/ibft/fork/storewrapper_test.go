@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
@@ -387,9 +388,17 @@ func TestSnapshotValidatorStoreWrapperClose(t *testing.T) {
 
 	savedSnapshots, err := os.ReadFile(path.Join(dirPath, snapshotSnapshotsFilename))
 	assert.NoError(t, err)
+
+	persisted := store.GetSnapshots()
+
+	expected := make([]string, 0, len(persisted))
+	for _, snap := range persisted {
+		expected = append(expected, createTestSnapshotJSON(t, snap))
+	}
+
 	assert.JSONEq(
 		t,
-		fmt.Sprintf("[%s]", createTestSnapshotJSON(t, snapshots[0])),
+		fmt.Sprintf("[%s]", strings.Join(expected, ",")),
 		string(savedSnapshots),
 	)
 }

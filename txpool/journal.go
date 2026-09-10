@@ -3,7 +3,6 @@ package txpool
 import (
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"sync"
 
@@ -47,25 +46,11 @@ func newTxJournal(path string, logger hclog.Logger, journalCh chan struct{}, rot
 // load parses a transaction journal dump from disk, loading its contents into
 // the specified pool.
 func (j *journal) load(add func(*types.Transaction) error) error {
-	// open the journal for loading any past transactions
-	data, err := os.ReadFile(j.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		// skip the parsing if the journal file doesn't exist at all
-		return nil
-	}
+	txs, err := ReadJournalFile(j.path)
+	if err != nil {
+		j.logger.Error("failed to decode journaled tx", "err", err)
 
-	txs := make([]*types.Transaction, 0)
-	// decode txs
-	for len(data) > 0 {
-		tx := &types.Transaction{}
-		if err := tx.UnmarshalJournal(data); err != nil {
-			j.logger.Error("failed to decode journaled tx", "err", err)
-
-			return err
-		}
-
-		data = data[tx.JournalSize():]
-		txs = append(txs, tx)
+		return err
 	}
 
 	// temporarily discard any journal additions (don't double add on load)

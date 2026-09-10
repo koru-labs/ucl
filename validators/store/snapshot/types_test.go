@@ -1146,6 +1146,23 @@ func Test_snapshotStore_deleteLower(t *testing.T) {
 				{Number: 10},
 			},
 		},
+		{
+			"Drop the farther-lower snapshot (not closest)",
+			[]*Snapshot{
+				{Number: 10},
+				{Number: 25},
+			},
+			uint64(20),
+			[]*Snapshot{
+				{Number: 25},
+			},
+		},
+		{
+			"Empty list",
+			[]*Snapshot{},
+			uint64(20),
+			[]*Snapshot{},
+		},
 	}
 
 	for _, testCase := range testTable {
@@ -1201,16 +1218,14 @@ func Test_snapshotStore_find(t *testing.T) {
 			},
 		},
 		{
-			name: "should return the first element if the given value is less than any snapshot",
+			name: "should return nil if the given value is less than any snapshot",
 			snapshots: []*Snapshot{
 				{Number: 10},
 				{Number: 20},
 				{Number: 30},
 			},
-			input: 5,
-			expected: &Snapshot{
-				Number: 10,
-			},
+			input:    5,
+			expected: nil,
 		},
 		{
 			name: "should return the element whose Number matches with the given number",
@@ -1299,6 +1314,11 @@ func Test_snapshotStore_add(t *testing.T) {
 		},
 		store,
 	)
+
+	replacement := &Snapshot{Number: 12, Hash: "replaced"}
+	store.add(replacement)
+	assert.Equal(t, replacement, store.find(12))
+	assert.Len(t, store.list, len(expected))
 }
 
 func Test_snapshotStore_putByNumber(t *testing.T) {
@@ -1324,6 +1344,23 @@ func Test_snapshotStore_putByNumber(t *testing.T) {
 			finalSnapshots: []*Snapshot{
 				{Number: 10, Hash: "10"},
 				{Number: 20, Hash: "xxx"},
+				{Number: 30, Hash: "30"},
+			},
+		},
+		{
+			name: "should replace the first snapshot",
+			initialSnapshots: []*Snapshot{
+				{Number: 10, Hash: "10"},
+				{Number: 20, Hash: "20"},
+				{Number: 30, Hash: "30"},
+			},
+			newSnapshot: &Snapshot{
+				Number: 10,
+				Hash:   "xxx",
+			},
+			finalSnapshots: []*Snapshot{
+				{Number: 10, Hash: "xxx"},
+				{Number: 20, Hash: "20"},
 				{Number: 30, Hash: "30"},
 			},
 		},

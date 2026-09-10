@@ -65,8 +65,16 @@ type Config struct {
 
 	MetricsInterval time.Duration `json:"metrics_interval" yaml:"metrics_interval"`
 
-	EnableTxPoolEndpoints   bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
-	EnableAllDebugEndpoints bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+	EnableTxPoolEndpoints    bool `json:"enable_tx_pool_endpoints" yaml:"enable_tx_pool_endpoints"`
+	EnableAllDebugEndpoints  bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
+	EnableConsensusEndpoints bool `json:"enable_consensus_endpoints" yaml:"enable_consensus_endpoints"`
+
+	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
+	ConsensusStatePushURL string `json:"consensus_state_push_url" yaml:"consensus_state_push_url"`
+	// ConsensusStatePushToken is the bearer token sent with push requests.
+	ConsensusStatePushToken string `json:"consensus_state_push_token" yaml:"consensus_state_push_token"`
+	// ConsensusStatePushInterval is the recovery heartbeat between snapshots.
+	ConsensusStatePushInterval time.Duration `json:"consensus_state_push_interval" yaml:"consensus_state_push_interval"`
 
 	// Deprecated: use enable_tx_pool_endpoints (inverted). Honored when true.
 	//nolint:lll
@@ -173,6 +181,10 @@ const (
 	// A value of 0 means the metrics are disabled.
 	DefaultMetricsInterval time.Duration = time.Second * 8
 
+	// DefaultConsensusStatePushInterval is the recovery heartbeat used when no
+	// consensus diagnostics events arrive.
+	DefaultConsensusStatePushInterval time.Duration = 30 * time.Second
+
 	// JSON RPC max request body size
 	DefaultRequestBodySize = 5 << 20 // 5 MiB
 
@@ -255,6 +267,10 @@ func DefaultConfig() *Config {
 		JumpdestCacheSize:           evm.DefaultJumpdestCacheSize,
 		EnableTxPoolEndpoints:       false,
 		EnableAllDebugEndpoints:     false,
+		EnableConsensusEndpoints:    false,
+		ConsensusStatePushURL:       "",
+		ConsensusStatePushToken:     "",
+		ConsensusStatePushInterval:  DefaultConsensusStatePushInterval,
 		WithTrieCaching:             true,
 		WithBaseFeeFixed:            false,
 	}
