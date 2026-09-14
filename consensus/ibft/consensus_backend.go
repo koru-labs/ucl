@@ -512,11 +512,17 @@ func (i *backendIBFT) writeTransaction(
 		return nil, false
 	}
 
-	if tx.Gas > gasLimit || tx.Size()+i.buildBlockTxsRlpSize > types.MaxTxsRlpSize {
+	// tx can never be included in any block: drop it and continue with the next one
+	if tx.Gas > gasLimit || tx.Size() > types.MaxTxsRlpSize {
 		i.txpool.Drop(tx)
 
 		// continue processing
 		return &txExeResult{tx, fail}, true
+	}
+
+	// block is full by RLP size: stop processing and keep the tx in the pool for the next block
+	if tx.Size()+i.buildBlockTxsRlpSize > types.MaxTxsRlpSize {
+		return nil, false
 	}
 
 	if err := transition.Write(tx); err != nil {
