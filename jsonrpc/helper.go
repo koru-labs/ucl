@@ -17,6 +17,7 @@ var (
 	ErrHeaderNotFound           = errors.New("header not found")
 	ErrLatestNotFound           = errors.New("latest header not found")
 	ErrNegativeBlockNumber      = errors.New("invalid argument 0: block number must not be negative")
+	ErrBlockAboveHead           = errors.New("requested block number is greater than the current chain height")
 	ErrFailedFetchGenesis       = errors.New("error fetching genesis block header")
 	ErrNoDataInContractCreation = errors.New("contract creation without data provided")
 	ErrIndexOutOfRange          = errors.New("the index is invalid, it is out of range of expected values")
@@ -99,8 +100,38 @@ type latestHeaderGetter interface {
 	Header() *types.Header
 }
 
-// GetNumericBlockNumber returns block number based on current state or specified number
+// GetNumericBlockNumber returns block number based on current state or specified number.
+// An explicit number above the current chain height is rejected with ErrBlockAboveHead, so
+// callers can never size work off an arbitrary number. Endpoints that are expected to answer
+// with null for an unknown block map that error back to a nil result.
 func GetNumericBlockNumber(number BlockNumber, store latestHeaderGetter) (uint64, error) {
+	num, err := getNumericBlockNumberUnchecked(number, store)
+	if err != nil {
+		return 0, err
+	}
+
+	// The named tags already resolve to the head (or to genesis), so only an explicit
+	// number can point past the chain height.
+	if number <= EarliestBlockNumber {
+		return num, nil
+	}
+
+	latest := store.Header()
+	if latest == nil {
+		return 0, ErrLatestNotFound
+	}
+
+	if num > latest.Number {
+		return 0, ErrBlockAboveHead
+	}
+
+	return num, nil
+}
+
+// getNumericBlockNumberUnchecked resolves a block number without comparing it to the chain
+// height. Only for callers that bound the amount of work themselves and tolerate numbers past
+// the head; prefer GetNumericBlockNumber everywhere else.
+func getNumericBlockNumberUnchecked(number BlockNumber, store latestHeaderGetter) (uint64, error) {
 	switch number {
 	case SafeBlockNumber:
 		fallthrough

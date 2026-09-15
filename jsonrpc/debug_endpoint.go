@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
@@ -32,6 +33,14 @@ const (
 	defaultMaxStructLogs = 16384
 	// defaultMaxMemoryDumpBytes bounds EVM memory copied into one trace.
 	defaultMaxMemoryDumpBytes = 1 << 20
+
+	// traceChainMaxBlocks is the hard cap on how many blocks a single debug_traceChain
+	// request may trace. Throttling limits concurrent requests, not work per request, so
+	// the range itself has to be bounded.
+	traceChainMaxBlocks = 256
+	// traceChainWorkers bounds how many blocks one debug_traceChain request traces
+	// concurrently.
+	traceChainWorkers = 8
 )
 
 // publicDebugMethods is the allow-list of debug_* RPC methods registered when
@@ -47,6 +56,9 @@ var (
 	ErrTraceGenesisBlock = errors.New("genesis is not traceable")
 	// ErrNoConfig is an error returns when config is empty
 	ErrNoConfig = errors.New("missing config object")
+	// ErrTraceChainRangeTooLarge is returned when debug_traceChain is asked for more
+	// blocks than traceChainMaxBlocks
+	ErrTraceChainRangeTooLarge = errors.New("traced block range too large")
 )
 
 type debugBlockchainStore interface {
@@ -736,48 +748,80 @@ func (d *Debug) TraceChain(start, end BlockNumber, config *TraceConfig) (interfa
 				)
 			}
 
-			blocks := int(endNum-startNum) + 1
+			blockCount := endNum - startNum + 1
+			if blockCount > traceChainMaxBlocks {
+				return nil, fmt.Errorf(
+					"%w: requested %d blocks (#%d to #%d), limit is %d",
+					ErrTraceChainRangeTooLarge,
+					blockCount,
+					startNum,
+					endNum,
+					traceChainMaxBlocks,
+				)
+			}
+
+			blocks := int(blockCount)
+
+			workers := traceChainWorkers
+			if workers > blocks {
+				workers = blocks
+			}
+
+			// Each worker owns the slot it writes to, so the bounded result slice needs no
+			// extra synchronisation and no per-range channel buffer.
 			results := make([]BlockTraceResult, blocks)
-			resultCh := make(chan *BlockTraceResult, blocks)
+			jobs := make(chan int)
+
+			var wg sync.WaitGroup
+
+			wg.Add(workers)
+
+			for w := 0; w < workers; w++ {
+				go func() {
+					defer wg.Done()
+
+					for i := range jobs {
+						results[i] = d.traceChainBlock(startNum+uint64(i), config)
+					}
+				}()
+			}
 
 			for i := 0; i < blocks; i++ {
-				go func(i int) {
-					blockNum := startNum + uint64(i)
-					traceResult := &BlockTraceResult{Block: blockNum}
-
-					block, ok := d.store.GetBlockByNumber(blockNum, true)
-					if !ok {
-						traceResult.Error = fmt.Errorf("block %d not found", blockNum)
-					} else {
-						traceResult.Hash = block.Hash()
-
-						res, err := d.traceBlock(block, config)
-						if err != nil {
-							traceResult.Error = fmt.Errorf("failed to trace block %d: %w", blockNum, err)
-						} else {
-							traceResult.Traces = res
-						}
-					}
-
-					resultCh <- traceResult
-				}(i)
+				jobs <- i
 			}
 
-			traceResults := 0
+			close(jobs)
+			wg.Wait()
 
-			for {
-				select {
-				case traceResult := <-resultCh:
-					results[traceResult.Block-startNum] = *traceResult
-
-					traceResults++
-					if traceResults == blocks {
-						return results, nil
-					}
-				}
-			}
+			return results, nil
 		},
 	)
+}
+
+// traceChainBlock traces a single block of a debug_traceChain range, reporting per-block
+// failures in the result instead of aborting the whole range.
+func (d *Debug) traceChainBlock(blockNum uint64, config *TraceConfig) BlockTraceResult {
+	result := BlockTraceResult{Block: blockNum}
+
+	block, ok := d.store.GetBlockByNumber(blockNum, true)
+	if !ok {
+		result.Error = fmt.Errorf("block %d not found", blockNum)
+
+		return result
+	}
+
+	result.Hash = block.Hash()
+
+	traces, err := d.traceBlock(block, config)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to trace block %d: %w", blockNum, err)
+
+		return result
+	}
+
+	result.Traces = traces
+
+	return result
 }
 
 // AccountRange enumerates all accounts in the given block and start point in paging request

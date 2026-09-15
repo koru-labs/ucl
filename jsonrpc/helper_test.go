@@ -4,11 +4,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createTestTransaction(hash types.Hash) *types.Transaction {
@@ -192,11 +194,67 @@ func TestGetNumericBlockNumber(t *testing.T) {
 			err:      ErrNegativeBlockNumber,
 		},
 		{
-			name:     "should return the given block number otherwise",
-			num:      5,
-			store:    &debugEndpointMockStore{},
+			name: "should return the given block number otherwise",
+			num:  5,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return &types.Header{
+						Number: 10,
+					}
+				},
+			},
 			expected: 5,
 			err:      nil,
+		},
+		{
+			name: "should accept a number equal to the chain height",
+			num:  10,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return &types.Header{
+						Number: 10,
+					}
+				},
+			},
+			expected: 10,
+			err:      nil,
+		},
+		{
+			name: "should return error if the given number is above the chain height",
+			num:  11,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return &types.Header{
+						Number: 10,
+					}
+				},
+			},
+			expected: 0,
+			err:      ErrBlockAboveHead,
+		},
+		{
+			name: "should return error if the given number is far above the chain height",
+			num:  math.MaxInt64,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return &types.Header{
+						Number: 10,
+					}
+				},
+			},
+			expected: 0,
+			err:      ErrBlockAboveHead,
+		},
+		{
+			name: "should return error if the latest header is missing for an explicit number",
+			num:  5,
+			store: &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return nil
+				},
+			},
+			expected: 0,
+			err:      ErrLatestNotFound,
 		},
 	}
 
@@ -212,6 +270,30 @@ func TestGetNumericBlockNumber(t *testing.T) {
 			assert.Equal(t, test.err, err)
 		})
 	}
+}
+
+func TestGetNumericBlockNumberUnchecked(t *testing.T) {
+	t.Parallel()
+
+	store := &debugEndpointMockStore{
+		headerFn: func() *types.Header {
+			return &types.Header{
+				Number: 10,
+			}
+		},
+	}
+
+	// Numbers past the chain height are resolved as given, unlike GetNumericBlockNumber.
+	res, err := getNumericBlockNumberUnchecked(1000, store)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1000), res)
+
+	res, err = getNumericBlockNumberUnchecked(LatestBlockNumber, store)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(10), res)
+
+	_, err = getNumericBlockNumberUnchecked(-5, store)
+	assert.Equal(t, ErrNegativeBlockNumber, err)
 }
 
 func TestGetBlockHeader(t *testing.T) {
