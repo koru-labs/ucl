@@ -224,7 +224,7 @@ const (
 
 	// DefaultJSONRPCBatchCostLimit is the maximum total method-cost weight of one batch.
 	// Zero disables the cost budget.
-	DefaultJSONRPCBatchCostLimit uint64 = 200
+	DefaultJSONRPCBatchCostLimit uint64 = 1000
 
 	// DefaultJSONRPCMaxResponseSize is the maximum serialized JSON-RPC response size in bytes.
 	// Zero disables the cap.
