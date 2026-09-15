@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       source_ref: ${{ steps.rebase.outputs.source_ref }}
+      source_branch: ${{ steps.rebase.outputs.source_branch }}
     steps:
       - id: rebase
         uses: koru-labs/pipeline_main/.github/actions/git-rebase@main
