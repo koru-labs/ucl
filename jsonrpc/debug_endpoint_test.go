@@ -3,12 +3,17 @@ package jsonrpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"math/big"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/0xPolygon/polygon-edge/helper/hex"
@@ -45,7 +50,16 @@ type debugEndpointMockStore struct {
 	getAccountFn          func(types.Hash, types.Address) (*Account, error)
 }
 
+// mockChainHeight is the chain head reported by debugEndpointMockStore when a test does not
+// set headerFn. Explicit block numbers are validated against the head, so even tests that do
+// not care about it need one.
+const mockChainHeight = 1_000_000
+
 func (s *debugEndpointMockStore) Header() *types.Header {
+	if s.headerFn == nil {
+		return &types.Header{Number: mockChainHeight}
+	}
+
 	return s.headerFn()
 }
 
@@ -373,6 +387,241 @@ func TestTraceBlockByNumber(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestTraceChain(t *testing.T) {
+	t.Parallel()
+
+	store := &debugEndpointMockStore{
+		headerFn: func() *types.Header {
+			return testLatestHeader
+		},
+		getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+			require.True(t, full)
+
+			if num == 9 {
+				return nil, false
+			}
+
+			return wrapHeaderWithTestBlock(createTestHeader(num, nil)), true
+		},
+		traceBlockFn: func(block *types.Block, _ tracer.Tracer) ([]interface{}, error) {
+			if block.Number() == 11 {
+				return nil, errors.New("trace failed")
+			}
+
+			return testTraceResults, nil
+		},
+	}
+
+	endpoint := NewDebug(store, 100000, 0, 0)
+
+	res, err := endpoint.TraceChain(9, 11, &TraceConfig{})
+	require.NoError(t, err)
+
+	results, ok := res.([]BlockTraceResult)
+	require.True(t, ok)
+	require.Len(t, results, 3)
+
+	// results are ordered by block number, whatever order the workers finish in, and a
+	// per-block failure is reported in its own entry instead of failing the whole range
+	require.Equal(t, uint64(9), results[0].Block)
+	require.ErrorContains(t, results[0].Error, "block 9 not found")
+	require.Nil(t, results[0].Traces)
+
+	require.Equal(t, uint64(10), results[1].Block)
+	require.NoError(t, results[1].Error)
+	require.Equal(t, testTraceResults, results[1].Traces)
+
+	require.Equal(t, uint64(11), results[2].Block)
+	require.ErrorContains(t, results[2].Error, "failed to trace block 11")
+	require.Nil(t, results[2].Traces)
+}
+
+func TestTraceChainInvalidRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		start     BlockNumber
+		end       BlockNumber
+		returnErr string
+	}{
+		{
+			name:      "start after end",
+			start:     11,
+			end:       9,
+			returnErr: "must be greater than or equal",
+		},
+		{
+			name:      "negative start",
+			start:     -5,
+			end:       10,
+			returnErr: ErrNegativeBlockNumber.Error(),
+		},
+		{
+			name:      "end above the chain height",
+			start:     1,
+			end:       1001,
+			returnErr: ErrBlockAboveHead.Error(),
+		},
+		{
+			name:      "start above the chain height",
+			start:     1001,
+			end:       1002,
+			returnErr: ErrBlockAboveHead.Error(),
+		},
+		{
+			name:      "end at the maximum int64",
+			start:     1,
+			end:       math.MaxInt64,
+			returnErr: ErrBlockAboveHead.Error(),
+		},
+		{
+			name:      "range over the block cap",
+			start:     1,
+			end:       traceChainMaxBlocks + 1,
+			returnErr: ErrTraceChainRangeTooLarge.Error(),
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// no getBlockByNumberFn or traceBlockFn: a rejected range must not touch the store
+			store := &debugEndpointMockStore{
+				headerFn: func() *types.Header {
+					return createTestHeader(1000, nil)
+				},
+			}
+
+			res, err := NewDebug(store, 100000, 0, 0).TraceChain(test.start, test.end, &TraceConfig{})
+
+			require.Nil(t, res)
+			require.ErrorContains(t, err, test.returnErr)
+		})
+	}
+}
+
+func TestTraceChainBoundedConcurrency(t *testing.T) {
+	t.Parallel()
+
+	const blocks = traceChainMaxBlocks
+
+	var inFlight, maxInFlight, traced atomic.Int64
+
+	store := &debugEndpointMockStore{
+		headerFn: func() *types.Header {
+			return createTestHeader(blocks, nil)
+		},
+		getBlockByNumberFn: func(num uint64, full bool) (*types.Block, bool) {
+			return wrapHeaderWithTestBlock(createTestHeader(num, nil)), true
+		},
+		traceBlockFn: func(block *types.Block, _ tracer.Tracer) ([]interface{}, error) {
+			current := inFlight.Add(1)
+
+			for {
+				observed := maxInFlight.Load()
+				if current <= observed || maxInFlight.CompareAndSwap(observed, current) {
+					break
+				}
+			}
+
+			// hold the worker so that concurrent tracing is observable
+			time.Sleep(time.Millisecond)
+
+			traced.Add(1)
+			inFlight.Add(-1)
+
+			return testTraceResults, nil
+		},
+	}
+
+	// exactly at the cap: accepted, but traced by at most traceChainWorkers goroutines
+	res, err := NewDebug(store, 100000, 0, 0).TraceChain(1, blocks, &TraceConfig{})
+	require.NoError(t, err)
+
+	results, ok := res.([]BlockTraceResult)
+	require.True(t, ok)
+	require.Len(t, results, blocks)
+	require.Equal(t, int64(blocks), traced.Load())
+	require.LessOrEqual(t, maxInFlight.Load(), int64(traceChainWorkers))
+
+	for i, result := range results {
+		require.Equal(t, uint64(i+1), result.Block)
+		require.NoError(t, result.Error)
+	}
+}
+
+// TestTraceChainOverRPC drives debug_traceChain through the real dispatcher with the payloads
+// that used to take the node down, and checks they come back as JSON-RPC errors. The mock store
+// has no tracing backend, so any block that did get traced would panic the test process: a pass
+// also proves the range was rejected before any work started.
+//
+// Not parallel: the goroutine count is only meaningful when nothing else is running.
+func TestTraceChainOverRPC(t *testing.T) { //nolint:tparallel
+	store := newMockStore()
+
+	for i := uint64(1); i <= 400; i++ {
+		header := createTestHeader(i, nil)
+		store.addHeader(header)
+		store.header = header
+	}
+
+	dispatcher := newTestDispatcher(t, hclog.NewNullLogger(), store, &dispatcherParams{
+		enableAllDebugEndpoints: true,
+		concurrentRequestsDebug: 10,
+		requestTimeout:          time.Minute,
+	})
+
+	tests := []struct {
+		name    string
+		params  string
+		message string
+	}{
+		{
+			// makeslice: len out of range before the height check
+			name:    "end at the maximum int64",
+			params:  `["0x1", "0x7fffffffffffffff", {}]`,
+			message: ErrBlockAboveHead.Error(),
+		},
+		{
+			// ~72 GB and a billion goroutines before the height check
+			name:    "end one billion blocks past the head",
+			params:  `["0x1", "0x3b9aca00", {}]`,
+			message: ErrBlockAboveHead.Error(),
+		},
+		{
+			name:    "in-range span over the block cap",
+			params:  `["0x1", "0x102", {}]`,
+			message: ErrTraceChainRangeTooLarge.Error(),
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			goroutinesBefore := runtime.NumGoroutine()
+
+			res, err := dispatcher.Handle(context.Background(), []byte(fmt.Sprintf(
+				`{"id":1,"jsonrpc":"2.0","method":"debug_traceChain","params":%s}`,
+				test.params,
+			)))
+			require.NoError(t, err)
+
+			var resp ErrorResponse
+
+			require.NoError(t, json.Unmarshal(res, &resp))
+			require.NotNil(t, resp.Error)
+			require.Contains(t, resp.Error.Message, test.message)
+
+			require.Less(t, runtime.NumGoroutine()-goroutinesBefore, 64)
 		})
 	}
 }

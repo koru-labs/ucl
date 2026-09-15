@@ -541,12 +541,14 @@ func (f *FilterManager) getLogsFromBlock(query *LogQuery, block *types.Block) ([
 }
 
 func (f *FilterManager) getLogsFromBlocks(query *LogQuery) ([]*Log, error) {
-	from, err := GetNumericBlockNumber(query.fromBlock, f.store)
+	// A range past the chain head is not an error here: blockRangeLimit bounds the span and
+	// the scan below stops at the first missing block.
+	from, err := getNumericBlockNumberUnchecked(query.fromBlock, f.store)
 	if err != nil {
 		return nil, err
 	}
 
-	to, err := GetNumericBlockNumber(query.toBlock, f.store)
+	to, err := getNumericBlockNumberUnchecked(query.toBlock, f.store)
 	if err != nil {
 		return nil, err
 	}

@@ -133,6 +133,10 @@ func (e *Eth) Syncing() (interface{}, error) {
 func (e *Eth) GetBlockByNumber(number BlockNumber, fullTx bool) (interface{}, error) {
 	num, err := GetNumericBlockNumber(number, e.store)
 	if err != nil {
+		if errors.Is(err, ErrBlockAboveHead) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -166,6 +170,10 @@ func (e *Eth) GetBlockByHash(hash types.Hash, fullTx bool) (interface{}, error) 
 func (e *Eth) GetHeaderByNumber(number BlockNumber) (interface{}, error) {
 	num, err := GetNumericBlockNumber(number, e.store)
 	if err != nil {
+		if errors.Is(err, ErrBlockAboveHead) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -237,6 +245,10 @@ func (e *Eth) GetBlockTransactionCountByHash(blockHash types.Hash) (interface{},
 func (e *Eth) GetBlockTransactionCountByNumber(number BlockNumber) (interface{}, error) {
 	num, err := GetNumericBlockNumber(number, e.store)
 	if err != nil {
+		if errors.Is(err, ErrBlockAboveHead) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -253,6 +265,10 @@ func (e *Eth) GetBlockTransactionCountByNumber(number BlockNumber) (interface{},
 func (e *Eth) GetTransactionByBlockNumberAndIndex(number BlockNumber, index argUint64) (interface{}, error) {
 	num, err := GetNumericBlockNumber(number, e.store)
 	if err != nil {
+		if errors.Is(err, ErrBlockAboveHead) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -425,6 +441,10 @@ func (e *Eth) GetTransactionReceipt(hash types.Hash) (interface{}, error) {
 func (e *Eth) GetBlockReceipts(number BlockNumber) (interface{}, error) {
 	num, err := GetNumericBlockNumber(number, e.store)
 	if err != nil {
+		if errors.Is(err, ErrBlockAboveHead) {
+			return nil, ErrBlockNotFound
+		}
+
 		return nil, err
 	}
 
@@ -983,7 +1003,9 @@ func (e *Eth) FeeHistory(blockCount argUint64, newestBlock BlockNumber,
 		return nil, NewInvalidParamsError(err.Error())
 	}
 
-	block, err := GetNumericBlockNumber(newestBlock, e.store)
+	// A number past the chain head is not an error here: FeeHistory clamps newestBlock to the
+	// head and caps blockCount, so it bounds its own work.
+	block, err := getNumericBlockNumberUnchecked(newestBlock, e.store)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse newest block argument. Error: %w", err)
 	}
