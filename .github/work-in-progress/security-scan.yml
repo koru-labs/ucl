@@ -1,0 +1,54 @@
+---
+name: security-scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: branch, tag, or SHA to scan
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+# At-will only: does not run on pull_request / push, so merge is never blocked.
+# On gate failure: fail this workflow, log SonarQube URL, Slack notify.
+# Never publishes artifacts or revision (publish_on_green=false).
+# sonarqube_base_url baked from env_def/github-runners/runners.yml at generate time.
+
+jobs:
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    outputs:
+      sonarqube_url: ${{ steps.scan.outputs.sonarqube_url }}
+      gate_status: ${{ steps.scan.outputs.gate_status }}
+    steps:
+      - id: scan
+        uses: koru-labs/pipeline_main/.github/actions/security-scan@main
+        with:
+          artifact: ucl
+          source_ref: ${{ inputs.ref }}
+          sonarqube_base_url: 'https://sonarqube.REPLACE_ME.example'
+          ecs_cluster: ${{ vars.SECURITY_SCAN_ECS_CLUSTER }}
+          ecs_task_definition: ${{ vars.SECURITY_SCAN_TASK_DEFINITION }}
+          ecs_subnets: ${{ vars.SECURITY_SCAN_SUBNETS }}
+          ecs_security_groups: ${{ vars.SECURITY_SCAN_SECURITY_GROUPS }}
+          aws_access_key_id: ${{ secrets.GH_SA_GITHUB_RUNNERS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.GH_SA_GITHUB_RUNNERS_SECRET_ACCESS_KEY }}
+          publish_on_green: "false"
+
+  notify-slack-on-failure:
+    name: notify-slack-on-failure
+    needs: security-scan
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: koru-labs/pipeline_main/.github/actions/notify-slack-security-scan@main
+        with:
+          webhook_url: ${{ secrets.SLACK_PR_WEBHOOK_URL }}
+          artifact: ucl
+          source_ref: ${{ inputs.ref }}
+          sonarqube_url: ${{ needs.security-scan.outputs.sonarqube_url }}
+          gate_status: ${{ needs.security-scan.outputs.gate_status || 'ERROR' }}

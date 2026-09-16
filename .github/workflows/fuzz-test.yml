@@ -1,0 +1,32 @@
+---
+name: Fuzz Tests
+
+on: # yamllint disable-line rule:truthy
+  workflow_call:
+    outputs:
+      workflow_output:
+        description: Fuzz Tests output
+        value: ${{ jobs.fuzz_test.outputs.output_failure }}
+
+jobs:
+  fuzz_test:
+    name: Run Fuzz Tests
+    runs-on: ubuntu-latest
+    outputs:
+      output_failure: ${{ steps.fuzz_failure.outputs.result }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run Fuzz Test
+        run: make fuzz-test
+
+      - name: Run fuzz tests failed
+        if: failure()
+        id: fuzz_failure
+        run: echo "result=false" >> $GITHUB_OUTPUT
