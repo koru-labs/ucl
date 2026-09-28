@@ -166,4 +166,4 @@ jobs:
       e2e_ibft_liveness_test_output: ${{ needs.e2e_ibft_liveness_test.outputs.workflow_output }}
       benchmark_test_output: ${{ needs.benchmark_test.outputs.workflow_output }}
     secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_UCL_TESTS }}
