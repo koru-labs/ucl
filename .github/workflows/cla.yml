@@ -11,6 +11,12 @@ on: # yamllint disable-line rule:truthy
       - opened
       - synchronize
 
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
 jobs:
   cla_assistant:
     runs-on: ubuntu-latest
