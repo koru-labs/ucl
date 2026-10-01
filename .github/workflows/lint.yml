@@ -1,6 +1,10 @@
 ---
 name: lint
 
+# Manual dispatch only. Linting on pull requests is handled by ci.yml, which calls
+# the reusable lint-golang.yml; keeping a pull_request trigger here as well would
+# lint every PR twice. This workflow remains for running the pipeline_main
+# lint-golang action against an arbitrary ref on demand.
 on:
   workflow_dispatch:
     inputs:
@@ -8,8 +12,6 @@ on:
         description: branch, tag, or SHA to build
         required: true
         default: main
-  pull_request:
-    types: [opened, synchronize]
 
 permissions:
   contents: read
@@ -19,7 +21,7 @@ permissions:
 jobs:
   resolve-trigger:
     name: resolve-trigger
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: koru-labs/pipeline_main/.github/actions/resolve-trigger@main

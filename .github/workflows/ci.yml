@@ -33,7 +33,7 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Liveness Tests (long-running)
         type: boolean
         default: false
-      benchmark-test:
+      benchmark_test:
         description: Benchmark Tests
         type: boolean
         default: true
@@ -56,7 +56,7 @@ on: # yamllint disable-line rule:truthy
         description: E2E IBFT Liveness Tests (long-running)
         type: boolean
         default: false
-      benchmark-test:
+      benchmark_test:
         description: Benchmark Tests
         type: boolean
         default: true
@@ -80,9 +80,9 @@ on: # yamllint disable-line rule:truthy
       e2e_ibft_liveness_test:
         description: E2E IBFT Liveness Tests output
         value: ${{ jobs.e2e_ibft_liveness_test.outputs.workflow_output }}
-      benchmark-test:
+      benchmark_test:
         description: Benchmark Tests output
-        value: ${{ jobs.benchmark-test.outputs.workflow_output }}
+        value: ${{ jobs.benchmark_test.outputs.workflow_output }}
 
 jobs:
   build:
@@ -96,7 +96,7 @@ jobs:
 
   lint:
     name: Lint
-    uses: ./.github/workflows/lint.yml
+    uses: ./.github/workflows/lint-golang.yml
     needs: build
     if: |
       github.event_name == 'pull_request' ||
@@ -147,7 +147,7 @@ jobs:
     uses: ./.github/workflows/benchmark-test.yml
     needs: build
     if: |
-      inputs.benchmark_test || 
+      inputs.benchmark_test ||
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'schedule'
@@ -166,4 +166,4 @@ jobs:
       e2e_ibft_liveness_test_output: ${{ needs.e2e_ibft_liveness_test.outputs.workflow_output }}
       benchmark_test_output: ${{ needs.benchmark_test.outputs.workflow_output }}
     secrets:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_UCL_TESTS }}
