@@ -3,7 +3,7 @@ module github.com/0xPolygon/polygon-edge
 go 1.26.0
 
 require (
-	cloud.google.com/go/secretmanager v1.21.0
+	cloud.google.com/go/secretmanager v1.22.0
 	github.com/0xPolygon/go-ibft v0.0.0-20260828074325-bff3f4668a53
 	github.com/Ethernal-Tech/ethgo v0.0.0-20260601133825-23430360aac1
 	github.com/Ethernal-Tech/kryptology v0.0.0-20260305071036-ea3a474a28e2
