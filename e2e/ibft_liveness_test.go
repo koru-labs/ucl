@@ -392,7 +392,9 @@ func TestIBFTLiveness_SuperminorityPartitionRecovers(t *testing.T) {
 // TestIBFTLiveness_DuplicateValidatorKeyHealthy replaces validator[4]'s signing key with
 // validator[0]'s before startup, so nodes 0 and 4 both sign as addr0 (double signing). Peers
 // discard the redundant votes, leaving four unique signers (addr0..addr3) — exactly quorum for
-// n=5 (floor(2*5/3)+1 = 4) — so the chain must keep sealing and no node should crash.
+// n=5 (floor(2*5/3)+1 = 4) — so the chain must keep sealing and no node should crash. ECDSA only:
+// BLS validator keys are no longer supported by this codebase (secrets/helper.InitBLSValidatorKey),
+// so there is no way to provision a BLS validator to exercise this scenario.
 func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
 	requireLivenessEnabled(t)
 
@@ -437,10 +439,6 @@ func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
 
 		copyKey(secrets.ValidatorKeyLocal)
 
-		if validatorType == validators.BLSValidatorType {
-			copyKey(secrets.ValidatorBLSKeyLocal)
-		}
-
 		startCtx, startCancel := context.WithTimeout(context.Background(), startTimeout)
 		defer startCancel()
 
@@ -452,11 +450,13 @@ func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
 		}
 
 		// The four unique signers (addr0..addr3) meet quorum=4, so the chain must keep sealing.
+		// Every proposer rotation that lands on the orphaned validator[4] slot or on the
+		// duplicated addr0 identity costs a round-change, so this needs much more headroom than
+		// WaitForServersToSeal's fixed 1-minute budget.
 		legitServers := servers[:4]
 
-		if errs := framework.WaitForServersToSeal(legitServers, initialSealHeight); len(errs) != 0 {
-			t.Fatalf("chain should seal despite duplicate signing key (4 unique signers meet quorum=4): %v", errs)
-		}
+		waitAllReach(t, legitServers, initialSealHeight, startTimeout,
+			"chain should seal despite duplicate signing key (4 unique signers meet quorum=4)")
 
 		target := initialSealHeight + blocksAfterDup
 		waitAllReach(t, legitServers, target, recoverWait,
@@ -471,11 +471,5 @@ func TestIBFTLiveness_DuplicateValidatorKeyHealthy(t *testing.T) {
 
 	t.Run("ECDSA", func(t *testing.T) {
 		run(t, validators.ECDSAValidatorType)
-	})
-
-	// Unlike the other scenarios, BLS is exercised here because double-signing interacts with BLS
-	// signature aggregation, so this case is not equivalent to the ECDSA run.
-	t.Run("BLS", func(t *testing.T) {
-		run(t, validators.BLSValidatorType)
 	})
 }
