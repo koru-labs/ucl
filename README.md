@@ -1,30 +1,29 @@
+![Banner](.github/banner.png)
 
-![Banner](.github/banner.jpg)
+## UCL
 
-## Update: Edge v1.0.0 is here!  
+UCL is the node client for Koru, a privacy-preserving, EVM-equivalent, permissioned blockchain for institutions and developers that need confidential transactions and controlled network access.
 
-Developers at Polygon Labs have been hard at work gathering and incorporating community feedback into the Edge client and a new version of Edge, v1.0.0, is here with several new features! Check out the Release Notes included with the release to find out more! 
+## Features
 
-## Polygon Edge
+- **EVM-equivalent** – existing Ethereum contracts and tooling work unchanged.
+- **Fast, deterministic finality** – IBFT proof-of-authority consensus with 1-second blocks and under 2-second end-to-end confirmation. Blocks are final immediately, with no reorgs.
+- **Permissioned validators** – validators are known, identified operators, admitted by an on-chain vote of the existing validator set.
+- **Confidential state** – balances are stored on-chain as ElGamal ciphertexts, and transfers are verified with zero-knowledge proofs, so validators can check correctness without seeing amounts. UTXO-style confidential tokens (pToken) live alongside the standard account model.
+- **Predictable fees** – a fixed base fee instead of a floating one, so the same transaction costs the same from block to block.
+- **No public mempool** – validators peer only with sentry nodes and are never exposed directly to the internet, removing the public transaction gossip that enables front-running and MEV.
 
-Polygon Edge is a modular and extensible framework for building Ethereum-compatible blockchain networks.
+Confidentiality protects values, not the transaction graph: addresses and timing remain visible on-chain.
 
-To find out more about Polygon, visit the [official website](https://polygon.technology/).
+## Network
 
-WARNING: This is a work in progress so architectural changes may happen in the future. The code is still being audited, so please contact the Polygon team if you would like to use it in production.
-
-## Documentation 📝
-
-If you'd like to learn more about the Polygon Edge, how it works and how you can use it for your project,
-please check out the **[Polygon Supernets Documentation](https://wiki.polygon.technology/docs/edge/)**.
-
-## Disclaimer
-
-As this project evolves, the Polygon Labs developer team will focus on the latest version of the Edge client and does not plan to support Edge 0.6 or lower. It is highly recommended that you upgrade to the newest version with the most up-to-date features and fixes. Users that want to stay on 0.6 or below, can continue to do so. The repo will continue to exist and users can fork it and do with it as they please, subject to applicable open-source license terms. 
+| Network       | Chain ID  |
+|---------------|-----------|
+| `ucl-testnet` | `1618034` |
 
 ---
 
-Copyright 2022 Polygon Technology
+Copyright 2026 Koru Labs
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
