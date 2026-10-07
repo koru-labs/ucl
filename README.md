@@ -21,6 +21,10 @@ Confidentiality protects values, not the transaction graph: addresses and timing
 |---------------|-----------|
 | `ucl-testnet` | `1618034` |
 
+## Documentation 📝
+
+For up-to-date documentation, visit [docs.koru.network](https://docs.koru.network/).
+
 ---
 
 Copyright 2026 Koru Labs
