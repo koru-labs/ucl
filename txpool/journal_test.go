@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
@@ -102,27 +103,138 @@ func TestJournalLoad(t *testing.T) {
 func TestJournalRotate(t *testing.T) {
 	t.Parallel()
 
-	path, err := os.MkdirTemp("", "txpool")
-	require.NoError(t, err)
+	const rotateSize = 5
 
-	defer os.RemoveAll(path)
+	path := t.TempDir()
 
-	// create journal
-	rotateCh := make(chan struct{})
-	journal := newTxJournal(filepath.Join(path, "test.rlp"), hclog.NewNullLogger(), rotateCh, journalRotate)
+	// buffered like the pool's channel; nobody reads it, so the test also
+	// proves insert never waits on the consumer
+	rotateCh := make(chan struct{}, 1)
+	journal := newTxJournal(filepath.Join(path, "test.rlp"), hclog.NewNullLogger(), rotateCh, rotateSize)
 
-	// init journal
 	require.NoError(t, journal.rotate([]*types.Transaction{}))
 
-	// start routine
-	go func() {
-		<-rotateCh
-	}()
-
-	// add txs into journal until rotate event is fired
-	for range journalRotate {
-		require.NoError(t, journal.insert(newTx(addr1, 1, 1)))
+	for i := range rotateSize - 1 {
+		require.NoError(t, journal.insert(testJournalTx(uint64(i), addr1)))
 	}
 
+	require.Empty(t, rotateCh, "no rotation signal expected below threshold")
+
+	// reaching the threshold signals rotation
+	require.NoError(t, journal.insert(testJournalTx(rotateSize, addr1)))
+	require.Len(t, rotateCh, 1)
+
+	// going past the threshold keeps signalling (>=) without blocking on the
+	// already-full buffer
+	require.NoError(t, journal.insert(testJournalTx(rotateSize+1, addr1)))
+	require.Len(t, rotateCh, 1)
+
+	// a successful rotation resets the counter and drops the stale signal
+	require.NoError(t, journal.rotate([]*types.Transaction{}))
+	require.Empty(t, rotateCh)
+
 	require.NoError(t, journal.close())
+}
+
+// Loading happens before the rotation consumer starts. A journal holding at
+// least rotateSize transactions used to block forever on the signal send while
+// holding the journal lock, hanging node startup.
+func TestJournalLoadPastRotateSizeDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	const rotateSize = 2
+
+	path := filepath.Join(t.TempDir(), "test.rlp")
+
+	require.NoError(t, WriteJournalFile(path, []*types.Transaction{
+		testJournalTx(1, addr1),
+		testJournalTx(2, addr1),
+		testJournalTx(3, addr1),
+	}))
+
+	// unbuffered with no reader: the worst case for a blocking send
+	journal := newTxJournal(path, hclog.NewNullLogger(), make(chan struct{}), rotateSize)
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- journal.load(journal.insert)
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("journal load blocked on the rotation signal")
+	}
+}
+
+// A failed rotation leaves no open writer. Inserts must report it and keep
+// requesting rotation so the journal recovers once the cause is gone.
+func TestJournalRecoversAfterFailedRotation(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "missing")
+	rotateCh := make(chan struct{}, 1)
+	journal := newTxJournal(filepath.Join(dir, "test.rlp"), hclog.NewNullLogger(), rotateCh, journalRotate)
+
+	// the directory does not exist, so the replacement file cannot be created
+	require.Error(t, journal.rotate(nil))
+
+	require.ErrorIs(t, journal.insert(testJournalTx(1, addr1)), errNoActiveJournal)
+	require.Len(t, rotateCh, 1, "insert without a writer must request a rotation retry")
+	<-rotateCh
+
+	// the cause goes away and the retried rotation succeeds
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, journal.rotate(nil))
+	require.NoError(t, journal.insert(testJournalTx(2, addr1)))
+
+	require.NoError(t, journal.close())
+
+	txs, err := ReadJournalFile(filepath.Join(dir, "test.rlp"))
+	require.NoError(t, err)
+	require.Len(t, txs, 1)
+}
+
+// After close, a late rotation must not reopen the file and inserts must not
+// request rotations nobody will serve.
+func TestJournalClosedStaysClosed(t *testing.T) {
+	t.Parallel()
+
+	rotateCh := make(chan struct{}, 1)
+	journal := newTxJournal(filepath.Join(t.TempDir(), "test.rlp"), hclog.NewNullLogger(), rotateCh, 1)
+
+	require.NoError(t, journal.rotate(nil))
+	require.NoError(t, journal.close())
+
+	require.NoError(t, journal.rotate(nil))
+	require.Nil(t, journal.writer)
+
+	require.ErrorIs(t, journal.insert(testJournalTx(1, addr1)), errJournalClosed)
+	require.Empty(t, rotateCh)
+}
+
+// A broken journal must not turn an accepted transaction into a failed
+// submission: the tx is already in the pool and must still be gossiped.
+func TestAddTxSucceedsWhenJournalFails(t *testing.T) {
+	t.Parallel()
+
+	pool, err := newTestPool()
+	require.NoError(t, err)
+	pool.SetSigner(&mockSigner{})
+
+	// a rotation into a missing directory fails and leaves no writer
+	pool.journal = newTxJournal(
+		filepath.Join(t.TempDir(), "missing", "test.rlp"), hclog.NewNullLogger(), pool.journalCh, journalRotate)
+	require.Error(t, pool.journal.rotate(nil))
+
+	go func() { <-pool.promoteReqCh }()
+
+	tx := newTx(addr1, 0, 1)
+	require.NoError(t, pool.AddTx(tx))
+
+	_, exists := pool.index.get(tx.Hash)
+	require.True(t, exists)
+	require.Len(t, pool.journalCh, 1, "failed journal write must request a rotation retry")
 }
