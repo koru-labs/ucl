@@ -1,0 +1,13 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+solc = "0.8.28"
+# ucl's EVM: London-era rules with PUSH0 (EIP-3855), MCOPY and transient storage, but not every
+# Cancun opcode. Shanghai is the newest target whose opcodes ucl runs.
+evm_version = "shanghai"
+optimizer = true
+optimizer_runs = 1000
+bytecode_hash = "none"
+cbor_metadata = false
