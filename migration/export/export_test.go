@@ -31,6 +31,8 @@ var (
 	coinbase = types.StringToAddress("0xc0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0")
 	// store is a genesis contract: sstore(calldata[0], calldata[32]) and LOG1 with topic calldata[0].
 	store = types.StringToAddress("0x5705e00000000000000000000000000000000000")
+	// haltsFromThree answers shouldHalt(h) with h >= 3.
+	haltsFromThree = types.StringToAddress("0x4a17000000000000000000000000000000000000")
 )
 
 // storeRuntime: PUSH1 32 CALLDATALOAD PUSH1 0 CALLDATALOAD SSTORE
@@ -176,6 +178,12 @@ func newTestChain(t *testing.T) *testChain {
 	}
 
 	alloc := map[types.Address]*chain.GenesisAccount{
+		// Stands in for the attestation contract: shouldHalt(h) is h >= 3 (PUSH1 4 CALLDATALOAD
+		// PUSH1 3 GT ISZERO PUSH1 0 MSTORE PUSH1 32 PUSH1 0 RETURN), so pitau's follower finds the
+		// cutover block 3 in the vectors.
+		haltsFromThree: {Code: []byte{
+			0x60, 0x04, 0x35, 0x60, 0x03, 0x11, 0x15, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3,
+		}, Balance: big.NewInt(0)},
 		store: {Code: storeRuntime, Balance: big.NewInt(0), Storage: map[types.Hash]types.Hash{
 			types.BytesToHash(word(9)): types.BytesToHash(word(99)),
 		}},
