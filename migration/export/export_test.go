@@ -13,11 +13,13 @@ import (
 	"testing"
 
 	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/crypto"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
+	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
 )
@@ -58,9 +60,76 @@ type testChain struct {
 	keys     []*ecdsa.PrivateKey
 	nonces   map[types.Address]uint64
 
+	// IBFT sealing, as ucl mainnet's blocks are sealed: four ECDSA validators, three commit.
+	sealers    []*signer.SignerImpl
+	validators validators.Validators
+	alloc      map[types.Address]*chain.GenesisAccount
+
 	mu      sync.Mutex
 	blocks  []*types.Block
 	headers map[types.Hash]*types.Header
+}
+
+func ibftSigner(t *testing.T, i byte) *signer.SignerImpl {
+	t.Helper()
+
+	raw := make([]byte, 32)
+	raw[0], raw[31] = 0x1b, i+1
+
+	priv, err := crypto.BytesToECDSAPrivateKey([]byte(hex.EncodeToString(raw)))
+	require.NoError(t, err)
+
+	manager := signer.NewECDSAKeyManagerFromKey(priv)
+
+	return signer.NewSigner(manager, manager)
+}
+
+// sealIBFT writes IBFT extra data into header (its parent's committed seals from block 2 on), a
+// proposer seal and three committed seals over go-ibft's proposal hash, and sets ucl's hash.
+func (c *testChain) sealIBFT(header *types.Header, parent *types.Header) {
+	var parentSeals signer.Seals
+
+	if header.Number > 1 {
+		extra, err := c.sealers[0].GetIBFTExtra(parent)
+		require.NoError(c.t, err)
+
+		parentSeals = extra.CommittedSeals
+	}
+
+	proposer := c.sealers[0]
+	proposer.InitIBFTExtra(header, c.validators, parentSeals)
+
+	if header.Number == 0 {
+		hash, err := proposer.CalculateHeaderHash(header)
+		require.NoError(c.t, err)
+
+		header.Hash = hash
+
+		return
+	}
+
+	_, err := proposer.WriteProposerSeal(header)
+	require.NoError(c.t, err)
+
+	hash, err := proposer.CalculateHeaderHash(header)
+	require.NoError(c.t, err)
+
+	round := make([]byte, 8)
+	proposal := crypto.Keccak256(hash.Bytes(), round)
+
+	seals := map[types.Address][]byte{}
+
+	for _, s := range c.sealers[:3] {
+		seal, err := s.CreateCommittedSeal(proposal)
+		require.NoError(c.t, err)
+
+		seals[s.Address()] = seal
+	}
+
+	_, err = proposer.WriteCommittedSeals(header, 0, seals)
+	require.NoError(c.t, err)
+
+	header.Hash = hash
 }
 
 func newTestChain(t *testing.T) *testChain {
@@ -78,7 +147,8 @@ func newTestChain(t *testing.T) *testChain {
 	executor := state.NewExecutor(params, st, hclog.NewNullLogger())
 
 	c := &testChain{
-		t:        t,
+		t:          t,
+		validators: validators.NewECDSAValidatorSet(),
 		state:    st,
 		executor: executor,
 		signer:   crypto.NewSigner(chain.AllForksEnabled.At(0), chainID),
@@ -99,9 +169,18 @@ func newTestChain(t *testing.T) *testChain {
 		}
 	}
 
-	alloc := map[types.Address]*chain.GenesisAccount{
-		store: {Code: storeRuntime, Balance: big.NewInt(0)},
+	for i := byte(0); i < 4; i++ {
+		s := ibftSigner(t, i)
+		c.sealers = append(c.sealers, s)
+		require.NoError(t, c.validators.Add(validators.NewECDSAValidator(s.Address())))
 	}
+
+	alloc := map[types.Address]*chain.GenesisAccount{
+		store: {Code: storeRuntime, Balance: big.NewInt(0), Storage: map[types.Hash]types.Hash{
+			types.BytesToHash(word(9)): types.BytesToHash(word(99)),
+		}},
+	}
+	c.alloc = alloc
 
 	for i := 0; i < 3; i++ {
 		// Fixed keys, so the records the vectors test writes are the same on every run.
@@ -128,7 +207,7 @@ func newTestChain(t *testing.T) *testChain {
 		ReceiptsRoot: types.EmptyRootHash,
 		BaseFee:      gwei.Uint64(),
 	}
-	genesis.ComputeHash()
+	c.sealIBFT(genesis, nil)
 	c.append(&types.Block{Header: genesis})
 
 	return c
@@ -190,7 +269,6 @@ func (c *testChain) seal(txs ...*types.Transaction) *types.Block {
 		Difficulty: parent.Number + 1,
 		BaseFee:    gwei.Uint64(),
 		Sha3Uncles: types.EmptyUncleHash,
-		ExtraData:  make([]byte, 97),
 	}
 	block := &types.Block{Header: header, Transactions: txs}
 
@@ -205,7 +283,7 @@ func (c *testChain) seal(txs ...*types.Transaction) *types.Block {
 	header.TxRoot = buildroot.CalculateTransactionsRoot(txs, header.Number)
 	header.ReceiptsRoot = buildroot.CalculateReceiptsRoot(txn.Receipts())
 	header.LogsBloom = types.CreateBloom(txn.Receipts())
-	header.ComputeHash()
+	c.sealIBFT(header, parent)
 	c.append(block)
 
 	return block
@@ -564,6 +642,27 @@ func TestFrameChecksum(t *testing.T) {
 	require.True(t, errors.Is(err, errChecksum))
 }
 
+// recordVectors is the file pitau's follower tests run: ucl's genesis and the records after it.
+type recordVectors struct {
+	ChainID    uint64         `json:"chain_id"`
+	Validators []string       `json:"validators"`
+	Genesis    genesisVector  `json:"genesis"`
+	Records    []recordVector `json:"records"`
+}
+
+type genesisVector struct {
+	Header string                 `json:"header"`
+	Hash   string                 `json:"hash"`
+	Alloc  map[string]allocVector `json:"alloc"`
+}
+
+type allocVector struct {
+	Balance string            `json:"balance"`
+	Nonce   uint64            `json:"nonce,omitempty"`
+	Code    string            `json:"code,omitempty"`
+	Storage map[string]string `json:"storage,omitempty"`
+}
+
 // recordVector is a record as pitau's decoder must read it, beside its frame.
 type recordVector struct {
 	Frame        string          `json:"frame"`
@@ -659,9 +758,39 @@ func TestRecordVectors(t *testing.T) {
 		vectors = append(vectors, v)
 	}
 
+	file := recordVectors{
+		ChainID: chainID,
+		Genesis: genesisVector{
+			Header: hex.EncodeToString(c.blocks[0].Header.MarshalRLP()),
+			Hash:   c.blocks[0].Hash().String(),
+			Alloc:  map[string]allocVector{},
+		},
+		Records: vectors,
+	}
+
+	for address, account := range c.alloc {
+		a := allocVector{Balance: "0x" + account.Balance.Text(16), Nonce: account.Nonce}
+		if len(account.Code) > 0 {
+			a.Code = "0x" + hex.EncodeToString(account.Code)
+		}
+
+		if len(account.Storage) > 0 {
+			a.Storage = map[string]string{}
+			for k, v := range account.Storage {
+				a.Storage[k.String()] = v.String()
+			}
+		}
+
+		file.Genesis.Alloc[address.String()] = a
+	}
+
+	for _, s := range c.sealers {
+		file.Validators = append(file.Validators, s.Address().String())
+	}
+
 	path := filepath.Join("..", "testdata", "records.json")
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
-		data, err := json.MarshalIndent(vectors, "", "  ")
+		data, err := json.MarshalIndent(file, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o600))
 
@@ -671,7 +800,15 @@ func TestRecordVectors(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	var stored []recordVector
+	// ucl writes committed seals in map order, so headers (and frames) differ between runs; the
+	// state changes, receipts and transactions must not.
+	var stored recordVectors
 	require.NoError(t, json.Unmarshal(data, &stored))
-	require.Equal(t, vectors, stored)
+	require.Len(t, stored.Records, len(vectors))
+
+	for i := range vectors {
+		require.Equal(t, vectors[i].Accounts, stored.Records[i].Accounts, "block %d", i+1)
+		require.Equal(t, vectors[i].Receipts, stored.Records[i].Receipts, "block %d", i+1)
+		require.Equal(t, vectors[i].Transactions, stored.Records[i].Transactions, "block %d", i+1)
+	}
 }
