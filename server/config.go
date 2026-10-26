@@ -70,6 +70,12 @@ type Config struct {
 	EnableAllDebugEndpoints  bool
 	EnableConsensusEndpoints bool
 
+	// MigrationExportDir, when set, enables the ucl to pitau migration's export endpoint
+	// (ucl_exportBlocks) and caches its records there. Refused on a validator.
+	MigrationExportDir string
+	// MigrationExportWorkers is how many blocks the export endpoint executes at once.
+	MigrationExportWorkers uint64
+
 	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
 	ConsensusStatePushURL string
 	// ConsensusStatePushToken is the bearer token sent with push requests.

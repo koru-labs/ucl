@@ -83,6 +83,9 @@ type Config struct {
 	EnableAllDebugEndpoints  bool
 	EnableConsensusEndpoints bool
 
+	// MigrationExporter, when set, serves the `ucl` namespace (ucl_exportBlocks).
+	MigrationExporter MigrationExporter
+
 	RPCGasCap       uint64
 	BatchCostLimit  uint64
 	MaxResponseSize uint64
@@ -94,11 +97,11 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 		logger,
 		config.Store,
 		&dispatcherParams{
-			chainID:                  config.ChainID,
-			chainName:                config.ChainName,
-			priceLimit:               config.PriceLimit,
-			jsonRPCBatchLengthLimit:  config.BatchLengthLimit,
-			blockRangeLimit:          config.BlockRangeLimit,
+			chainID:                 config.ChainID,
+			chainName:               config.ChainName,
+			priceLimit:              config.PriceLimit,
+			jsonRPCBatchLengthLimit: config.BatchLengthLimit,
+			blockRangeLimit:         config.BlockRangeLimit,
 			filterLimits: FilterLimits{
 				PerConnection: config.FilterLimitPerConn,
 				Global:        config.FilterLimit,
@@ -116,6 +119,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 			enableTxPoolEndpoints:    config.EnableTxPoolEndpoints,
 			enableAllDebugEndpoints:  config.EnableAllDebugEndpoints,
 			enableConsensusEndpoints: config.EnableConsensusEndpoints,
+			migrationExporter:        config.MigrationExporter,
 			requestTimeout:           config.JSONRPCTimeout,
 			rpcGasCap:                config.RPCGasCap,
 			batchCostLimit:           config.BatchCostLimit,

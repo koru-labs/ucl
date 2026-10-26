@@ -451,6 +451,21 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().StringVar(
+		&params.rawConfig.MigrationExportDir,
+		migrationExportDirFlag,
+		defaultConfig.MigrationExportDir,
+		"enable the ucl to pitau migration export endpoint (ucl_exportBlocks), caching its records in this "+
+			"directory; refused on a validator",
+	)
+
+	cmd.Flags().Uint64Var(
+		&params.rawConfig.MigrationExportWorkers,
+		migrationExportWorkersFlag,
+		defaultConfig.MigrationExportWorkers,
+		"how many blocks the migration export endpoint executes at once",
+	)
+
+	cmd.Flags().StringVar(
 		&params.rawConfig.ConsensusStatePushURL,
 		consensusStatePushURLFlag,
 		defaultConfig.ConsensusStatePushURL,

@@ -84,6 +84,8 @@ const (
 	enableTxPoolEndpointsFlag    = "enable-tx-pool-endpoints"
 	enableAllDebugEndpointsFlag  = "enable-all-debug-endpoints"
 	enableConsensusEndpointsFlag = "enable-consensus-endpoints"
+	migrationExportDirFlag       = "migration-export-dir"
+	migrationExportWorkersFlag   = "migration-export-workers"
 
 	consensusStatePushURLFlag      = "consensus-state-push-url"
 	consensusStatePushTokenFlag    = "consensus-state-push-token"
@@ -308,6 +310,8 @@ func (p *serverParams) generateConfig() *server.Config {
 		EnableTxPoolEndpoints:      p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:    p.rawConfig.EnableAllDebugEndpoints,
 		EnableConsensusEndpoints:   p.rawConfig.EnableConsensusEndpoints,
+		MigrationExportDir:         p.rawConfig.MigrationExportDir,
+		MigrationExportWorkers:     p.rawConfig.MigrationExportWorkers,
 		ConsensusStatePushURL:      p.rawConfig.ConsensusStatePushURL,
 		ConsensusStatePushToken:    p.rawConfig.ConsensusStatePushToken,
 		ConsensusStatePushInterval: p.rawConfig.ConsensusStatePushInterval,

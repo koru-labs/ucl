@@ -526,6 +526,29 @@ func (t *Transition) Commit() (Snapshot, types.Hash, error) {
 	return s2, types.BytesToHash(root), nil
 }
 
+// CommitObjects is Commit that also returns the objects committed: every account the transition
+// wrote, with its values after the block and its written storage slots. The ucl to pitau migration
+// exporter (migration/export) turns them into a block's state changes.
+func (t *Transition) CommitObjects() (Snapshot, types.Hash, []*Object, error) {
+	objs, err := t.state.Commit(t.config.EIP155)
+	if err != nil {
+		return nil, types.ZeroHash, nil, err
+	}
+
+	s2, root, err := t.snap.Commit(objs)
+	if err != nil {
+		return nil, types.ZeroHash, nil, err
+	}
+
+	return s2, types.BytesToHash(root), objs, nil
+}
+
+// ParentSnapshot returns the state the transition started from, unchanged by Commit: the values
+// every account and slot had before the block.
+func (t *Transition) ParentSnapshot() Snapshot {
+	return t.snap
+}
+
 func (t *Transition) subGasPool(amount uint64) error {
 	if t.gasPool < amount {
 		return ErrBlockLimitReached

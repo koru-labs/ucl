@@ -22,6 +22,7 @@ import (
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
+	"github.com/0xPolygon/polygon-edge/migration/export"
 
 	"github.com/0xPolygon/polygon-edge/archive"
 	"github.com/0xPolygon/polygon-edge/blockchain"
@@ -1177,6 +1178,32 @@ func (s *Server) setupJSONRPC() error {
 		EnableTxPoolEndpoints:    s.config.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
 		EnableConsensusEndpoints: s.config.EnableConsensusEndpoints,
+	}
+
+	if s.config.MigrationExportDir != "" {
+		// The export re-executes historical blocks on demand; a validator's CPU belongs to consensus.
+		if s.config.Seal {
+			return errors.New("the migration export endpoint is refused on a validator (--seal)")
+		}
+
+		cache, err := export.NewCache(s.config.MigrationExportDir)
+		if err != nil {
+			return fmt.Errorf("migration export cache: %w", err)
+		}
+
+		config := export.DefaultServiceConfig
+		if s.config.MigrationExportWorkers > 0 {
+			config.Workers = int(s.config.MigrationExportWorkers)
+		}
+
+		conf.MigrationExporter = export.NewService(
+			export.NewExporter(s.blockchain, s.executor, s.consensus),
+			s.blockchain,
+			cache,
+			config,
+			s.logger.Named("migration-export"),
+		)
+		s.logger.Info("migration export endpoint enabled", "dir", s.config.MigrationExportDir, "workers", config.Workers)
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)
