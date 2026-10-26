@@ -2,6 +2,8 @@ package export
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"os"
@@ -102,7 +104,11 @@ func newTestChain(t *testing.T) *testChain {
 	}
 
 	for i := 0; i < 3; i++ {
-		key, err := crypto.GenerateECDSAPrivateKey()
+		// Fixed keys, so the records the vectors test writes are the same on every run.
+		raw := make([]byte, 32)
+		raw[0], raw[31] = 0x5e, byte(i+1)
+
+		key, err := crypto.BytesToECDSAPrivateKey([]byte(hex.EncodeToString(raw)))
 		require.NoError(t, err)
 
 		c.keys = append(c.keys, key)
@@ -556,4 +562,116 @@ func TestFrameChecksum(t *testing.T) {
 
 	_, err := DecodeFrame(frame)
 	require.True(t, errors.Is(err, errChecksum))
+}
+
+// recordVector is a record as pitau's decoder must read it, beside its frame.
+type recordVector struct {
+	Frame        string          `json:"frame"`
+	Number       uint64          `json:"number"`
+	Hash         string          `json:"hash"`
+	Header       string          `json:"header"`
+	Transactions []string        `json:"transactions"`
+	Receipts     []receiptVector `json:"receipts"`
+	Accounts     []accountVector `json:"accounts"`
+}
+
+type receiptVector struct {
+	Type              uint8       `json:"type"`
+	Success           bool        `json:"success"`
+	CumulativeGasUsed uint64      `json:"cumulative_gas_used"`
+	Logs              []logVector `json:"logs"`
+}
+
+type logVector struct {
+	Address string   `json:"address"`
+	Topics  []string `json:"topics"`
+	Data    string   `json:"data"`
+}
+
+type accountVector struct {
+	Address string         `json:"address"`
+	Before  *accountValues `json:"before"`
+	After   *accountValues `json:"after"`
+	Code    string         `json:"code"`
+	Storage [][3]string    `json:"storage"`
+}
+
+type accountValues struct {
+	Nonce    uint64 `json:"nonce"`
+	Balance  string `json:"balance"`
+	CodeHash string `json:"code_hash"`
+}
+
+func values(a *Account) *accountValues {
+	if a == nil {
+		return nil
+	}
+
+	return &accountValues{Nonce: a.Nonce, Balance: "0x" + a.Balance.Text(16), CodeHash: a.CodeHash.String()}
+}
+
+// TestRecordVectors writes ../testdata/records.json, the records of mixedChain's blocks, with
+// UPDATE_MIGRATION_VECTORS=1, and otherwise checks the file still holds what the exporter produces.
+func TestRecordVectors(t *testing.T) {
+	c := mixedChain(t)
+	exporter := newExporter(c)
+
+	var vectors []recordVector
+
+	for n := uint64(1); n <= c.Header().Number; n++ {
+		r, err := exporter.Export(n)
+		require.NoError(t, err)
+
+		v := recordVector{
+			Frame:  hex.EncodeToString(EncodeFrame(r.MarshalRLP())),
+			Number: r.Number,
+			Hash:   r.Hash.String(),
+			Header: hex.EncodeToString(r.Header),
+		}
+
+		for _, tx := range r.Transactions {
+			v.Transactions = append(v.Transactions, hex.EncodeToString(tx))
+		}
+
+		for _, receipt := range r.Receipts {
+			rv := receiptVector{Type: receipt.Type, Success: receipt.Success, CumulativeGasUsed: receipt.CumulativeGasUsed}
+			for _, log := range receipt.Logs {
+				lv := logVector{Address: log.Address.String(), Data: hex.EncodeToString(log.Data)}
+				for _, topic := range log.Topics {
+					lv.Topics = append(lv.Topics, topic.String())
+				}
+
+				rv.Logs = append(rv.Logs, lv)
+			}
+
+			v.Receipts = append(v.Receipts, rv)
+		}
+
+		for _, a := range r.Accounts {
+			av := accountVector{Address: a.Address.String(), Before: values(a.Before), After: values(a.After), Code: hex.EncodeToString(a.Code)}
+			for _, slot := range a.Storage {
+				av.Storage = append(av.Storage, [3]string{slot.Slot.String(), slot.Before.String(), slot.After.String()})
+			}
+
+			v.Accounts = append(v.Accounts, av)
+		}
+
+		vectors = append(vectors, v)
+	}
+
+	path := filepath.Join("..", "testdata", "records.json")
+	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
+		data, err := json.MarshalIndent(vectors, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o600))
+
+		return
+	}
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var stored []recordVector
+	require.NoError(t, json.Unmarshal(data, &stored))
+	require.Equal(t, vectors, stored)
 }
