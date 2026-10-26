@@ -4,9 +4,9 @@ test = "test"
 out = "out"
 libs = []
 solc = "0.8.28"
-# ucl's EVM: London-era rules with PUSH0 (EIP-3855), MCOPY and transient storage, but not every
-# Cancun opcode. Shanghai is the newest target whose opcodes ucl runs.
-evm_version = "shanghai"
+# London: the contract runs on ucl's EVM and on pitau's for blocks before the cutover, which pitau
+# executes under London until its EVM runs ucl's rules there (pitau's ucl-migration.md §9).
+evm_version = "london"
 optimizer = true
 optimizer_runs = 1000
 bytecode_hash = "none"
