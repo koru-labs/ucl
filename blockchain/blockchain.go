@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/migration/halt"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
@@ -667,8 +668,46 @@ func (b *Blockchain) verifyBlock(block *types.Block) ([]*types.Receipt, error) {
 		return nil, err
 	}
 
+	// No block after the migration's cutover block
+	if halted, err := b.MigrationHalted(block.Number()); err != nil {
+		return nil, err
+	} else if halted {
+		return nil, halt.ErrHalted
+	}
+
 	// Make sure the block body data is valid
 	return b.verifyBlockBody(block)
+}
+
+// MigrationHalted reports whether block `number` would come after the migration's cutover block:
+// whether the attestation contract answers shouldHalt(number-1) on the state of block number-2
+// (migration/halt). Without the chain parameter it never does.
+func (b *Blockchain) MigrationHalted(number uint64) (bool, error) {
+	contract := b.config.Params.MigrationAttestations
+	if contract == nil || number < 2 {
+		return false, nil
+	}
+
+	exec, ok := b.executor.(halt.TxnBeginner)
+	if !ok {
+		return false, nil
+	}
+
+	parent, ok := b.GetHeaderByNumber(number - 2)
+	if !ok {
+		return false, fmt.Errorf("migration halt: header %d not found", number-2)
+	}
+
+	halted, err := halt.ShouldHalt(exec, *contract, parent, number-1)
+	if err != nil {
+		return false, fmt.Errorf("migration halt: %w", err)
+	}
+
+	if halted {
+		b.logger.Warn("migration cutover: refusing blocks after the cutover block", "cutover", number-1)
+	}
+
+	return halted, nil
 }
 
 // verifyBlockParent makes sure that the child block is in line

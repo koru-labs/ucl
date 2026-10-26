@@ -41,3 +41,17 @@ before, after = [] (absent / destroyed) | [nonce, balance, codeHash]
   meaning empty. A destroyed account (`after = []`) lists no slots: its whole storage is gone.
 - `before` values come from the parent's state. pitau's follower stores them as reth's history; the
   migration's verifier checks them against a ucl archive (§6.4, §7.5).
+
+## Attestations and the halt (`migration/contracts`, `migration/halt`, §7.4)
+
+`MigrationAttestations` (Foundry project in `migration/contracts`; `forge test` there) holds each pitau
+validator's latest attestation, sent by its operator address: the ucl block its node is at and the
+roots it computed, accepted only for ucl's canonical hash of one of the last 256 blocks. The first
+time more than two thirds of the registry's validators agree on a block attested within `freshness`
+blocks, it records `earliestHalt = block + margin`, once; the admin can tune `margin` until then.
+
+With the chain parameter `migrationAttestations` (genesis `params`, the same on every node), ucl
+halts after the first block h for which the contract answers `shouldHalt(h)` on the state of block
+h-1: validators build nothing after it and every node refuses any later block
+(`Blockchain.MigrationHalted`, `migration/halt`). If the followers fall behind, the quorum goes stale
+and ucl keeps producing blocks until they catch up.
