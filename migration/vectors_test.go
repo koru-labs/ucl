@@ -5,9 +5,9 @@
 package migration_test
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,10 +73,15 @@ func sealedHeader(t *testing.T, number uint64, parentSeals signer.Seals, signers
 	hash, err := proposer.CalculateHeaderHash(header)
 	require.NoError(t, err)
 
-	// Three of four validators commit: IBFT's quorum.
+	// Three of four validators commit: IBFT's quorum. As go-ibft does, they sign the proposal hash:
+	// keccak(hash ‖ round), round 2 here (consensus/ibft/verifier.go, calculateProposalHash).
+	round := make([]byte, 8)
+	binary.BigEndian.PutUint64(round, 2)
+	proposalHash := crypto.Keccak256(hash.Bytes(), round)
+
 	seals := map[types.Address][]byte{}
 	for _, s := range signers[:3] {
-		seal, err := s.CreateCommittedSeal(hash.Bytes())
+		seal, err := s.CreateCommittedSeal(proposalHash)
 		require.NoError(t, err)
 
 		seals[s.Address()] = seal
@@ -88,6 +93,13 @@ func sealedHeader(t *testing.T, number uint64, parentSeals signer.Seals, signers
 	again, err := proposer.CalculateHeaderHash(header)
 	require.NoError(t, err)
 	require.Equal(t, hash, again, "seals are outside the hash")
+
+	// What ucl's chain checks on import: the seals verify over the proposal hash with the round.
+	extra, err := proposer.GetIBFTExtra(header)
+	require.NoError(t, err)
+	require.NotNil(t, extra.RoundNumber)
+	require.Equal(t, uint64(2), *extra.RoundNumber)
+	require.NoError(t, proposer.VerifyCommittedSeals(types.BytesToHash(proposalHash), extra.CommittedSeals, set, 3))
 
 	header.Hash = hash
 
@@ -135,12 +147,33 @@ func TestMigrationVectors(t *testing.T) {
 		return
 	}
 
-	// Signatures are deterministic (RFC 6979), so the file must equal what ucl computes now.
+	// ucl writes committed seals in map order, so files differ between runs; the check is that the
+	// stored headers still hash and verify under ucl's code.
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 
 	var stored []ibftVector
 	require.NoError(t, json.Unmarshal(data, &stored))
-	require.Equal(t, vectors, stored)
-	_ = big.NewInt
+	require.Len(t, stored, len(vectors))
+
+	for i, v := range stored {
+		raw, err := hex.DecodeString(v.HeaderRLP)
+		require.NoError(t, err)
+
+		header := &types.Header{}
+		require.NoError(t, header.UnmarshalRLP(raw))
+
+		hash, err := signers[0].CalculateHeaderHash(header)
+		require.NoError(t, err)
+		require.Equal(t, v.Hash, hash.String())
+		require.Equal(t, vectors[i].Hash, v.Hash)
+
+		extra, err := signers[0].GetIBFTExtra(header)
+		require.NoError(t, err)
+
+		round := make([]byte, 8)
+		binary.BigEndian.PutUint64(round, *extra.RoundNumber)
+		require.NoError(t, signers[0].VerifyCommittedSeals(
+			types.BytesToHash(crypto.Keccak256(hash.Bytes(), round)), extra.CommittedSeals, extra.Validators, 3))
+	}
 }
