@@ -149,11 +149,11 @@ func newTestChain(t *testing.T) *testChain {
 	c := &testChain{
 		t:          t,
 		validators: validators.NewECDSAValidatorSet(),
-		state:    st,
-		executor: executor,
-		signer:   crypto.NewSigner(chain.AllForksEnabled.At(0), chainID),
-		nonces:   map[types.Address]uint64{},
-		headers:  map[types.Hash]*types.Header{},
+		state:      st,
+		executor:   executor,
+		signer:     crypto.NewSigner(chain.AllForksEnabled.At(0), chainID),
+		nonces:     map[types.Address]uint64{},
+		headers:    map[types.Hash]*types.Header{},
 	}
 
 	executor.GetHash = func(*types.Header) state.GetHashByNumber {
