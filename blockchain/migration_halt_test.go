@@ -17,17 +17,13 @@ import (
 // A contract answering shouldHalt(h) with h >= 5 (migration/halt's tests explain the bytes).
 var haltsFromFive = []byte{0x60, 0x04, 0x35, 0x60, 0x05, 0x11, 0x15, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3}
 
-// With the chain parameter set, block 6 comes after the cutover block 5 (shouldHalt(5) on block
-// 4's state) and is refused; block 5 is not. Without it nothing halts.
+// With the attestation contract set, block 6 comes after the cutover block 5 (shouldHalt(5) on
+// block 4's state) and is refused; block 5 is not. Without it nothing halts.
 func TestMigrationHaltRefusesBlocksAfterTheCutover(t *testing.T) {
 	contract := types.StringToAddress("0x4a17")
 
 	for _, withRule := range []bool{true, false} {
 		params := &chain.Params{Forks: chain.AllForksEnabled, ChainID: 100, BlockGasTarget: defaultBlockGasTarget}
-		if withRule {
-			params.MigrationAttestations = &contract
-		}
-
 		config := &chain.Chain{
 			Genesis: &chain.Genesis{
 				GasLimit: 30_000_000,
@@ -44,6 +40,10 @@ func TestMigrationHaltRefusesBlocksAfterTheCutover(t *testing.T) {
 
 		b, err := newBlockChain(config, executor)
 		require.NoError(t, err)
+
+		if withRule {
+			b.SetMigrationAttestations(contract)
+		}
 
 		// The test chain's genesis writes no state; the blocks carry the contract's.
 		root, err := executor.WriteGenesis(config.Genesis.Alloc, types.EmptyRootHash)

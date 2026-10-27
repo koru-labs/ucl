@@ -371,6 +371,11 @@ func NewServer(config *Config) (*Server, error) {
 		return nil, err
 	}
 
+	if config.MigrationAttestations != nil {
+		m.blockchain.SetMigrationAttestations(*config.MigrationAttestations)
+		logger.Info("migration halt enabled", "attestations", config.MigrationAttestations.String())
+	}
+
 	// here we can provide some other configuration
 	m.gasHelper, err = gasprice.NewGasHelper(gasprice.DefaultGasHelperConfig, m.blockchain)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
+	"github.com/0xPolygon/polygon-edge/types"
 )
 
 const DefaultGRPCPort int = 9632
@@ -75,6 +76,9 @@ type Config struct {
 	MigrationExportDir string
 	// MigrationExportWorkers is how many blocks the export endpoint executes at once.
 	MigrationExportWorkers uint64
+	// MigrationAttestations, when set, is the migration's attestation contract: the node halts at
+	// the cutover block it names (Blockchain.SetMigrationAttestations).
+	MigrationAttestations *types.Address
 
 	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
 	ConsensusStatePushURL string

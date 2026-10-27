@@ -82,6 +82,9 @@ type Config struct {
 	MigrationExportDir string `json:"migration_export_dir" yaml:"migration_export_dir"`
 	// MigrationExportWorkers is how many blocks the export endpoint executes at once.
 	MigrationExportWorkers uint64 `json:"migration_export_workers" yaml:"migration_export_workers"`
+	// MigrationAttestations is the migration's attestation contract; when set, the node halts at
+	// the cutover block it names.
+	MigrationAttestations string `json:"migration_attestations" yaml:"migration_attestations"`
 
 	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
 	ConsensusStatePushURL string `json:"consensus_state_push_url" yaml:"consensus_state_push_url"`

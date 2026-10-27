@@ -50,8 +50,8 @@ roots it computed, accepted only for ucl's canonical hash of one of the last 256
 time more than two thirds of the registry's validators agree on a block attested within `freshness`
 blocks, it records `earliestHalt = block + margin`, once; the admin can tune `margin` until then.
 
-With the chain parameter `migrationAttestations` (genesis `params`, the same on every node), ucl
-halts after the first block h for which the contract answers `shouldHalt(h)` on the state of block
+With `--migration-attestations 0x…` (config file: `migration_attestations`), set on every node to the
+address of the deployed contract, ucl halts after the first block h for which the contract answers `shouldHalt(h)` on the state of block
 h-1: validators build nothing after it and every node refuses any later block
 (`Blockchain.MigrationHalted`, `migration/halt`). If the followers fall behind, the quorum goes stale
 and ucl keeps producing blocks until they catch up.

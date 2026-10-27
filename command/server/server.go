@@ -466,6 +466,14 @@ func setFlags(cmd *cobra.Command) {
 	)
 
 	cmd.Flags().StringVar(
+		&params.rawConfig.MigrationAttestations,
+		migrationAttestationsFlag,
+		defaultConfig.MigrationAttestations,
+		"the ucl to pitau migration's attestation contract: halt after the cutover block it names "+
+			"(shouldHalt); the same address on every node",
+	)
+
+	cmd.Flags().StringVar(
 		&params.rawConfig.ConsensusStatePushURL,
 		consensusStatePushURLFlag,
 		defaultConfig.ConsensusStatePushURL,

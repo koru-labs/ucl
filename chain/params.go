@@ -31,10 +31,6 @@ type Params struct {
 	// Governance contract where the token will be sent to and burn in london fork
 	BurnContract map[uint64]types.Address `json:"burnContract"`
 
-	// MigrationAttestations is the migration's attestation contract (migration/contracts). When set,
-	// ucl halts after the first block h whose parent's state answers shouldHalt(h)
-	// (migration/halt): the cutover to pitau. Every node of the network must have the same value.
-	MigrationAttestations *types.Address `json:"migrationAttestations,omitempty"`
 	// Destination address to initialize default burn contract with
 	BurnContractDestinationAddress types.Address `json:"burnContractDestinationAddress,omitempty"`
 }

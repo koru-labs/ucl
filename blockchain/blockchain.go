@@ -85,6 +85,10 @@ type Blockchain struct {
 	settlementObserver func(delta []float64)
 
 	withBaseFeeFixed bool // is base fee value fixed?
+
+	// migrationAttestations is the migration's attestation contract, set from the node's
+	// configuration (SetMigrationAttestations); nil until then.
+	migrationAttestations atomic.Pointer[types.Address]
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -679,11 +683,19 @@ func (b *Blockchain) verifyBlock(block *types.Block) ([]*types.Receipt, error) {
 	return b.verifyBlockBody(block)
 }
 
+// SetMigrationAttestations makes the node halt at the migration's cutover block: the first block h
+// for which the attestation contract (migration/contracts) answers shouldHalt(h) on the state of
+// block h-1 (migration/halt). It comes from the node's configuration (--migration-attestations), set
+// once the contract is deployed; every node of the network must be given the same address.
+func (b *Blockchain) SetMigrationAttestations(contract types.Address) {
+	b.migrationAttestations.Store(&contract)
+}
+
 // MigrationHalted reports whether block `number` would come after the migration's cutover block:
 // whether the attestation contract answers shouldHalt(number-1) on the state of block number-2
-// (migration/halt). Without the chain parameter it never does.
+// (migration/halt). Without SetMigrationAttestations it never does.
 func (b *Blockchain) MigrationHalted(number uint64) (bool, error) {
-	contract := b.config.Params.MigrationAttestations
+	contract := b.migrationAttestations.Load()
 	if contract == nil || number < 2 {
 		return false, nil
 	}
