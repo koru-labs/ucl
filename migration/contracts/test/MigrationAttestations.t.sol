@@ -112,6 +112,33 @@ contract MigrationAttestationsTest {
         attestations.attest(990, ucl(990), STATE, TXS, RECEIPTS, 0);
     }
 
+    /// The contract caches the registry's key hashes; a change of the set (a new `version()`) is
+    /// seen by the next attestation and by `freshAt`: a removed validator no longer attests or
+    /// counts, a new one attests at once.
+    function test_the_cached_set_follows_the_registry() public {
+        attest(3, 990, STATE);
+        check(attestations.cachedVersion() == 0, "the set of four is cached");
+
+        registry.remove(keys[3]);
+        vm.prank(operators[3]);
+        vm.expectRevert(abi.encodeWithSelector(MigrationAttestations.NotAValidator.selector, keccak256(keys[3])));
+        attestations.attest(990, ucl(990), STATE, TXS, RECEIPTS, 0);
+
+        bytes memory newcomer = abi.encodePacked(keccak256("validator 4"));
+        registry.add(1, newcomer);
+        attestations.setOperator(keccak256(newcomer), address(0xA5));
+        vm.prank(address(0xA5));
+        attestations.attest(990, ucl(990), STATE, TXS, RECEIPTS, 0);
+        check(attestations.cachedVersion() == 2, "the set after both changes is cached");
+
+        // Validator 3's attestation no longer counts: the newcomer and validator 0 are two of four.
+        attest(0, 990, STATE);
+        check(!attestations.freshAt(1_000), "two of the current four");
+        check(attestations.earliestHalt() == 0, "no quorum yet");
+        attest(1, 990, STATE);
+        check(attestations.earliestHalt() == 1_000 + MARGIN, "three of the current four");
+    }
+
     function test_ucl_halts_after_the_first_block_past_the_margin_with_a_fresh_quorum() public {
         attest(0, 990, STATE);
         attest(1, 990, STATE);

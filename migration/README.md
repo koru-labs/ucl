@@ -54,6 +54,12 @@ roots it computed, accepted only for ucl's canonical hash of one of the last 256
 time more than two thirds of the registry's validators agree on a block attested within `freshness`
 blocks, it records `earliestHalt = block + margin`, once; the admin can tune `margin` until then.
 
+The contract keeps the hashes of the registry's keys for the registry's current `version()` and reads
+the keys again only when the version changes (an ML-DSA-65 key is 61 storage slots). An attestation
+costs about 99,000 gas with 4 ML-DSA-65 validators and 430,000 with 50; the first one after each
+change of the set costs what reading the whole set costs, 0.9 and 10.2 million
+(`forge test --match-contract Gas`). Before the cache it was 0.8 and 9.3 million every time.
+
 With `--migration-attestations 0x…` (config file: `migration_attestations`), set on every node to the
 address of the deployed contract, ucl halts after the first block h for which the contract answers `shouldHalt(h)` on the state of block
 h-1: validators build nothing after it and every node refuses any later block

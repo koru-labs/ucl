@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @notice The view of pitau's validator registry this contract reads: the validator set.
+/// @notice The view of pitau's validator registry this contract reads: the validator set, and its
+/// version, which the registry raises on every change of the set (pitau's registry rule).
 interface IValidatorSet {
     struct Validator {
         uint8 keyType;
         bytes pubKey;
     }
+
+    function version() external view returns (uint64);
 
     function validators() external view returns (Validator[] memory);
 }
@@ -20,6 +23,10 @@ interface IValidatorSet {
 /// validators have caught up.
 /// @dev ucl's EVM verifies secp256k1 only, so each validator's consensus key (ed25519 or ML-DSA-65,
 /// in the registry) has an operator address that signs for it; the map is this contract's own.
+/// The contract keeps the hashes of the registry's keys for the registry's current `version()`, and
+/// reads the keys again only when the version changes: an ML-DSA-65 key is 1,952 bytes, 61 storage
+/// slots, so reading the whole set on every attestation would cost about 9 million gas at 50
+/// validators.
 contract MigrationAttestations {
     struct Attestation {
         uint64 number;
@@ -44,6 +51,14 @@ contract MigrationAttestations {
     mapping(address => bytes32) public keyOf;
     /// Each validator's latest attestation.
     mapping(bytes32 => Attestation) public latest;
+
+    /// The registry's version `_keyHashes` is of; meaningful once `_cached`.
+    uint64 public cachedVersion;
+    bool private _cached;
+    /// `keccak256(pubKey)` of each of the registry's validators at `cachedVersion`, in its order.
+    bytes32[] private _keyHashes;
+    /// `cachedVersion + 1` for a key hash in that set; anything else for one that is not.
+    mapping(bytes32 => uint64) private _memberAt;
 
     event Attested(
         bytes32 indexed keyHash,
@@ -122,7 +137,8 @@ contract MigrationAttestations {
         if (number >= block.number || blockhash(number) != uclHash || uclHash == bytes32(0)) {
             revert UnknownBlock(number, uclHash);
         }
-        if (!_isValidator(key)) revert NotAValidator(key);
+        bytes32[] memory set = _syncedKeyHashes();
+        if (_memberAt[key] != cachedVersion + 1) revert NotAValidator(key);
 
         latest[key] = Attestation({
             number: number,
@@ -131,7 +147,7 @@ contract MigrationAttestations {
         });
         emit Attested(key, number, uclHash, stateRoot, transactionsRoot, receiptsRoot, verifiedFrom);
 
-        if (earliestHalt == 0 && freshAt(block.number)) {
+        if (earliestHalt == 0 && _freshAmong(set, block.number)) {
             earliestHalt = uint64(block.number) + margin;
             emit EarliestHaltSet(earliestHalt);
         }
@@ -140,12 +156,45 @@ contract MigrationAttestations {
     /// Whether more than two thirds of the registry's validators have, among their latest
     /// attestations, the same block and roots, attested within `freshness` blocks before `b`.
     function freshAt(uint256 b) public view returns (bool) {
+        return _freshAmong(_keyHashesView(), b);
+    }
+
+    /// The registry's key hashes at its current version, cached in storage: read again from the
+    /// registry only when its version changed.
+    function _syncedKeyHashes() private returns (bytes32[] memory) {
+        uint64 version = registry.version();
+        if (_cached && version == cachedVersion) return _keyHashes;
+        bytes32[] memory set = _readKeyHashes();
+        delete _keyHashes;
+        for (uint256 i = 0; i < set.length; i++) {
+            _keyHashes.push(set[i]);
+            _memberAt[set[i]] = version + 1;
+        }
+        cachedVersion = version;
+        _cached = true;
+        return set;
+    }
+
+    /// The registry's key hashes at its current version, from the cache if it holds that version.
+    function _keyHashesView() private view returns (bytes32[] memory) {
+        if (_cached && registry.version() == cachedVersion) return _keyHashes;
+        return _readKeyHashes();
+    }
+
+    function _readKeyHashes() private view returns (bytes32[] memory hashes) {
         IValidatorSet.Validator[] memory set = registry.validators();
+        hashes = new bytes32[](set.length);
+        for (uint256 i = 0; i < set.length; i++) {
+            hashes[i] = keccak256(set[i].pubKey);
+        }
+    }
+
+    function _freshAmong(bytes32[] memory set, uint256 b) private view returns (bool) {
         uint256 n = set.length;
         if (n == 0) return false;
         bytes32[] memory digests = new bytes32[](n);
         for (uint256 i = 0; i < n; i++) {
-            Attestation memory a = latest[keccak256(set[i].pubKey)];
+            Attestation memory a = latest[set[i]];
             if (a.digest != bytes32(0) && a.number <= b && b - a.number <= freshness) {
                 digests[i] = a.digest;
             }
@@ -169,11 +218,4 @@ contract MigrationAttestations {
         return earliestHalt != 0 && h >= earliestHalt && h >= 1 && freshAt(h - 1);
     }
 
-    function _isValidator(bytes32 key) private view returns (bool) {
-        IValidatorSet.Validator[] memory set = registry.validators();
-        for (uint256 i = 0; i < set.length; i++) {
-            if (keccak256(set[i].pubKey) == key) return true;
-        }
-        return false;
-    }
 }
