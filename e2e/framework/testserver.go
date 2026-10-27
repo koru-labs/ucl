@@ -389,7 +389,7 @@ func (t *TestServer) GenerateGenesis() error {
 		for block, addr := range t.Config.BurnContracts {
 			args = append(args, "--burn-contract", fmt.Sprintf("%d:%s", block, addr))
 		}
-	} else {
+	} else if !t.Config.NoBurnContract {
 		// london hardfork is enabled by default so there must be a default burn contract
 		args = append(args, "--burn-contract", "0:0x0000000000000000000000000000000000000000")
 	}

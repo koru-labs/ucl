@@ -215,6 +215,7 @@ func TestMigrationRPCVectors(t *testing.T) {
 
 		config.SetBlockTime(1)
 		config.SetBlockLimit(30_000_000)
+		config.NoBurnContract = true
 		config.ExtraArgs = []string{"--migration-attestations", attestations.String()}
 	})
 
