@@ -21,7 +21,7 @@ import (
 
 // FormatVersion is the record format. It is part of every record and of the cache's directory, so a
 // format change starts a new cache instead of serving old records.
-const FormatVersion = 1
+const FormatVersion = 2
 
 // Record is one ucl block, as pitau stores it.
 type Record struct {
@@ -69,6 +69,10 @@ type AccountChange struct {
 	After *Account
 	// Code is the code the block deployed for the account, if it did.
 	Code []byte
+	// StorageReset is set when the account exists after the block but its storage before the block
+	// is gone: the block destroyed it and created it again at the same address. Storage then holds
+	// every non-zero slot it has after the block, not only the ones whose value changed.
+	StorageReset bool
 	// Storage holds the slots the block wrote. A destroyed account lists none: its whole storage
 	// is gone.
 	Storage []SlotChange
@@ -173,6 +177,7 @@ func (c *AccountChange) marshalWith(ar *fastrlp.Arena) *fastrlp.Value {
 	}
 
 	v.Set(storage)
+	v.Set(ar.NewBool(c.StorageReset))
 
 	return v
 }
@@ -364,7 +369,7 @@ func (c *AccountChange) unmarshal(v *fastrlp.Value) error {
 		return err
 	}
 
-	if len(elems) != 5 {
+	if len(elems) != 6 {
 		return fmt.Errorf("%w: account change with %d fields", errFormat, len(elems))
 	}
 
@@ -421,6 +426,14 @@ func (c *AccountChange) unmarshal(v *fastrlp.Value) error {
 
 			*dst = types.BytesToHash(value.Bytes())
 		}
+	}
+
+	if c.StorageReset, err = elems[5].GetBool(); err != nil {
+		return err
+	}
+
+	if c.StorageReset && c.After == nil {
+		return fmt.Errorf("%w: a destroyed account with its storage reset", errFormat)
 	}
 
 	return nil

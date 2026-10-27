@@ -1,6 +1,7 @@
 package export
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
+	"github.com/umbracle/fastrlp"
 )
 
 const chainID = 100
@@ -36,7 +39,38 @@ var (
 	store = types.StringToAddress("0x5705e00000000000000000000000000000000000")
 	// haltsFromThree answers shouldHalt(h) with h >= 3.
 	haltsFromThree = types.StringToAddress("0x4a17000000000000000000000000000000000000")
+	// doomed is a genesis contract with storage that destroys itself when called (CALLER
+	// SELFDESTRUCT).
+	doomed = types.StringToAddress("0xd00d000000000000000000000000000000000000")
+	// factory deploys childInit with CREATE2 and salt 0 when called, so its child always lands at
+	// the same address.
+	factory = types.StringToAddress("0xfac7000000000000000000000000000000000000")
 )
+
+// childRuntime: with calldata, sstore(calldata[0], calldata[32]); without, CALLER SELFDESTRUCT.
+var childRuntime = []byte{
+	0x36, 0x15, 0x60, 0x0d, 0x57, 0x60, 0x20, 0x35, 0x60, 0x00, 0x35, 0x55, 0x00, 0x5b, 0x33, 0xff,
+}
+
+// childInit: sstore(0, 1), then returns childRuntime.
+func childInit() []byte {
+	return append([]byte{
+		0x60, 0x01, 0x60, 0x00, 0x55, 0x60, 0x10, 0x60, 0x11, 0x60, 0x00, 0x39, 0x60, 0x10, 0x60, 0x00, 0xf3,
+	}, childRuntime...)
+}
+
+// factoryCode: CODECOPY childInit (stored after the 17 bytes of code) to memory, CREATE2 it with
+// salt 0, STOP.
+func factoryCode() []byte {
+	return append([]byte{
+		0x60, 0x21, 0x60, 0x11, 0x60, 0x00, 0x39, 0x60, 0x00, 0x60, 0x21, 0x60, 0x00, 0x60, 0x00, 0xf5, 0x00,
+	}, childInit()...)
+}
+
+// child is where factory deploys childInit.
+func child() types.Address {
+	return crypto.CreateAddress2(factory, [32]byte{}, childInit())
+}
 
 // storeRuntime: PUSH1 32 CALLDATALOAD PUSH1 0 CALLDATALOAD SSTORE
 // PUSH1 0 CALLDATALOAD PUSH1 0 PUSH1 0 LOG1 STOP.
@@ -190,6 +224,11 @@ func newTestChain(t *testing.T) *testChain {
 		store: {Code: storeRuntime, Balance: big.NewInt(0), Storage: map[types.Hash]types.Hash{
 			types.BytesToHash(word(9)): types.BytesToHash(word(99)),
 		}},
+		doomed: {Code: []byte{0x33, 0xff}, Balance: big.NewInt(3), Storage: map[types.Hash]types.Hash{
+			types.BytesToHash(word(1)): types.BytesToHash(word(0x11)),
+			types.BytesToHash(word(2)): types.BytesToHash(word(0x22)),
+		}},
+		factory: {Code: factoryCode(), Balance: big.NewInt(0)},
 	}
 	c.alloc = alloc
 
@@ -389,6 +428,18 @@ func mixedChain(t *testing.T) *testChain {
 		c.tx(1, &a2, big.NewInt(5), []byte{0xfe}, false),    // plain transfer with input to an EOA
 	)
 
+	// Contracts that destroy themselves: their storage goes with them (ucl's forks are pre-Cancun).
+	kid := child()
+	c.seal(
+		c.tx(0, &factory, big.NewInt(0), nil, false),      // deploys the child: slot 0 = 1
+		c.tx(1, &kid, big.NewInt(0), input(5, 55), false), // child slot 5 = 55
+		c.tx(2, &doomed, big.NewInt(0), nil, true),        // destroys a genesis contract with storage
+	)
+	c.seal(
+		c.tx(0, &kid, big.NewInt(0), nil, false),     // the child destroys itself
+		c.tx(1, &factory, big.NewInt(0), nil, false), // and is created again: slot 0 = 1, slot 5 gone
+	)
+
 	return c
 }
 
@@ -456,6 +507,25 @@ func (a *applied) apply(t *testing.T, r *Record) {
 
 		a.accounts[change.Address] = *change.After
 
+		if change.StorageReset {
+			for _, slot := range change.Storage {
+				require.Equal(t, a.storage[change.Address][slot.Slot], slot.Before, "block %d: %s slot %s before", r.Number, change.Address, slot.Slot)
+			}
+
+			delete(a.storage, change.Address)
+
+			for _, slot := range change.Storage {
+				slot.Before = types.ZeroHash
+				if a.storage[change.Address] == nil {
+					a.storage[change.Address] = map[types.Hash]types.Hash{}
+				}
+
+				a.storage[change.Address][slot.Slot] = slot.After
+			}
+
+			continue
+		}
+
 		for _, slot := range change.Storage {
 			slots := a.storage[change.Address]
 			if slots == nil {
@@ -483,16 +553,24 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 	genesis, err := c.state.NewSnapshot(c.blocks[0].Header.StateRoot)
 	require.NoError(t, err)
 
-	for _, address := range []types.Address{store, c.address(0), c.address(1), c.address(2)} {
+	for _, address := range []types.Address{store, doomed, factory, c.address(0), c.address(1), c.address(2)} {
 		account, err := genesis.GetAccount(address)
 		require.NoError(t, err)
 		view.accounts[address] = Account{
 			Nonce: account.Nonce, Balance: account.Balance, CodeHash: types.BytesToHash(account.CodeHash),
 		}
+
+		for slot, value := range c.alloc[address].Storage {
+			if view.storage[address] == nil {
+				view.storage[address] = map[types.Hash]types.Hash{}
+			}
+
+			view.storage[address][slot] = value
+		}
 	}
 
 	head := c.Header().Number
-	sawCode, sawLogs, sawDelete := false, false, false
+	sawCode, sawLogs, sawDelete, sawDestroyed, sawReset := false, false, false, false, false
 
 	for n := uint64(1); n <= head; n++ {
 		record, err := exporter.Export(n)
@@ -516,6 +594,8 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 
 		for _, change := range record.Accounts {
 			sawCode = sawCode || len(change.Code) > 0
+			sawDestroyed = sawDestroyed || (change.Before != nil && change.After == nil)
+			sawReset = sawReset || change.StorageReset
 
 			for _, slot := range change.Storage {
 				sawDelete = sawDelete || slot.After == types.ZeroHash
@@ -530,6 +610,7 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 	}
 
 	require.True(t, sawCode && sawLogs && sawDelete, "the chain exercises code, logs and deletes")
+	require.True(t, sawDestroyed && sawReset, "the chain destroys a contract, and destroys and recreates one")
 
 	final, err := c.state.NewSnapshot(c.Header().StateRoot)
 	require.NoError(t, err)
@@ -545,7 +626,31 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 		for slot, value := range view.storage[address] {
 			require.Equal(t, final.GetStorage(address, got.Root, slot), value, "%s slot %s", address, slot)
 		}
+
+		// No slot more or less: the slots the records leave make the account's storage root.
+		require.Equal(t, got.Root, storageRoot(view.storage[address]), "%s storage root", address)
 	}
+}
+
+// storageRoot is the root of a storage trie holding slots, as ucl's state commit builds it.
+func storageRoot(slots map[types.Hash]types.Hash) types.Hash {
+	txn := itrie.NewTrie().Txn(itrie.NewMemoryStorage())
+	ar := &fastrlp.Arena{}
+
+	for slot, value := range slots {
+		if value == types.ZeroHash {
+			continue
+		}
+
+		txn.Insert(crypto.Keccak256(slot.Bytes()), ar.NewBytes(bytes.TrimLeft(value.Bytes(), "\x00")).MarshalTo(nil))
+	}
+
+	root, err := txn.Hash()
+	if err != nil {
+		panic(err)
+	}
+
+	return types.BytesToHash(root)
 }
 
 // A block whose stored roots its re-execution does not reproduce is refused, and a range stops at
@@ -675,7 +780,7 @@ func TestDamagedCacheEntryIsRecomputed(t *testing.T) {
 	first, err := service.Frame(2)
 	require.NoError(t, err)
 
-	path := filepath.Join(dir, "v1", "0", "2.rec")
+	path := filepath.Join(dir, "v"+strconv.Itoa(FormatVersion), "0", "2.rec")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 

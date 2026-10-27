@@ -23,7 +23,7 @@ once across all requests.
 The answer is `{records: [base64 frame…], next, head, error?: {block, message, irreproducible}}`; the
 caller asks again from `next`.
 
-## Record format (version 1)
+## Record format (version 2)
 
 A frame is the CRC-32C of the record's RLP (4 bytes, big endian) followed by the RLP compressed
 with zstd. The record is an RLP list:
@@ -31,7 +31,7 @@ with zstd. The record is an RLP list:
 ```
 [version, number, hash, header, [tx…], [receipt…], [account…]]
 receipt = [type, success, cumulativeGasUsed, [[address, [topic…], data]…]]
-account = [address, before, after, code, [[slot, before, after]…]]
+account = [address, before, after, code, [[slot, before, after]…], storageReset]
 before, after = [] (absent / destroyed) | [nonce, balance, codeHash]
 ```
 
@@ -39,6 +39,10 @@ before, after = [] (absent / destroyed) | [nonce, balance, codeHash]
 - `tx` is the transaction's envelope (typed ones prefixed with their type).
 - `code` is set when the block deployed the account's code; storage values are integers, zero
   meaning empty. A destroyed account (`after = []`) lists no slots: its whole storage is gone.
+- `storageReset` is true for an account that exists after the block but whose storage before it is
+  gone: the block destroyed it (SELFDESTRUCT) and created it again at the same address. Its slots
+  are then every non-zero slot after the block, each with its value before the block. Version 1
+  had no way to say this, so pitau would have kept the old slots and refused the state root.
 - `before` values come from the parent's state. pitau's follower stores them as reth's history; the
   migration's verifier checks them against a ucl archive (§6.4, §7.5).
 

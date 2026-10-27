@@ -197,6 +197,12 @@ func changes(parent state.Snapshot, objs []*state.Object) ([]AccountChange, erro
 				preRoot = pre.Root
 			}
 
+			// The commit builds the account's storage on obj.Root, the root the block started it
+			// from: the parent's, unless the block destroyed the account and created it again, which
+			// starts it empty (state.Txn.CreateAccount). Then every slot of the parent's storage is
+			// gone, and the slots the block wrote are the whole storage after it.
+			change.StorageReset = obj.Root != preRoot
+
 			for _, slot := range obj.Storage {
 				key := types.BytesToHash(slot.Key)
 				before := parent.GetStorage(obj.Address, preRoot, key)
@@ -206,7 +212,7 @@ func changes(parent state.Snapshot, objs []*state.Object) ([]AccountChange, erro
 					after = types.BytesToHash(slot.Val)
 				}
 
-				if before != after {
+				if before != after || (change.StorageReset && after != types.ZeroHash) {
 					change.Storage = append(change.Storage, SlotChange{Slot: key, Before: before, After: after})
 				}
 			}
@@ -224,7 +230,7 @@ func changes(parent state.Snapshot, objs []*state.Object) ([]AccountChange, erro
 
 // unchanged reports whether a change leaves the account as it was.
 func unchanged(c *AccountChange) bool {
-	if len(c.Storage) != 0 || len(c.Code) != 0 {
+	if len(c.Storage) != 0 || len(c.Code) != 0 || c.StorageReset {
 		return false
 	}
 
