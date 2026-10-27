@@ -742,6 +742,62 @@ func (j *jsonRPCHub) GetStorage(stateRoot types.Hash, addr types.Address, slot t
 	return res.Bytes(), nil
 }
 
+// GetProof proves the account `addr` in the state with root `root`, and each of `slots` in the
+// account's storage (eth_getProof).
+func (j *jsonRPCHub) GetProof(
+	root types.Hash,
+	addr types.Address,
+	slots []types.Hash,
+) (*jsonrpc.AccountProof, error) {
+	accountProof, err := itrie.Prove(j.state.Get, root, crypto.Keccak256(addr.Bytes()))
+	if err != nil {
+		return nil, fmt.Errorf("proving account %s: %w", addr, err)
+	}
+
+	proof := &jsonrpc.AccountProof{
+		Balance:     new(big.Int),
+		CodeHash:    types.EmptyCodeHash,
+		StorageHash: types.EmptyRootHash,
+		Proof:       accountProof,
+		Storage:     make([]jsonrpc.StorageProof, 0, len(slots)),
+	}
+
+	account, err := getAccountImpl(j.state, root, addr)
+
+	switch {
+	case errors.Is(err, jsonrpc.ErrStateNotFound):
+	case err != nil:
+		return nil, err
+	default:
+		proof.Nonce = account.Nonce
+		proof.Balance.Set(account.Balance)
+		proof.CodeHash = types.BytesToHash(account.CodeHash)
+		proof.StorageHash = account.Root
+	}
+
+	for _, slot := range slots {
+		storageProof, err := itrie.Prove(j.state.Get, proof.StorageHash, crypto.Keccak256(slot.Bytes()))
+		if err != nil {
+			return nil, fmt.Errorf("proving slot %s of %s: %w", slot, addr, err)
+		}
+
+		var value []byte
+
+		if account != nil {
+			snap, err := j.state.NewSnapshot(root)
+			if err != nil {
+				return nil, err
+			}
+
+			value = snap.GetStorage(addr, account.Root, slot).Bytes()
+		}
+
+		proof.Storage = append(proof.Storage, jsonrpc.StorageProof{Key: slot, Value: value, Proof: storageProof})
+	}
+
+	return proof, nil
+}
+
 func (j *jsonRPCHub) Get(key string) ([]byte, error) {
 	hash := types.StringToHash(key)
 

@@ -59,3 +59,13 @@ address of the deployed contract, ucl halts after the first block h for which th
 h-1: validators build nothing after it and every node refuses any later block
 (`Blockchain.MigrationHalted`, `migration/halt`). If the followers fall behind, the quorum goes stale
 and ucl keeps producing blocks until they catch up.
+
+## State proofs (`eth_getProof`, §7.2)
+
+Every node answers `eth_getProof(address, slots, block)` as Ethereum's API does (EIP-1186): the
+account's Merkle proof from the block's state root, and each slot's from the account's storage root
+(`itrie.Prove`, `Eth.GetProof`). An account that does not exist is answered with zero nonce and
+balance, the empty code hash and storage root, and a proof that the state does not hold it. pitau's
+relay sentries read the halt and the validator registry at the cutover block this way, believing only
+what the proofs and the block's IBFT seals show. pitau's tests check every proof of the vectors
+network (`e2e/migration_rpc_test.go`) and that reth answers the same proofs byte for byte.

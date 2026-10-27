@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,15 @@ type rpcVectors struct {
 	Cutover      uint64          `json:"cutover"`
 	Records      []string        `json:"records"`
 	Calls        []rpcCall       `json:"calls"`
+	Proofs       []rpcProof      `json:"proofs"`
+}
+
+// rpcProof is eth_getProof's answer for an account at a block, with every slot the network ever
+// wrote for it: a relay sentry proves the state its cutover reads (§7.2), and pitau's tests serve
+// it the slots it asks for from these.
+type rpcProof struct {
+	Block  uint64          `json:"block"`
+	Result json.RawMessage `json:"result"`
 }
 
 type rpcClient struct {
@@ -436,6 +446,17 @@ func TestMigrationRPCVectors(t *testing.T) {
 	require.Len(t, records, int(cutover))
 
 	sawReset := false
+	// Every account the network touched, with every slot it wrote: proved at the end.
+	written := map[types.Address]map[types.Hash]struct{}{}
+	touch := func(address types.Address, slot *types.Hash) {
+		if written[address] == nil {
+			written[address] = map[types.Hash]struct{}{}
+		}
+
+		if slot != nil {
+			written[address][*slot] = struct{}{}
+		}
+	}
 
 	for i, frame := range records {
 		n := uint64(i + 1)
@@ -452,6 +473,12 @@ func TestMigrationRPCVectors(t *testing.T) {
 
 		for _, change := range record.Accounts {
 			sawReset = sawReset || change.StorageReset
+
+			touch(change.Address, nil)
+
+			for _, slot := range change.Storage {
+				touch(change.Address, &slot.Slot)
+			}
 
 			for _, at := range []uint64{n - 1, n} {
 				tag := fmt.Sprintf("0x%x", at)
@@ -498,6 +525,71 @@ func TestMigrationRPCVectors(t *testing.T) {
 	genesis, err := os.ReadFile(filepath.Join(root, "genesis.json"))
 	require.NoError(t, err)
 
+	// The proofs of every account and slot at H - 1 and H, the states the relay sentry reads, and at
+	// H - 2, where pitau's tests check that it refuses a false halt: the genesis allocations, the
+	// accounts the blocks touched, the zero address (the caller of its view calls) and the blocks'
+	// miners.
+	var alloc struct {
+		Genesis struct {
+			Alloc map[types.Address]struct {
+				Storage map[types.Hash]types.Hash `json:"storage"`
+			} `json:"alloc"`
+		} `json:"genesis"`
+	}
+
+	require.NoError(t, json.Unmarshal(genesis, &alloc))
+
+	for address, account := range alloc.Genesis.Alloc {
+		touch(address, nil)
+
+		for slot := range account.Storage {
+			touch(address, &slot)
+		}
+	}
+
+	touch(types.ZeroAddress, nil)
+
+	// The views read slots never written too, such as a counter still zero; the sentry asks for 64
+	// consecutive slots at once.
+	for _, contract := range []types.Address{registry, attestations} {
+		for slot := uint64(0); slot < 64; slot++ {
+			key := types.BytesToHash(migrationWord(slot))
+			touch(contract, &key)
+		}
+	}
+
+	var proofs []rpcProof
+
+	for _, at := range []uint64{cutover - 2, cutover - 1, cutover} {
+		var block struct {
+			Miner types.Address `json:"miner"`
+		}
+
+		require.NoError(t, json.Unmarshal(c.call(false, "eth_getBlockByNumber", fmt.Sprintf("0x%x", at), false), &block))
+		touch(block.Miner, nil)
+
+		addresses := make([]types.Address, 0, len(written))
+		for address := range written {
+			addresses = append(addresses, address)
+		}
+
+		sort.Slice(addresses, func(i, j int) bool { return bytes.Compare(addresses[i][:], addresses[j][:]) < 0 })
+
+		for _, address := range addresses {
+			keys := []types.Hash{}
+			for slot := range written[address] {
+				keys = append(keys, slot)
+			}
+
+			sort.Slice(keys, func(i, j int) bool { return bytes.Compare(keys[i][:], keys[j][:]) < 0 })
+
+			proofs = append(proofs, rpcProof{
+				Block:  at,
+				Result: c.call(false, "eth_getProof", address, keys, fmt.Sprintf("0x%x", at)),
+			})
+		}
+	}
+
 	var validators []types.Address
 
 	for i := 0; i < 4; i++ {
@@ -520,6 +612,7 @@ func TestMigrationRPCVectors(t *testing.T) {
 		Cutover:      cutover,
 		Records:      records,
 		Calls:        c.calls,
+		Proofs:       proofs,
 	}, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join("..", "migration", "testdata", "rpc.json"), append(out, '\n'), 0o600))
