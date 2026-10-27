@@ -66,6 +66,7 @@ type TestServerConfig struct {
 	UseTLS                  bool
 	TLSCertFile             string
 	TLSKeyFile              string
+	ExtraArgs               []string // More flags for the server command
 }
 
 func (t *TestServerConfig) SetPredeployParams(params *PredeployParams) {

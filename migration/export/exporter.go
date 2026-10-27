@@ -142,7 +142,10 @@ func verify(block *types.Block, root types.Hash, gasUsed uint64, receipts []*typ
 		return fmt.Errorf("receipts root %s, stored %s", receiptsRoot, header.ReceiptsRoot)
 	}
 
-	if bloom := types.CreateBloom(receipts); bloom != header.LogsBloom {
+	// IBFT leaves the header's logs bloom empty (jsonrpc's LogQuery.MatchBloom treats a zero bloom
+	// as unknown for that reason); the receipts root above covers the logs. A bloom that is set must
+	// be the logs'.
+	if bloom := types.CreateBloom(receipts); header.LogsBloom != (types.Bloom{}) && bloom != header.LogsBloom {
 		return errors.New("logs bloom differs from the stored one")
 	}
 

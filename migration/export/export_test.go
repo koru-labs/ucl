@@ -337,7 +337,7 @@ func (c *testChain) seal(txs ...*types.Transaction) *types.Block {
 	header.GasUsed = txn.TotalGas()
 	header.TxRoot = buildroot.CalculateTransactionsRoot(txs, header.Number)
 	header.ReceiptsRoot = buildroot.CalculateReceiptsRoot(txn.Receipts())
-	header.LogsBloom = types.CreateBloom(txn.Receipts())
+	// No logs bloom: ucl's IBFT block builder leaves it empty, on mainnet too.
 	c.sealIBFT(header, parent)
 	c.append(block)
 

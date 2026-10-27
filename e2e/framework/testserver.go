@@ -500,6 +500,8 @@ func (t *TestServer) Start(ctx context.Context) error {
 		args = append(args, "--use-tls")
 	}
 
+	args = append(args, t.Config.ExtraArgs...)
+
 	t.ReleaseReservedPorts()
 
 	// Start the server
