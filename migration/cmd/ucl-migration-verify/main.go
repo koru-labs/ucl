@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/migration/verify"
 	"github.com/0xPolygon/polygon-edge/types"
 )
@@ -27,6 +28,8 @@ func main() {
 	validators := flag.String("validators", "", "ucl's validators whose quorum sealed --to, comma-separated (default: block 0's)")
 	workers := flag.Int("workers", 8, "blocks checked at once")
 	report := flag.String("report", "", "write the report here as JSON")
+	reconcile := flag.Bool("reconcile", false, "add the balance reconciliation at --to")
+	genesis := flag.String("ucl-genesis", "", "ucl's genesis file, whose accounts the reconciliation counts too")
 	flag.Parse()
 
 	if *pitau == "" || *ucl == "" || *to == 0 {
@@ -34,7 +37,19 @@ func main() {
 		os.Exit(2)
 	}
 
-	cfg := verify.Config{Pitau: *pitau, Ucl: *ucl, From: *from, To: *to, Workers: *workers}
+	cfg := verify.Config{Pitau: *pitau, Ucl: *ucl, From: *from, To: *to, Workers: *workers, Reconcile: *reconcile}
+
+	if *genesis != "" {
+		file, err := chain.ImportFromFile(*genesis)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ucl-migration-verify: %v\n", err)
+			os.Exit(2)
+		}
+
+		for address := range file.Genesis.Alloc {
+			cfg.GenesisAccounts = append(cfg.GenesisAccounts, address)
+		}
+	}
 
 	for _, v := range strings.Split(*validators, ",") {
 		if v = strings.TrimSpace(v); v != "" {
@@ -65,6 +80,16 @@ func main() {
 		result.From, result.To, result.Blocks, result.Transactions, result.Accounts, result.Slots)
 	fmt.Printf("block %d: hash %s, state root %s, sealed by %d of %d validators\n",
 		result.To, result.Hash, result.StateRoot, len(result.SealedBy), len(result.Validators))
+
+	if r := result.Reconciliation; r != nil {
+		fmt.Printf("at block %d: %d accounts, %d contracts, native total %s; %d ERC-20s\n",
+			result.To, r.Accounts, r.Contracts, r.NativeTotal, len(r.Tokens))
+
+		for _, t := range r.Tokens {
+			fmt.Printf("  %s: supply %s, %d holders hold %s (sum is supply: %t)\n",
+				t.Token, t.TotalSupply, t.Holders, t.HoldersSum, t.SumIsSupply)
+		}
+	}
 
 	if result.OK() {
 		fmt.Println("every check held")

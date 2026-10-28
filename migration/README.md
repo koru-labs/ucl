@@ -102,6 +102,11 @@ the frozen archive kept after the halt). For every block from `--from` to `--to`
 
 And block `--to` carries the committed seals of a quorum (`2N/3 + 1`) of ucl's validators: those
 `--validators` names, else those block 0 names, over the hash and the round as ucl checks them
-(`ibft.ProposalHash`). It exits 0 when every check held, 1 when one failed (each listed), 2 when it
+(`ibft.ProposalHash`). With `--reconcile` (and `--ucl-genesis`, whose accounts no record names unless a block changed them)
+it adds the balance reconciliation at `--to`, both chains side by side: every account the chain ever
+held (the genesis' and every one a record names), their native total, the contracts among them, each
+ERC-20's `totalSupply` against the sum of `balanceOf` over those accounts and every address in its
+`Transfer` logs, and the ten largest accounts. A value that differs between the chains is a failure.
+It exits 0 when every check held, 1 when one failed (each listed), 2 when it
 could not ask. pitau's `testnet/ucl-migration-drill.sh` runs it on a migrated network and against a
 proxy that alters one kind of answer at a time.

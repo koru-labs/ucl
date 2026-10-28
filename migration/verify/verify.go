@@ -58,6 +58,41 @@ type Config struct {
 	Workers int
 	// MaxFailures stops the run after this many failures; 0 means 100.
 	MaxFailures int
+	// Reconcile adds the balance reconciliation at To ([Reconciliation]).
+	Reconcile bool
+	// GenesisAccounts are the accounts ucl's genesis allocates, which no record names unless a
+	// block changed them; reconciliation counts them too.
+	GenesisAccounts []types.Address
+}
+
+// Reconciliation is the state at To in the form auditors read, from both chains side by side:
+// every account the chain ever held (the genesis' and every one a block changed), their native
+// total, the contracts among them, each ERC-20's supply against its holders' balances (holders:
+// those accounts and every address in a Transfer log), and the largest accounts. An account or a
+// token whose values differ between the chains is a failure.
+type Reconciliation struct {
+	Accounts    int            `json:"accounts"`
+	Contracts   int            `json:"contracts"`
+	NativeTotal *big.Int       `json:"nativeTotal"`
+	Tokens      []TokenSupply  `json:"tokens"`
+	Largest     []AccountValue `json:"largest"`
+}
+
+// TokenSupply is an ERC-20 at To: the same on both chains, or the check fails.
+type TokenSupply struct {
+	Token       types.Address `json:"token"`
+	TotalSupply *big.Int      `json:"totalSupply"`
+	Holders     int           `json:"holders"`
+	HoldersSum  *big.Int      `json:"holdersSum"`
+	// SumIsSupply: the holders' balances add up to the supply (false for a token whose holders
+	// no block and no genesis account names).
+	SumIsSupply bool `json:"sumIsSupply"`
+}
+
+// AccountValue is an account's native balance at To.
+type AccountValue struct {
+	Address types.Address `json:"address"`
+	Balance *big.Int      `json:"balance"`
 }
 
 // Failure is one check that did not hold.
@@ -80,6 +115,8 @@ type Report struct {
 	Accounts     uint64          `json:"accounts"`
 	Slots        uint64          `json:"slots"`
 	Failures     []Failure       `json:"failures"`
+	// Reconciliation is set with Config.Reconcile.
+	Reconciliation *Reconciliation `json:"reconciliation,omitempty"`
 }
 
 // OK reports whether every check held.
@@ -105,6 +142,13 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		ucl:    newClient(cfg.Ucl),
 		signer: newHashSigner(),
 		report: &Report{From: cfg.From, To: cfg.To, Failures: []Failure{}},
+
+		accounts: map[types.Address]struct{}{},
+		holders:  map[types.Address]map[types.Address]struct{}{},
+	}
+
+	for _, address := range cfg.GenesisAccounts {
+		v.accounts[address] = struct{}{}
 	}
 
 	if err := v.seals(ctx); err != nil {
@@ -159,6 +203,12 @@ feed:
 		return nil, err
 	}
 
+	if cfg.Reconcile && !v.full() {
+		if err := v.reconcile(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+
 	sort.Slice(v.report.Failures, func(i, j int) bool {
 		return v.report.Failures[i].Block < v.report.Failures[j].Block
 	})
@@ -174,6 +224,10 @@ type verifier struct {
 
 	mu     sync.Mutex
 	report *Report
+
+	// Every account a record names, and every address in each token's Transfer logs.
+	accounts map[types.Address]struct{}
+	holders  map[types.Address]map[types.Address]struct{}
 }
 
 func (v *verifier) fail(block uint64, check, format string, args ...interface{}) {
@@ -375,6 +429,180 @@ func (v *verifier) block(ctx context.Context, n uint64) error {
 	}
 
 	v.count(len(record.Transactions), len(record.Accounts), slots)
+	v.collect(record)
+
+	return nil
+}
+
+// transferTopic is ERC-20's Transfer(address,address,uint256).
+var transferTopic = types.BytesToHash(crypto.Keccak256([]byte("Transfer(address,address,uint256)")))
+
+// collect keeps the accounts a record names and the holders its Transfer logs name.
+func (v *verifier) collect(record *export.Record) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	for _, change := range record.Accounts {
+		v.accounts[change.Address] = struct{}{}
+	}
+
+	for _, receipt := range record.Receipts {
+		for _, log := range receipt.Logs {
+			if len(log.Topics) != 3 || log.Topics[0] != transferTopic {
+				continue
+			}
+
+			set := v.holders[log.Address]
+			if set == nil {
+				set = map[types.Address]struct{}{}
+				v.holders[log.Address] = set
+			}
+
+			set[types.BytesToAddress(log.Topics[1].Bytes())] = struct{}{}
+			set[types.BytesToAddress(log.Topics[2].Bytes())] = struct{}{}
+		}
+	}
+}
+
+// both asks pitau and ucl the same question at block To and returns both answers.
+func (v *verifier) both(ctx context.Context, method string, params ...interface{}) (string, string, error) {
+	var p, u string
+	if err := v.pitau.call(ctx, method, params, &p); err != nil {
+		return "", "", err
+	}
+
+	if err := v.ucl.call(ctx, method, params, &u); err != nil {
+		return "", "", err
+	}
+
+	return p, u, nil
+}
+
+func bigOf(s string) *big.Int {
+	n, ok := new(big.Int).SetString(strings.TrimPrefix(s, "0x"), 16)
+	if !ok {
+		return new(big.Int)
+	}
+
+	return n
+}
+
+// reconcile builds the reconciliation at To.
+func (v *verifier) reconcile(ctx context.Context) error {
+	tag := quantity(v.cfg.To)
+	r := &Reconciliation{NativeTotal: new(big.Int), Tokens: []TokenSupply{}}
+
+	accounts := make([]types.Address, 0, len(v.accounts))
+	for address := range v.accounts {
+		accounts = append(accounts, address)
+	}
+
+	sort.Slice(accounts, func(i, j int) bool { return bytes.Compare(accounts[i][:], accounts[j][:]) < 0 })
+
+	var contracts, balances []AccountValue
+
+	for _, address := range accounts {
+		p, u, err := v.both(ctx, "eth_getBalance", address.String(), tag)
+		if err != nil {
+			return err
+		}
+
+		if !sameHex(p, u) {
+			v.fail(v.cfg.To, "reconciliation", "balance of %s: pitau %s, ucl %s", address, p, u)
+		}
+
+		balance := bigOf(p)
+		r.NativeTotal.Add(r.NativeTotal, balance)
+		balances = append(balances, AccountValue{Address: address, Balance: balance})
+
+		pc, uc, err := v.both(ctx, "eth_getCode", address.String(), tag)
+		if err != nil {
+			return err
+		}
+
+		if !sameHex(pc, uc) {
+			v.fail(v.cfg.To, "reconciliation", "code of %s differs", address)
+		}
+
+		if len(strings.TrimPrefix(pc, "0x")) > 0 {
+			contracts = append(contracts, AccountValue{Address: address})
+		}
+	}
+
+	r.Accounts, r.Contracts = len(accounts), len(contracts)
+
+	// ERC-20s: contracts that answer totalSupply(), and every Transfer log emitter.
+	candidates := map[types.Address]struct{}{}
+	for _, c := range contracts {
+		candidates[c.Address] = struct{}{}
+	}
+
+	for token := range v.holders {
+		candidates[token] = struct{}{}
+	}
+
+	tokens := make([]types.Address, 0, len(candidates))
+	for token := range candidates {
+		tokens = append(tokens, token)
+	}
+
+	sort.Slice(tokens, func(i, j int) bool { return bytes.Compare(tokens[i][:], tokens[j][:]) < 0 })
+
+	for _, token := range tokens {
+		call := func(data string) (string, string, error) {
+			return v.both(ctx, "eth_call", map[string]string{"to": token.String(), "data": data}, tag)
+		}
+
+		p, u, err := call("0x18160ddd") // totalSupply()
+		if err != nil || len(strings.TrimPrefix(u, "0x")) != 64 {
+			continue // not an ERC-20, or a call that reverts: not a token
+		}
+
+		if !sameHex(p, u) {
+			v.fail(v.cfg.To, "reconciliation", "totalSupply of %s: pitau %s, ucl %s", token, p, u)
+		}
+
+		holders := map[types.Address]struct{}{}
+		for _, a := range accounts {
+			holders[a] = struct{}{}
+		}
+
+		for h := range v.holders[token] {
+			holders[h] = struct{}{}
+		}
+
+		sum := new(big.Int)
+
+		for holder := range holders {
+			data := "0x70a08231" + strings.Repeat("0", 24) + hex.EncodeToHex(holder.Bytes())[2:] // balanceOf(address)
+
+			hp, hu, err := call(data)
+			if err != nil {
+				return err
+			}
+
+			if !sameHex(hp, hu) {
+				v.fail(v.cfg.To, "reconciliation", "balanceOf(%s) on %s: pitau %s, ucl %s", holder, token, hp, hu)
+			}
+
+			sum.Add(sum, bigOf(hp))
+		}
+
+		supply := bigOf(p)
+		r.Tokens = append(r.Tokens, TokenSupply{
+			Token: token, TotalSupply: supply, Holders: len(holders), HoldersSum: sum,
+			SumIsSupply: sum.Cmp(supply) == 0,
+		})
+	}
+
+	sort.Slice(balances, func(i, j int) bool { return balances[i].Balance.Cmp(balances[j].Balance) > 0 })
+
+	if len(balances) > 10 {
+		balances = balances[:10]
+	}
+
+	r.Largest = balances
+	v.report.Reconciliation = r
 
 	return nil
 }
