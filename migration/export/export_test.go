@@ -26,6 +26,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 	"github.com/0xPolygon/polygon-edge/validators"
 	"github.com/hashicorp/go-hclog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/umbracle/fastrlp"
 )
@@ -94,6 +95,7 @@ func word(v uint64) []byte {
 type testChain struct {
 	t        *testing.T
 	state    state.State
+	storage  itrie.Storage
 	executor *state.Executor
 	signer   crypto.TxSigner
 	keys     []*ecdsa.PrivateKey
@@ -189,6 +191,7 @@ func newTestChain(t *testing.T) *testChain {
 		t:          t,
 		validators: validators.NewECDSAValidatorSet(),
 		state:      st,
+		storage:    storage,
 		executor:   executor,
 		signer:     crypto.NewSigner(chain.AllForksEnabled.At(0), chainID),
 		nonces:     map[types.Address]uint64{},
@@ -556,7 +559,7 @@ func (a *applied) apply(t *testing.T, r *Record) {
 }
 
 func newExporter(c *testChain) *Exporter {
-	return NewExporter(c, c.executor, proposerConsensus{})
+	return NewExporter(c, IsolatedExecutor(c.executor, c.storage), proposerConsensus{})
 }
 
 // T3: every block re-executes to its stored roots, records survive encoding, and applying the
@@ -700,11 +703,66 @@ func TestIrreproducibleBlockStopsTheRange(t *testing.T) {
 	require.False(t, cached)
 }
 
+// Blocks are exported at once, and while the node imports new blocks on its own state, as on an
+// export observer: ucl's tries write to their nodes on reads and deletes, so the exporter must not
+// share them (IsolatedExecutor). Run with -race; every export must also give the same record.
+func TestExportWhileTheNodeImports(t *testing.T) {
+	c := mixedChain(t)
+	exporter := newExporter(c)
+	head := c.Header().Number
+	store1 := func(value uint64) []byte { return append(word(1), word(value)...) }
+
+	want := make([][]byte, head+1)
+
+	for n := uint64(1); n <= head; n++ {
+		record, err := exporter.Export(n)
+		require.NoError(t, err)
+
+		want[n] = record.MarshalRLP()
+	}
+
+	done := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+
+				for n := uint64(1); n <= head; n++ {
+					record, err := exporter.Export(n)
+					if !assert.NoError(t, err) || !assert.Equal(t, want[n], record.MarshalRLP(), "block %d", n) {
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	// The node imports on its own executor, whose State caches tries: writes and deletes of a slot
+	// the exported blocks wrote too.
+	for i := uint64(0); i < 20; i++ {
+		c.seal(c.tx(0, &store, big.NewInt(0), store1(i%2), false))
+	}
+
+	close(done)
+	wg.Wait()
+}
+
 // Concurrent and overlapping ranges execute each block once; later requests, and a new service on
 // the same cache, execute nothing.
 func TestEachBlockExecutesOnce(t *testing.T) {
 	c := mixedChain(t)
-	counting := &countingExecutor{inner: c.executor, runs: map[uint64]int{}}
+	counting := &countingExecutor{inner: IsolatedExecutor(c.executor, c.storage), runs: map[uint64]int{}}
 	dir := t.TempDir()
 
 	cache, err := NewCache(dir)
@@ -787,7 +845,7 @@ func TestRangeLimits(t *testing.T) {
 // A damaged cache entry is dropped and the block executed again.
 func TestDamagedCacheEntryIsRecomputed(t *testing.T) {
 	c := mixedChain(t)
-	counting := &countingExecutor{inner: c.executor, runs: map[uint64]int{}}
+	counting := &countingExecutor{inner: IsolatedExecutor(c.executor, c.storage), runs: map[uint64]int{}}
 	dir := t.TempDir()
 
 	cache, err := NewCache(dir)

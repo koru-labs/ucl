@@ -17,6 +17,9 @@ once across all requests.
   frame). A damaged or foreign entry is dropped and recomputed.
 - **One job per block.** Concurrent and overlapping requests share each block's execution
   (single-flight by block number).
+- **A state of its own.** The export executes on its own trie state, without the node's cache of
+  tries (`export.IsolatedExecutor`): ucl's tries write to their nodes on reads and deletes, so they
+  cannot be shared between blocks exported at once, or with the node's own block import and RPC.
 - **Ranges.** At most 1,000 blocks and 64 MiB of frames per answer (always at least one record),
   capped at the head. The first block that fails ends the range, after the records before it.
 

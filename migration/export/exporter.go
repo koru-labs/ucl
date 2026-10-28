@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/0xPolygon/polygon-edge/state"
+	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
 )
@@ -23,6 +24,17 @@ type Chain interface {
 // Executor executes a block on its parent's state, as the chain does when it imports it.
 type Executor interface {
 	ProcessBlock(parentRoot types.Hash, block *types.Block, blockCreator types.Address) (*state.Transition, error)
+}
+
+// IsolatedExecutor returns the node's executor over a State of its own without a trie cache, on the
+// same storage: what the exporter must execute with. ucl's tries are not safe to share between
+// goroutines: a read stores the nodes it loads into the trie it walks (Txn.lookup) and a delete
+// clears a node's cached hash in place (Txn.delete), so blocks exported at once, or one exported
+// while the node imports another, would write to trie nodes another goroutine reads, through the
+// State's cache of tries by root. Without the cache every export loads its own nodes from storage,
+// which is safe for concurrent use; the trie nodes its commit writes are the ones already stored.
+func IsolatedExecutor(executor *state.Executor, storage itrie.Storage) *state.Executor {
+	return executor.WithState(itrie.NewState(storage, itrie.WithCaching(false)))
 }
 
 // Consensus is the part of the consensus engine that takes part in executing a block.

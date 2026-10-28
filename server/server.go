@@ -1258,7 +1258,7 @@ func (s *Server) setupJSONRPC() error {
 		}
 
 		conf.MigrationExporter = export.NewService(
-			export.NewExporter(s.blockchain, s.executor, s.consensus),
+			export.NewExporter(s.blockchain, export.IsolatedExecutor(s.executor, s.stateStorage), s.consensus),
 			s.blockchain,
 			cache,
 			config,

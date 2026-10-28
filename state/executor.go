@@ -543,6 +543,15 @@ func (t *Transition) CommitObjects() (Snapshot, types.Hash, []*Object, error) {
 	return s2, types.BytesToHash(root), objs, nil
 }
 
+// WithState returns a copy of the executor, with the same rules and hooks, over another State. The
+// ucl to pitau migration exporter (migration/export) executes on a State of its own.
+func (e *Executor) WithState(s State) *Executor {
+	c := *e
+	c.state = s
+
+	return &c
+}
+
 // ParentSnapshot returns the state the transition started from, unchanged by Commit: the values
 // every account and slot had before the block.
 func (t *Transition) ParentSnapshot() Snapshot {
