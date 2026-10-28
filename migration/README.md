@@ -75,3 +75,33 @@ balance, the empty code hash and storage root, and a proof that the state does n
 relay sentries read the halt and the validator registry at the cutover block this way, believing only
 what the proofs and the block's IBFT seals show. pitau's tests check every proof of the vectors
 network (`e2e/migration_rpc_test.go`) and that reth answers the same proofs byte for byte.
+
+## Independent verifier (`migration/verify`, `migration/cmd/ucl-migration-verify`, §7.5)
+
+```bash
+go build -o ucl-migration-verify ./migration/cmd/ucl-migration-verify
+ucl-migration-verify --pitau http://pitau-archive:8545 --ucl http://ucl-archive:8545 --to <H> \
+  [--from 0] [--validators 0xa,0xb,…] [--workers 8] [--report report.json]
+```
+
+It asks a pitau archive, over its JSON-RPC (`eth_*` only), what it holds of ucl's history, and checks
+every answer with ucl's own code against a ucl archive (a ucl node with the export endpoint, ideally
+the frozen archive kept after the halt). For every block from `--from` to `--to`:
+
+- every header field pitau answers equals ucl's, and pitau's header hashes to ucl's hash of the block
+  under ucl's IBFT header hash (`CalculateHeaderHash`); the parent hash is ucl's hash of the block
+  before. ucl's hash leaves out the mix hash, the nonce and the base fee, which is why the fields are
+  compared one by one;
+- pitau's transactions (`eth_getRawTransactionByHash`) reproduce the header's transactions root and
+  are ucl's;
+- pitau's receipts (`eth_getBlockReceipts`) reproduce the header's receipts root under ucl's formula
+  (untyped receipt RLP, `buildroot.CalculateReceiptsRoot`);
+- for every account and slot the block changed (ucl's export record names them), balance, nonce,
+  code and storage are the same on pitau and ucl at the block and at its parent. No root covers the
+  values before a block, so this is their only independent check.
+
+And block `--to` carries the committed seals of a quorum (`2N/3 + 1`) of ucl's validators: those
+`--validators` names, else those block 0 names, over the hash and the round as ucl checks them
+(`ibft.ProposalHash`). It exits 0 when every check held, 1 when one failed (each listed), 2 when it
+could not ask. pitau's `testnet/ucl-migration-drill.sh` runs it on a migrated network and against a
+proxy that alters one kind of answer at a time.

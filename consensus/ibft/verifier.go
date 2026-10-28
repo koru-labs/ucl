@@ -44,9 +44,16 @@ func (i *backendIBFT) calculateProposalHash(
 	header *types.Header,
 	round *uint64,
 ) (types.Hash, error) {
+	return ProposalHash(header.Hash, round), nil
+}
+
+// ProposalHash is the hash a block's committed seals sign: the block's hash and, from go-ibft on,
+// the round it was decided in (its IBFT extra's round number). The migration's verifier checks
+// seals with it (migration/verify).
+func ProposalHash(hash types.Hash, round *uint64) types.Hash {
 	if round == nil {
 		// legacy hash calculation
-		return header.Hash, nil
+		return hash
 	}
 
 	roundBytes := make([]byte, 8)
@@ -54,10 +61,10 @@ func (i *backendIBFT) calculateProposalHash(
 
 	return types.BytesToHash(
 		crypto.Keccak256(
-			header.Hash.Bytes(),
+			hash.Bytes(),
 			roundBytes,
 		),
-	), nil
+	)
 }
 
 func (i *backendIBFT) IsValidProposal(rawProposal []byte) bool {
