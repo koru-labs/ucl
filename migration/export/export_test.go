@@ -414,7 +414,7 @@ func mixedChain(t *testing.T) *testChain {
 		c.tx(1, &fresh, big.NewInt(7), nil, false),
 		// pitau's validator registry, deployed as on mainnet before the cutover: by a transaction,
 		// at the address registryAddress names.
-		c.txWithGas(2, nil, big.NewInt(0), registryInit(t), false, 8_000_000),
+		c.txWithGas(2, nil, big.NewInt(0), registryInit(t), false, 12_000_000),
 	)
 	c.seal(
 		c.tx(0, &store, big.NewInt(0), input(1, 11), false),
@@ -443,20 +443,24 @@ func mixedChain(t *testing.T) *testChain {
 	return c
 }
 
-// registryKey is the one validator the test chain's registry holds: an ML-DSA-65 public key's
-// length, deterministic bytes.
-func registryKey() []byte {
-	key := make([]byte, 1952)
-	for i := range key {
-		key[i] = byte(i*7 + 3)
+// registryKeys are the four validators the test chain's registry holds: ML-DSA-65 public keys'
+// length, deterministic bytes. Four, so that pitau's tests can change the set after the cutover:
+// its churn rule lets a set of four grow by one, and a set of one not at all.
+func registryKeys() [][]byte {
+	keys := make([][]byte, 4)
+	for k := range keys {
+		keys[k] = make([]byte, 1952)
+		for i := range keys[k] {
+			keys[k][i] = byte(i*7 + 3 + 11*k)
+		}
 	}
 
-	return key
+	return keys
 }
 
 // registryInit is pitau's stub validator registry (pitau's contracts/src/ValidatorRegistry.sol,
 // creation bytecode copied from pitau's crates/pitau-exec/res/validator-registry-initcode.hex)
-// with its constructor arguments: at most 50 validators, ML-DSA-65 keys only, registryKey.
+// with its constructor arguments: at most 50 validators, ML-DSA-65 keys only, registryKeys.
 func registryInit(t *testing.T) []byte {
 	t.Helper()
 
@@ -466,12 +470,17 @@ func registryInit(t *testing.T) []byte {
 	code, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(string(raw)), "0x"))
 	require.NoError(t, err)
 
+	initial := []map[string]interface{}{}
+	for _, key := range registryKeys() {
+		initial = append(initial, map[string]interface{}{"keyType": uint8(2), "pubKey": key})
+	}
+
 	args, err := abi.MustNewType(
 		"tuple(uint256 maxValidators, uint256 keyTypeMask, tuple(uint8 keyType, bytes pubKey)[] initial)",
 	).Encode(map[string]interface{}{
 		"maxValidators": big.NewInt(50),
 		"keyTypeMask":   big.NewInt(1 << 2),
-		"initial":       []map[string]interface{}{{"keyType": uint8(2), "pubKey": registryKey()}},
+		"initial":       initial,
 	})
 	require.NoError(t, err)
 
@@ -805,11 +814,11 @@ func TestFrameChecksum(t *testing.T) {
 type recordVectors struct {
 	ChainID    uint64   `json:"chain_id"`
 	Validators []string `json:"validators"`
-	// Registry is the validator registry block 1 deploys, holding RegistryKey.
-	Registry    string         `json:"registry"`
-	RegistryKey string         `json:"registry_key"`
-	Genesis     genesisVector  `json:"genesis"`
-	Records     []recordVector `json:"records"`
+	// Registry is the validator registry block 1 deploys, holding RegistryKeys.
+	Registry     string         `json:"registry"`
+	RegistryKeys []string       `json:"registry_keys"`
+	Genesis      genesisVector  `json:"genesis"`
+	Records      []recordVector `json:"records"`
 }
 
 type genesisVector struct {
@@ -951,7 +960,9 @@ func TestRecordVectors(t *testing.T) {
 	}
 
 	file.Registry = crypto.CreateAddress(c.address(2), 0).String()
-	file.RegistryKey = hex.EncodeToString(registryKey())
+	for _, key := range registryKeys() {
+		file.RegistryKeys = append(file.RegistryKeys, hex.EncodeToString(key))
+	}
 
 	path := filepath.Join("..", "testdata", "records.json")
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
