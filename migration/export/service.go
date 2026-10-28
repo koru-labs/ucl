@@ -73,6 +73,7 @@ func (s *Service) Frame(number uint64) ([]byte, error) {
 		}
 
 		s.workers <- struct{}{}
+
 		defer func() { <-s.workers }()
 
 		record, err := s.exporter.Export(number)

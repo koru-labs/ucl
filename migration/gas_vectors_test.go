@@ -146,6 +146,7 @@ func TestGasVectors(t *testing.T) {
 	}
 
 	path := filepath.Join("testdata", "gas.json")
+
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
 		data, err := json.MarshalIndent(map[string]interface{}{
 			"sender": gasSender, "target": gasTarget, "helper": gasHelper, "eoa": gasEOA, "fresh": gasFresh,

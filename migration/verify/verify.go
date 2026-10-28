@@ -21,7 +21,6 @@ package verify
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -136,11 +135,16 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		cfg.MaxFailures = 100
 	}
 
+	hashSigner, err := newHashSigner()
+	if err != nil {
+		return nil, err
+	}
+
 	v := &verifier{
 		cfg:    cfg,
 		pitau:  newClient(cfg.Pitau),
 		ucl:    newClient(cfg.Ucl),
-		signer: newHashSigner(),
+		signer: hashSigner,
 		report: &Report{From: cfg.From, To: cfg.To, Failures: []Failure{}},
 
 		accounts: map[types.Address]struct{}{},
@@ -172,6 +176,7 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 			for n := range blocks {
 				if err := v.block(ctx, n); err != nil {
 					errs <- err
+
 					cancel()
 
 					return
@@ -234,7 +239,8 @@ func (v *verifier) fail(block uint64, check, format string, args ...interface{})
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	v.report.Failures = append(v.report.Failures, Failure{Block: block, Check: check, Detail: fmt.Sprintf(format, args...)})
+	v.report.Failures = append(v.report.Failures,
+		Failure{Block: block, Check: check, Detail: fmt.Sprintf(format, args...)})
 }
 
 func (v *verifier) full() bool {
@@ -883,16 +889,16 @@ func (v *verifier) sealers(hash types.Hash, seals signer.Seals, set validators.V
 }
 
 // newHashSigner is a signer for ucl's IBFT header hash and seal checks; its own key signs nothing.
-func newHashSigner() signer.Signer {
+func newHashSigner() (signer.Signer, error) {
 	key, err := crypto.GenerateECDSAPrivateKey()
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("the hash signer's key: %w", err)
 	}
 
 	// The parent key manager reads the parent's committed seals in every header above block 1.
-	manager := signer.NewECDSAKeyManagerFromKey((*ecdsa.PrivateKey)(key))
+	manager := signer.NewECDSAKeyManagerFromKey(key)
 
-	return signer.NewSigner(manager, manager)
+	return signer.NewSigner(manager, manager), nil
 }
 
 func quantity(n uint64) string { return fmt.Sprintf("0x%x", n) }
@@ -970,11 +976,12 @@ func (c *client) once(ctx context.Context, method string, body []byte, out inter
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.http.Do(req)
+	// The URL is the operator's --pitau or --ucl flag: asking it is the verifier's whole job.
+	resp, err := c.http.Do(req) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("%s at %s: %w", method, c.url, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	var answer struct {
 		Result json.RawMessage `json:"result"`

@@ -23,7 +23,7 @@ const blocksPerDir = 10_000
 
 func NewCache(dir string) (*Cache, error) {
 	dir = filepath.Join(dir, "v"+strconv.Itoa(FormatVersion))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 
@@ -65,7 +65,7 @@ func (c *Cache) Get(number uint64, hash types.Hash) ([]byte, bool) {
 // Put stores a frame, atomically: a reader sees the whole entry or none.
 func (c *Cache) Put(number uint64, hash types.Hash, frame []byte) error {
 	path := c.path(number)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
@@ -79,14 +79,15 @@ func (c *Cache) Put(number uint64, hash types.Hash, frame []byte) error {
 		err = closeErr
 	}
 
+	// tmp is the file CreateTemp just made in the cache's own directory, not an outside path.
 	if err != nil {
-		_ = os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name()) //nolint:gosec
 
 		return err
 	}
 
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := os.Rename(tmp.Name(), path); err != nil { //nolint:gosec
+		_ = os.Remove(tmp.Name()) //nolint:gosec
 
 		return fmt.Errorf("cache entry for block %d: %w", number, err)
 	}

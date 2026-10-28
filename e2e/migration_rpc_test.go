@@ -87,7 +87,7 @@ func (c *rpcClient) call(record bool, method string, params ...interface{}) json
 	body, err := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	require.NoError(c.t, err)
 
-	resp, err := http.Post(c.url, "application/json", bytes.NewReader(body)) //nolint:gosec
+	resp, err := http.Post(c.url, "application/json", bytes.NewReader(body))
 	require.NoError(c.t, err)
 
 	defer resp.Body.Close()
@@ -155,9 +155,9 @@ func (c *rpcClient) send(signer crypto.TxSigner, chainID uint64, from *migration
 func (c *rpcClient) receipt(hash types.Hash) uint64 {
 	c.t.Helper()
 
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().UTC().Add(60 * time.Second)
 
-	for time.Now().Before(deadline) {
+	for time.Now().UTC().Before(deadline) {
 		var r *struct {
 			Status      string `json:"status"`
 			BlockNumber string `json:"blockNumber"`
@@ -392,6 +392,7 @@ func TestMigrationRPCVectors(t *testing.T) {
 		c.call(true, "eth_getBlockByNumber", tag, true)
 		c.call(true, "eth_getBlockByHash", block.Hash, false)
 		c.call(true, "eth_getBlockTransactionCountByNumber", tag)
+
 		blockHashes = append(blockHashes, block.Hash)
 
 		for i, tx := range block.Transactions {
@@ -406,6 +407,7 @@ func TestMigrationRPCVectors(t *testing.T) {
 			"fromBlock": "0x0", "toBlock": fmt.Sprintf("0x%x", cutover), "address": emitter,
 		})
 	}
+
 	c.call(true, "eth_chainId")
 	c.call(true, "eth_blockNumber")
 
@@ -558,7 +560,8 @@ func TestMigrationRPCVectors(t *testing.T) {
 		}
 	}
 
-	var proofs []rpcProof
+	// One proof per address at each of three blocks; each block may add its miner.
+	proofs := make([]rpcProof, 0, 3*(len(written)+1))
 
 	for _, at := range []uint64{cutover - 2, cutover - 1, cutover} {
 		var block struct {

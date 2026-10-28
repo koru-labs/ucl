@@ -25,11 +25,13 @@ func main() {
 	ucl := flag.String("ucl", "", "a ucl archive's JSON-RPC, with the export endpoint (ucl_exportBlocks)")
 	from := flag.Uint64("from", 0, "the first block to check")
 	to := flag.Uint64("to", 0, "the last block to check: the cutover block H")
-	validators := flag.String("validators", "", "ucl's validators whose quorum sealed --to, comma-separated (default: block 0's)")
+	validators := flag.String("validators", "",
+		"ucl's validators whose quorum sealed --to, comma-separated (default: block 0's)")
 	workers := flag.Int("workers", 8, "blocks checked at once")
 	report := flag.String("report", "", "write the report here as JSON")
 	reconcile := flag.Bool("reconcile", false, "add the balance reconciliation at --to")
 	genesis := flag.String("ucl-genesis", "", "ucl's genesis file, whose accounts the reconciliation counts too")
+
 	flag.Parse()
 
 	if *pitau == "" || *ucl == "" || *to == 0 {
@@ -76,7 +78,8 @@ func main() {
 		}
 	}
 
-	fmt.Printf("blocks %d..%d: %d checked, %d transactions, %d accounts and %d slots compared at each block and its parent\n",
+	fmt.Printf("blocks %d..%d: %d checked, %d transactions, %d accounts and %d slots compared "+
+		"at each block and its parent\n",
 		result.From, result.To, result.Blocks, result.Transactions, result.Accounts, result.Slots)
 	fmt.Printf("block %d: hash %s, state root %s, sealed by %d of %d validators\n",
 		result.To, result.Hash, result.StateRoot, len(result.SealedBy), len(result.Validators))

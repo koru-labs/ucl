@@ -307,6 +307,7 @@ func (c *testChain) txWithGas(i int, to *types.Address, value *big.Int, input []
 
 	signed.From = from
 	signed.ComputeHash(0)
+
 	c.nonces[from]++
 
 	return signed
@@ -473,8 +474,10 @@ func registryInit(t *testing.T) []byte {
 	code, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(string(raw)), "0x"))
 	require.NoError(t, err)
 
-	initial := []map[string]interface{}{}
-	for _, key := range registryKeys() {
+	keys := registryKeys()
+
+	initial := make([]map[string]interface{}, 0, len(keys))
+	for _, key := range keys {
 		initial = append(initial, map[string]interface{}{"keyType": uint8(2), "pubKey": key})
 	}
 
@@ -528,6 +531,7 @@ func (a *applied) apply(t *testing.T, r *Record) {
 
 			for _, slot := range change.Storage {
 				slot.Before = types.ZeroHash
+
 				if a.storage[change.Address] == nil {
 					a.storage[change.Address] = map[types.Hash]types.Hash{}
 				}
@@ -568,6 +572,7 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 	for _, address := range []types.Address{store, doomed, factory, c.address(0), c.address(1), c.address(2)} {
 		account, err := genesis.GetAccount(address)
 		require.NoError(t, err)
+
 		view.accounts[address] = Account{
 			Nonce: account.Nonce, Balance: account.Balance, CodeHash: types.BytesToHash(account.CodeHash),
 		}
@@ -640,12 +645,14 @@ func TestRecordsReproduceTheChain(t *testing.T) {
 		}
 
 		// No slot more or less: the slots the records leave make the account's storage root.
-		require.Equal(t, got.Root, storageRoot(view.storage[address]), "%s storage root", address)
+		require.Equal(t, got.Root, storageRoot(t, view.storage[address]), "%s storage root", address)
 	}
 }
 
 // storageRoot is the root of a storage trie holding slots, as ucl's state commit builds it.
-func storageRoot(slots map[types.Hash]types.Hash) types.Hash {
+func storageRoot(t *testing.T, slots map[types.Hash]types.Hash) types.Hash {
+	t.Helper()
+
 	txn := itrie.NewTrie().Txn(itrie.NewMemoryStorage())
 	ar := &fastrlp.Arena{}
 
@@ -658,9 +665,7 @@ func storageRoot(slots map[types.Hash]types.Hash) types.Hash {
 	}
 
 	root, err := txn.Hash()
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 
 	return types.BytesToHash(root)
 }
@@ -968,6 +973,7 @@ func TestRecordVectors(t *testing.T) {
 	}
 
 	path := filepath.Join("..", "testdata", "records.json")
+
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
 		data, err := json.MarshalIndent(file, "", "  ")
 		require.NoError(t, err)

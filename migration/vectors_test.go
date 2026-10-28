@@ -80,6 +80,7 @@ func sealedHeader(t *testing.T, number uint64, parentSeals signer.Seals, signers
 	proposalHash := crypto.Keccak256(hash.Bytes(), round)
 
 	seals := map[types.Address][]byte{}
+
 	for _, s := range signers[:3] {
 		seal, err := s.CreateCommittedSeal(proposalHash)
 		require.NoError(t, err)
@@ -109,7 +110,7 @@ func sealedHeader(t *testing.T, number uint64, parentSeals signer.Seals, signers
 func TestMigrationVectors(t *testing.T) {
 	signers := []*signer.SignerImpl{key(t, 0), key(t, 1), key(t, 2), key(t, 3)}
 
-	var vectors []ibftVector
+	vectors := make([]ibftVector, 0, 2)
 
 	// Block 1 has no parent seals; later blocks carry the parent's committed seals.
 	first, firstHash := sealedHeader(t, 1, nil, signers)
@@ -139,6 +140,7 @@ func TestMigrationVectors(t *testing.T) {
 	}
 
 	path := filepath.Join("testdata", "ibft_headers.json")
+
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
 		data, err := json.MarshalIndent(vectors, "", "  ")
 		require.NoError(t, err)

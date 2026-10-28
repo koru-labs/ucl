@@ -43,7 +43,8 @@ func TestGenesisVector(t *testing.T) {
 	}
 
 	cmd := genesis.GetCommand()
-	args := []string{
+
+	args := append(make([]string, 0, 20+4*len(validators)),
 		"--dir", path,
 		"--name", "Koru",
 		"--consensus", "ibft",
@@ -55,7 +56,7 @@ func TestGenesisVector(t *testing.T) {
 		// A funded account, and one premined with nothing, as mainnet's faucet is: ucl stores it.
 		"--premine", "0x523dFd72b47053370eD998999016Ac4375d2d0Cb:50000000000000000000000000000",
 		"--premine", "0xd10207393acbc919caAA7E8A1B040397009bB6B8:0",
-	}
+	)
 	for _, v := range validators {
 		args = append(args, "--validators", v, "--premine", v+":1000000000000000000000000")
 	}
@@ -108,6 +109,7 @@ func TestGenesisVector(t *testing.T) {
 	require.Equal(t, 4, extra.Validators.Len())
 
 	out := filepath.Join("testdata", "ucl_genesis.json")
+
 	if os.Getenv("UPDATE_MIGRATION_VECTORS") == "1" {
 		data, err := json.MarshalIndent(file, "", "  ")
 		require.NoError(t, err)

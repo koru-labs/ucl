@@ -34,7 +34,8 @@ func ShouldHalt(exec TxnBeginner, contract types.Address, parent *types.Header, 
 
 	txn.SetNonPayable(true)
 
-	input := append(append([]byte{}, shouldHaltSelector...), types.BytesToHash(new(big.Int).SetUint64(h).Bytes()).Bytes()...)
+	argument := types.BytesToHash(new(big.Int).SetUint64(h).Bytes())
+	input := append(append([]byte{}, shouldHaltSelector...), argument.Bytes()...)
 
 	result, err := txn.Apply(&types.Transaction{
 		From:     types.ZeroAddress,
