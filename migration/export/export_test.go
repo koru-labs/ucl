@@ -322,8 +322,11 @@ func (c *testChain) seal(txs ...*types.Transaction) *types.Block {
 		GasLimit:   parent.GasLimit,
 		Timestamp:  parent.Timestamp + 1,
 		Difficulty: parent.Number + 1,
+		// A fixed base fee, as ucl runs with --with-base-fee-fixed.
 		BaseFee:    gwei.Uint64(),
 		Sha3Uncles: types.EmptyUncleHash,
+		// What ucl's IBFT requires of every block's mix hash, which its block hash leaves out.
+		MixHash: signer.IstanbulDigest,
 	}
 	block := &types.Block{Header: header, Transactions: txs}
 
