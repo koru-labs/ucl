@@ -48,7 +48,7 @@ func BenchmarkTriePebbleDb(b *testing.B) {
 
 	startProfiler()
 
-	executeTrieDbTest(b, 10)
+	executeTrieDbTest(b, 25)
 }
 
 func executeTrieDbTest(b *testing.B, writeTime float64) {
