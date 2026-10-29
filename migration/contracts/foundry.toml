@@ -1,0 +1,13 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+solc = "0.8.28"
+# London: the contract runs on ucl's EVM and on pitau's for blocks before the cutover, which pitau
+# executes under London until its EVM runs ucl's rules there (pitau's ucl-migration.md §9).
+evm_version = "london"
+optimizer = true
+optimizer_runs = 1000
+bytecode_hash = "none"
+cbor_metadata = false

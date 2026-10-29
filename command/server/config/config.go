@@ -78,6 +78,14 @@ type Config struct {
 	EnableAllDebugEndpoints  bool `json:"enable_all_debug_endpoints" yaml:"enable_all_debug_endpoints"`
 	EnableConsensusEndpoints bool `json:"enable_consensus_endpoints" yaml:"enable_consensus_endpoints"`
 
+	// MigrationExportDir enables the ucl to pitau migration's export endpoint, caching records there.
+	MigrationExportDir string `json:"migration_export_dir" yaml:"migration_export_dir"`
+	// MigrationExportWorkers is how many blocks the export endpoint executes at once.
+	MigrationExportWorkers uint64 `json:"migration_export_workers" yaml:"migration_export_workers"`
+	// MigrationAttestations is the migration's attestation contract; when set, the node halts at
+	// the cutover block it names.
+	MigrationAttestations string `json:"migration_attestations" yaml:"migration_attestations"`
+
 	// ConsensusStatePushURL enables the consensus-state push worker when non-empty.
 	ConsensusStatePushURL string `json:"consensus_state_push_url" yaml:"consensus_state_push_url"`
 	// ConsensusStatePushToken is the bearer token sent with push requests.
@@ -300,6 +308,8 @@ func DefaultConfig() *Config {
 		EnableTxPoolEndpoints:       false,
 		EnableAllDebugEndpoints:     false,
 		EnableConsensusEndpoints:    false,
+		MigrationExportDir:          "",
+		MigrationExportWorkers:      4,
 		ConsensusStatePushURL:       "",
 		ConsensusStatePushToken:     "",
 		ConsensusStatePushInterval:  DefaultConsensusStatePushInterval,

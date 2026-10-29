@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 
 	"github.com/0xPolygon/polygon-edge/command/server/config"
 	"github.com/0xPolygon/polygon-edge/consensus/ibft/signer"
@@ -17,6 +18,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/server"
+	"github.com/0xPolygon/polygon-edge/types"
 )
 
 var (
@@ -63,7 +65,37 @@ func (p *serverParams) initRawParams() error {
 
 	p.relayer = p.rawConfig.Relayer
 
+	if err := p.initMigrationAttestations(); err != nil {
+		return err
+	}
+
 	return p.initAddresses()
+}
+
+// initMigrationAttestations parses --migration-attestations strictly: a mistyped address would
+// never halt the node, so a malformed one stops it from starting.
+func (p *serverParams) initMigrationAttestations() error {
+	raw := p.rawConfig.MigrationAttestations
+	if raw == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(raw, "0x") {
+		return fmt.Errorf("%s %q: an address starts with 0x", migrationAttestationsFlag, raw)
+	}
+
+	if err := types.IsValidAddress(raw); err != nil {
+		return fmt.Errorf("%s: %w", migrationAttestationsFlag, err)
+	}
+
+	contract := types.StringToAddress(raw)
+	if contract == types.ZeroAddress {
+		return fmt.Errorf("%s: the zero address", migrationAttestationsFlag)
+	}
+
+	p.migrationAttestations = &contract
+
+	return nil
 }
 
 func (p *serverParams) initDataDirLocation() error {

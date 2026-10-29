@@ -37,6 +37,33 @@ type Account struct {
 	Nonce   uint64
 }
 
+// AccountProof is the Merkle proof of an account in a block's state, and of some of its storage
+// slots in the account's storage, as eth_getProof (EIP-1186) answers them.
+type AccountProof struct {
+	Nonce       uint64
+	Balance     *big.Int
+	CodeHash    types.Hash
+	StorageHash types.Hash
+	// The state trie's nodes from the root towards keccak256(address).
+	Proof   [][]byte
+	Storage []StorageProof
+}
+
+// StorageProof is the Merkle proof of one storage slot in an account's storage.
+type StorageProof struct {
+	Key types.Hash
+	// The slot's value, big-endian; zero if the slot is empty.
+	Value []byte
+	// The storage trie's nodes from the account's storage root towards keccak256(key).
+	Proof [][]byte
+}
+
+// ethProofStore answers eth_getProof. It is separate from ethStateStore so that stores that
+// cannot prove their state need not implement it.
+type ethProofStore interface {
+	GetProof(root types.Hash, addr types.Address, slots []types.Hash) (*AccountProof, error)
+}
+
 type ethStateStore interface {
 	GetAccount(root types.Hash, addr types.Address) (*Account, error)
 	GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error)
@@ -950,6 +977,78 @@ func (e *Eth) GetCode(address types.Address, filter BlockNumberOrHash) (interfac
 	}
 
 	return argBytesPtr(code), nil
+}
+
+type storageProofResult struct {
+	Key   types.Hash `json:"key"`
+	Value argBig     `json:"value"`
+	Proof []argBytes `json:"proof"`
+}
+
+type accountProofResult struct {
+	Address      types.Address        `json:"address"`
+	AccountProof []argBytes           `json:"accountProof"`
+	Balance      argBig               `json:"balance"`
+	CodeHash     types.Hash           `json:"codeHash"`
+	Nonce        argUint64            `json:"nonce"`
+	StorageHash  types.Hash           `json:"storageHash"`
+	StorageProof []storageProofResult `json:"storageProof"`
+}
+
+// GetProof returns the Merkle proof of an account in the state of a block, and of each of `slots`
+// in its storage (EIP-1186), so that a client holding only the block's header can check what the
+// node answers about its state: the account proof leads from the header's state root to the
+// account, each storage proof from the account's storage root to the slot. An account that does
+// not exist is answered with zero nonce and balance, the empty code hash and the empty storage
+// root, and a proof that the state does not hold it.
+func (e *Eth) GetProof(
+	address types.Address,
+	slots []types.Hash,
+	filter BlockNumberOrHash,
+) (interface{}, error) {
+	store, ok := e.store.(ethProofStore)
+	if !ok {
+		return nil, errors.New("eth_getProof is not available on this node")
+	}
+
+	header, err := GetHeaderFromBlockNumberOrHash(filter, e.store)
+	if err != nil {
+		return nil, err
+	}
+
+	proof, err := store.GetProof(header.StateRoot, address, slots)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := func(proof [][]byte) []argBytes {
+		out := make([]argBytes, len(proof))
+		for i, node := range proof {
+			out[i] = node
+		}
+
+		return out
+	}
+
+	result := &accountProofResult{
+		Address:      address,
+		AccountProof: nodes(proof.Proof),
+		Balance:      argBig(*proof.Balance),
+		CodeHash:     proof.CodeHash,
+		Nonce:        argUint64(proof.Nonce),
+		StorageHash:  proof.StorageHash,
+		StorageProof: make([]storageProofResult, len(proof.Storage)),
+	}
+
+	for i, slot := range proof.Storage {
+		result.StorageProof[i] = storageProofResult{
+			Key:   slot.Key,
+			Value: argBig(*new(big.Int).SetBytes(slot.Value)),
+			Proof: nodes(slot.Proof),
+		}
+	}
+
+	return result, nil
 }
 
 // NewFilter creates a filter object, based on filter options, to notify when the state changes (logs).

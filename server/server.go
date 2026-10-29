@@ -22,6 +22,7 @@ import (
 	consensusPolyBFT "github.com/0xPolygon/polygon-edge/consensus/polybft"
 	"github.com/0xPolygon/polygon-edge/forkmanager"
 	"github.com/0xPolygon/polygon-edge/gasprice"
+	"github.com/0xPolygon/polygon-edge/migration/export"
 
 	"github.com/0xPolygon/polygon-edge/archive"
 	"github.com/0xPolygon/polygon-edge/blockchain"
@@ -368,6 +369,11 @@ func NewServer(config *Config) (*Server, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if config.MigrationAttestations != nil {
+		m.blockchain.SetMigrationAttestations(*config.MigrationAttestations)
+		logger.Info("migration halt enabled", "attestations", config.MigrationAttestations.String())
 	}
 
 	// here we can provide some other configuration
@@ -734,6 +740,62 @@ func (j *jsonRPCHub) GetStorage(stateRoot types.Hash, addr types.Address, slot t
 	res := snap.GetStorage(addr, account.Root, slot)
 
 	return res.Bytes(), nil
+}
+
+// GetProof proves the account `addr` in the state with root `root`, and each of `slots` in the
+// account's storage (eth_getProof).
+func (j *jsonRPCHub) GetProof(
+	root types.Hash,
+	addr types.Address,
+	slots []types.Hash,
+) (*jsonrpc.AccountProof, error) {
+	accountProof, err := itrie.Prove(j.state.Get, root, crypto.Keccak256(addr.Bytes()))
+	if err != nil {
+		return nil, fmt.Errorf("proving account %s: %w", addr, err)
+	}
+
+	proof := &jsonrpc.AccountProof{
+		Balance:     new(big.Int),
+		CodeHash:    types.EmptyCodeHash,
+		StorageHash: types.EmptyRootHash,
+		Proof:       accountProof,
+		Storage:     make([]jsonrpc.StorageProof, 0, len(slots)),
+	}
+
+	account, err := getAccountImpl(j.state, root, addr)
+
+	switch {
+	case errors.Is(err, jsonrpc.ErrStateNotFound):
+	case err != nil:
+		return nil, err
+	default:
+		proof.Nonce = account.Nonce
+		proof.Balance.Set(account.Balance)
+		proof.CodeHash = types.BytesToHash(account.CodeHash)
+		proof.StorageHash = account.Root
+	}
+
+	for _, slot := range slots {
+		storageProof, err := itrie.Prove(j.state.Get, proof.StorageHash, crypto.Keccak256(slot.Bytes()))
+		if err != nil {
+			return nil, fmt.Errorf("proving slot %s of %s: %w", slot, addr, err)
+		}
+
+		var value []byte
+
+		if account != nil {
+			snap, err := j.state.NewSnapshot(root)
+			if err != nil {
+				return nil, err
+			}
+
+			value = snap.GetStorage(addr, account.Root, slot).Bytes()
+		}
+
+		proof.Storage = append(proof.Storage, jsonrpc.StorageProof{Key: slot, Value: value, Proof: storageProof})
+	}
+
+	return proof, nil
 }
 
 func (j *jsonRPCHub) Get(key string) ([]byte, error) {
@@ -1177,6 +1239,32 @@ func (s *Server) setupJSONRPC() error {
 		EnableTxPoolEndpoints:    s.config.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
 		EnableConsensusEndpoints: s.config.EnableConsensusEndpoints,
+	}
+
+	if s.config.MigrationExportDir != "" {
+		// The export re-executes historical blocks on demand; a validator's CPU belongs to consensus.
+		if s.config.Seal {
+			return errors.New("the migration export endpoint is refused on a validator (--seal)")
+		}
+
+		cache, err := export.NewCache(s.config.MigrationExportDir)
+		if err != nil {
+			return fmt.Errorf("migration export cache: %w", err)
+		}
+
+		config := export.DefaultServiceConfig
+		if s.config.MigrationExportWorkers > 0 {
+			config.Workers = int(s.config.MigrationExportWorkers)
+		}
+
+		conf.MigrationExporter = export.NewService(
+			export.NewExporter(s.blockchain, export.IsolatedExecutor(s.executor, s.stateStorage), s.consensus),
+			s.blockchain,
+			cache,
+			config,
+			s.logger.Named("migration-export"),
+		)
+		s.logger.Info("migration export endpoint enabled", "dir", s.config.MigrationExportDir, "workers", config.Workers)
 	}
 
 	srv, err := jsonrpc.NewJSONRPC(s.logger, conf)

@@ -11,6 +11,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/blockchain/storage"
 	"github.com/0xPolygon/polygon-edge/chain"
 	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/migration/halt"
 	"github.com/0xPolygon/polygon-edge/state"
 	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/0xPolygon/polygon-edge/types/buildroot"
@@ -84,6 +85,10 @@ type Blockchain struct {
 	settlementObserver func(delta []float64)
 
 	withBaseFeeFixed bool // is base fee value fixed?
+
+	// migrationAttestations is the migration's attestation contract, set from the node's
+	// configuration (SetMigrationAttestations); nil until then.
+	migrationAttestations atomic.Pointer[types.Address]
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -667,8 +672,54 @@ func (b *Blockchain) verifyBlock(block *types.Block) ([]*types.Receipt, error) {
 		return nil, err
 	}
 
+	// No block after the migration's cutover block
+	if halted, err := b.MigrationHalted(block.Number()); err != nil {
+		return nil, err
+	} else if halted {
+		return nil, halt.ErrHalted
+	}
+
 	// Make sure the block body data is valid
 	return b.verifyBlockBody(block)
+}
+
+// SetMigrationAttestations makes the node halt at the migration's cutover block: the first block h
+// for which the attestation contract (migration/contracts) answers shouldHalt(h) on the state of
+// block h-1 (migration/halt). It comes from the node's configuration (--migration-attestations), set
+// once the contract is deployed; every node of the network must be given the same address.
+func (b *Blockchain) SetMigrationAttestations(contract types.Address) {
+	b.migrationAttestations.Store(&contract)
+}
+
+// MigrationHalted reports whether block `number` would come after the migration's cutover block:
+// whether the attestation contract answers shouldHalt(number-1) on the state of block number-2
+// (migration/halt). Without SetMigrationAttestations it never does.
+func (b *Blockchain) MigrationHalted(number uint64) (bool, error) {
+	contract := b.migrationAttestations.Load()
+	if contract == nil || number < 2 {
+		return false, nil
+	}
+
+	exec, ok := b.executor.(halt.TxnBeginner)
+	if !ok {
+		return false, nil
+	}
+
+	parent, ok := b.GetHeaderByNumber(number - 2)
+	if !ok {
+		return false, fmt.Errorf("migration halt: header %d not found", number-2)
+	}
+
+	halted, err := halt.ShouldHalt(exec, *contract, parent, number-1)
+	if err != nil {
+		return false, fmt.Errorf("migration halt: %w", err)
+	}
+
+	if halted {
+		b.logger.Warn("migration cutover: refusing blocks after the cutover block", "cutover", number-1)
+	}
+
+	return halted, nil
 }
 
 // verifyBlockParent makes sure that the child block is in line

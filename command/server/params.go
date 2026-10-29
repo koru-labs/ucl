@@ -14,6 +14,7 @@ import (
 	"github.com/0xPolygon/polygon-edge/network"
 	"github.com/0xPolygon/polygon-edge/secrets"
 	"github.com/0xPolygon/polygon-edge/server"
+	"github.com/0xPolygon/polygon-edge/types"
 	"github.com/hashicorp/go-hclog"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -84,6 +85,9 @@ const (
 	enableTxPoolEndpointsFlag    = "enable-tx-pool-endpoints"
 	enableAllDebugEndpointsFlag  = "enable-all-debug-endpoints"
 	enableConsensusEndpointsFlag = "enable-consensus-endpoints"
+	migrationExportDirFlag       = "migration-export-dir"
+	migrationExportWorkersFlag   = "migration-export-workers"
+	migrationAttestationsFlag    = "migration-attestations"
 
 	consensusStatePushURLFlag      = "consensus-state-push-url"
 	consensusStatePushTokenFlag    = "consensus-state-push-token"
@@ -148,6 +152,8 @@ type serverParams struct {
 	logFileLocation string
 
 	relayer bool
+
+	migrationAttestations *types.Address
 }
 
 func (p *serverParams) isMaxPeersSet() bool {
@@ -308,6 +314,9 @@ func (p *serverParams) generateConfig() *server.Config {
 		EnableTxPoolEndpoints:      p.rawConfig.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:    p.rawConfig.EnableAllDebugEndpoints,
 		EnableConsensusEndpoints:   p.rawConfig.EnableConsensusEndpoints,
+		MigrationExportDir:         p.rawConfig.MigrationExportDir,
+		MigrationExportWorkers:     p.rawConfig.MigrationExportWorkers,
+		MigrationAttestations:      p.migrationAttestations,
 		ConsensusStatePushURL:      p.rawConfig.ConsensusStatePushURL,
 		ConsensusStatePushToken:    p.rawConfig.ConsensusStatePushToken,
 		ConsensusStatePushInterval: p.rawConfig.ConsensusStatePushInterval,

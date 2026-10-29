@@ -66,6 +66,8 @@ type TestServerConfig struct {
 	UseTLS                  bool
 	TLSCertFile             string
 	TLSKeyFile              string
+	ExtraArgs               []string // More flags for the server command
+	NoBurnContract          bool     // No burn contract: the base fee goes to the proposer, as on ucl mainnet
 }
 
 func (t *TestServerConfig) SetPredeployParams(params *PredeployParams) {

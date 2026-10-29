@@ -107,6 +107,15 @@ func (i *backendIBFT) BuildProposal(view *proto.View) []byte {
 		return nil
 	}
 
+	// After the migration's cutover block ucl builds nothing: pitau carries on.
+	if halted, err := i.blockchain.MigrationHalted(view.Height); err != nil || halted {
+		i.logger.Warn("not building: ucl has halted for the migration", "num", view.Height, "err", err)
+
+		rootSpan.End()
+
+		return nil
+	}
+
 	block, receipts, err := i.buildBlock(ctx, latestHeader)
 	if err != nil {
 		i.logger.Error("cannot build block", "num", view.Height, "err", err)

@@ -56,6 +56,7 @@ type endpoints struct {
 	Bridge    *Bridge
 	Debug     *Debug
 	Consensus *Consensus
+	Ucl       *Ucl
 }
 
 // Dispatcher handles all json rpc requests by delegating
@@ -88,6 +89,7 @@ type dispatcherParams struct {
 	enableTxPoolEndpoints    bool
 	enableAllDebugEndpoints  bool
 	enableConsensusEndpoints bool
+	migrationExporter        MigrationExporter
 
 	requestTimeout  time.Duration
 	rpcGasCap       uint64
@@ -190,6 +192,13 @@ func (d *Dispatcher) registerEndpoints(store JSONRPCStore) error {
 
 	if d.params.enableConsensusEndpoints {
 		if err = d.registerService("consensus", d.endpoints.Consensus); err != nil {
+			return err
+		}
+	}
+
+	if d.params.migrationExporter != nil {
+		d.endpoints.Ucl = &Ucl{exporter: d.params.migrationExporter}
+		if err = d.registerService("ucl", d.endpoints.Ucl); err != nil {
 			return err
 		}
 	}
