@@ -10,6 +10,11 @@ import (
 	"github.com/hashicorp/go-hclog"
 )
 
+var (
+	errNoActiveJournal = errors.New("no active journal")
+	errJournalClosed   = errors.New("journal closed")
+)
+
 // devNull is a WriteCloser that just discards anything written into it. Its
 // goal is to allow the transaction journal to write into a fake journal when
 // loading transactions on startup without printing warnings due to no file
@@ -27,8 +32,12 @@ type journal struct {
 	logger hclog.Logger   // logger
 	count  uint64         // number of txs in journal
 	lock   sync.Mutex     // used for journal locking during rotation
+	closed bool           // set by close; no further writes or rotations
 
-	journalCh chan struct{} // used for sending journal rotation events to txpool
+	// journalCh carries rotation requests to the txpool. It should have a
+	// buffer of 1: requests are sent without blocking and a pending one
+	// already covers any request that arrives before it is served.
+	journalCh chan struct{}
 
 	rotateSize uint64 // number of local txs in journal when rotate will be executed
 }
@@ -74,24 +83,52 @@ func (j *journal) load(add func(*types.Transaction) error) error {
 }
 
 // insert adds the specified transaction to the local disk journal.
+// It never blocks on the rotation consumer. When the journal needs to be
+// regenerated (size threshold reached, no open writer after a failed
+// rotation, or a failed append) it requests a rotation after releasing the
+// lock.
 func (j *journal) insert(tx *types.Transaction) error {
-	j.lock.Lock()
-	defer j.lock.Unlock()
-
-	if j.writer == nil {
-		return errors.New("no active journal")
-	}
-
-	_, err := j.writer.Write(tx.MarshalJournal())
-	if err == nil {
-		j.count++
-		if j.count == j.rotateSize {
-			// send event
-			j.journalCh <- struct{}{}
-		}
+	needRotate, err := j.write(tx)
+	if needRotate {
+		j.requestRotate()
 	}
 
 	return err
+}
+
+// write appends tx under the lock and reports whether a rotation is needed.
+func (j *journal) write(tx *types.Transaction) (bool, error) {
+	j.lock.Lock()
+	defer j.lock.Unlock()
+
+	if j.closed {
+		return false, errJournalClosed
+	}
+
+	if j.writer == nil {
+		// the last rotation failed; ask for another attempt so the journal
+		// recovers once the cause (e.g. a full disk) is gone
+		return true, errNoActiveJournal
+	}
+
+	if _, err := j.writer.Write(tx.MarshalJournal()); err != nil {
+		// the tail may be partially written; regenerating from the pool
+		// replaces it with a clean file
+		return true, err
+	}
+
+	j.count++
+
+	return j.count >= j.rotateSize, nil
+}
+
+// requestRotate signals the txpool to rotate the journal without blocking.
+// If a request is already pending, this one is redundant and dropped.
+func (j *journal) requestRotate() {
+	select {
+	case j.journalCh <- struct{}{}:
+	default:
+	}
 }
 
 // rotate regenerates the transaction journal based on the current contents of
@@ -99,6 +136,10 @@ func (j *journal) insert(tx *types.Transaction) error {
 func (j *journal) rotate(local []*types.Transaction) error {
 	j.lock.Lock()
 	defer j.lock.Unlock()
+
+	if j.closed {
+		return nil
+	}
 
 	// close the current journal (if any is open)
 	if j.writer != nil {
@@ -144,6 +185,12 @@ func (j *journal) rotate(local []*types.Transaction) error {
 	j.count = 0
 	j.writer = sink
 
+	// a request queued before this rotation is now stale
+	select {
+	case <-j.journalCh:
+	default:
+	}
+
 	j.logger.Info("regenerated local transaction journal", "transactions", len(local))
 
 	return nil
@@ -155,6 +202,8 @@ func (j *journal) close() error {
 	defer j.lock.Unlock()
 
 	var err error
+
+	j.closed = true
 
 	if j.writer != nil {
 		err = j.writer.Close()

@@ -253,7 +253,7 @@ func NewTxPool(
 		promoteReqCh: make(chan promoteRequest),
 		pruneCh:      make(chan struct{}),
 		shutdownCh:   make(chan struct{}),
-		journalCh:    make(chan struct{}),
+		journalCh:    make(chan struct{}, 1), // see journal.journalCh
 		gossipCh:     make(chan *types.Transaction, 4*batchersNum*config.TxGossipBatchSize),
 	}
 
@@ -471,10 +471,10 @@ func (p *TxPool) AddTx(tx *types.Transaction) error {
 		return err
 	}
 
+	// The tx is already in the pool. Journalling only helps it survive a
+	// restart, so a failure here must not fail the submission or skip gossip.
 	if err := p.journal.insert(tx); err != nil {
-		p.logger.Error("failed to insert tx into journal", "err", err)
-
-		return err
+		p.logger.Error("failed to insert tx into journal", "hash", tx.Hash, "err", err)
 	}
 
 	// broadcast the transaction only if a topic
