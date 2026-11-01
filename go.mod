@@ -1,6 +1,6 @@
 module github.com/0xPolygon/polygon-edge
 
-go 1.26.0
+go 1.26.10
 
 require (
 	cloud.google.com/go/secretmanager v1.21.0
@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.49.0
-	github.com/btcsuite/btcd/btcec/v2 v2.5.0
+	github.com/btcsuite/btcd/btcec/v2 v2.5.1
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/consensys/gnark-crypto v0.21.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
