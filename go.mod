@@ -32,7 +32,7 @@ require (
 	github.com/holiman/uint256 v1.3.2
 	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/json-iterator/go v1.1.12
-	github.com/klauspost/compress v1.19.1
+	github.com/klauspost/compress v1.20.3
 	github.com/libp2p/go-libp2p v0.49.0
 	github.com/libp2p/go-libp2p-kbucket v0.9.0
 	github.com/libp2p/go-libp2p-pubsub v0.17.0
@@ -54,7 +54,7 @@ require (
 	github.com/trailofbits/go-fuzz-utils v0.0.0-20210901195358-9657fcfd256c
 	github.com/umbracle/fastrlp v0.1.1-0.20230504065717-58a1b8a9929d
 	github.com/umbracle/go-eth-bn256 v0.0.0-20230125114011-47cb310d9b0b
-	github.com/valyala/fasthttp v1.73.0
+	github.com/valyala/fasthttp v1.77.0
 	github.com/valyala/fastjson v1.6.10
 	go.etcd.io/bbolt v1.5.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0
@@ -62,9 +62,9 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
-	golang.org/x/crypto v0.56.0
-	golang.org/x/sync v0.23.0
-	golang.org/x/tools v0.49.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/tools v0.51.0
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
@@ -85,7 +85,6 @@ require (
 	github.com/DataDog/zstd v1.5.7 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
-	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.2 // indirect
@@ -185,6 +184,7 @@ require (
 	github.com/moby/sys/user v0.3.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
+	github.com/molecule-man/go-brrr v1.3.0 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
@@ -252,13 +252,13 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/exp/typeparams v0.0.0-20240213143201-ec583247a57a // indirect
-	golang.org/x/mod v0.39.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
+	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/api v0.287.1 // indirect
