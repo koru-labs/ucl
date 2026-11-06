@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: gate
-        uses: koru-labs/pipeline_main/.github/actions/notify-after-pr-build-gate@main
+        uses: koru-labs/pipeline_main_gh_public/.github/actions/notify-after-pr-build-gate@main
         with:
           workflow_run_id: ${{ github.event.workflow_run.id }}
 
@@ -29,7 +29,7 @@ jobs:
           echo "notify=${{ steps.gate.outputs.notify }}"
           echo "pr_url=${{ steps.gate.outputs.pr_url }}"
 
-      - uses: koru-labs/pipeline_main/.github/actions/notify-slack-pr-created@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/notify-slack-pr-created@main
         if: steps.gate.outputs.notify == 'true'
         with:
           webhook_url: ${{ secrets.SLACK_PR_WEBHOOK_URL }}
@@ -39,7 +39,7 @@ jobs:
           head_sha: ${{ steps.gate.outputs.head_sha }}
           head_commit_message: ${{ steps.gate.outputs.head_commit_message }}
 
-      - uses: koru-labs/pipeline_main/.github/actions/request-codeowner-reviewers@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/request-codeowner-reviewers@main
         if: steps.gate.outputs.notify == 'true'
         continue-on-error: true
         with:

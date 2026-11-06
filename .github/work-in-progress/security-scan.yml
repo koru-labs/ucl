@@ -26,7 +26,7 @@ jobs:
       gate_status: ${{ steps.scan.outputs.gate_status }}
     steps:
       - id: scan
-        uses: koru-labs/pipeline_main/.github/actions/security-scan@main
+        uses: koru-labs/pipeline_main_gh_public/.github/actions/security-scan@main
         with:
           artifact: ucl
           source_ref: ${{ inputs.ref }}
@@ -45,7 +45,7 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/notify-slack-security-scan@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/notify-slack-security-scan@main
         with:
           webhook_url: ${{ secrets.SLACK_PR_WEBHOOK_URL }}
           artifact: ucl

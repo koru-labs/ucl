@@ -24,7 +24,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/resolve-trigger@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/resolve-trigger@main
         with:
           event_name: ${{ github.event_name }}
 
@@ -37,7 +37,7 @@ jobs:
       source_branch: ${{ steps.rebase.outputs.source_branch }}
     steps:
       - id: rebase
-        uses: koru-labs/pipeline_main/.github/actions/git-rebase@main
+        uses: koru-labs/pipeline_main_gh_public/.github/actions/git-rebase@main
         with:
           event_name: ${{ github.event_name }}
           dispatch_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
@@ -47,6 +47,6 @@ jobs:
     needs: git-rebase
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/lint-golang@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/lint-golang@main
         with:
           source_ref: ${{ needs.git-rebase.outputs.source_ref }}

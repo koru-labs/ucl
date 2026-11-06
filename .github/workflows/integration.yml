@@ -28,7 +28,7 @@ jobs:
       build_profile: ${{ steps.trigger.outputs.build_profile }}
     steps:
       - id: trigger
-        uses: koru-labs/pipeline_main/.github/actions/resolve-trigger@main
+        uses: koru-labs/pipeline_main_gh_public/.github/actions/resolve-trigger@main
         with:
           event_name: ${{ github.event_name }}
 
@@ -44,7 +44,7 @@ jobs:
       build_profile: ${{ needs.resolve-trigger.outputs.build_profile }}
     steps:
       - id: rebase
-        uses: koru-labs/pipeline_main/.github/actions/git-rebase@main
+        uses: koru-labs/pipeline_main_gh_public/.github/actions/git-rebase@main
         with:
           event_name: ${{ github.event_name }}
           dispatch_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
@@ -55,7 +55,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/build-and-publish-dev-golang@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/build-and-publish-dev-golang@main
         with:
           artifact: ucl
           event_name: ${{ github.event_name }}
@@ -75,7 +75,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/build-golang@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/build-golang@main
         with:
           artifact: ucl
           event_name: ${{ github.event_name }}
@@ -95,7 +95,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - uses: koru-labs/pipeline_main/.github/actions/build-and-publish-release-golang@main
+      - uses: koru-labs/pipeline_main_gh_public/.github/actions/build-and-publish-release-golang@main
         with:
           artifact: ucl
           event_name: ${{ github.event_name }}
