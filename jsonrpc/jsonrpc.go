@@ -640,6 +640,14 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 
 	data, err := io.ReadAll(req.Body)
 	if err != nil {
+		// MaxBytesReader surfaces the body cap as a read failure, so the
+		// oversized-body rejection has to be picked back out of the error to be
+		// counted apart from an ordinary truncated read.
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			incrRejected(rejectBodyTooLarge)
+		}
+
 		_, _ = w.Write([]byte(err.Error()))
 
 		return

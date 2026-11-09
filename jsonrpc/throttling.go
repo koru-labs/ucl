@@ -32,6 +32,8 @@ func (t *Throttling) AttemptRequest(
 	defer cancel()
 
 	if err := t.sem.Acquire(ctx, 1); err != nil {
+		incrRejected(rejectDebugConcurrency)
+
 		return nil, errRequestLimitExceeded
 	}
 

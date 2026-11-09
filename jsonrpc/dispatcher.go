@@ -14,7 +14,6 @@ import (
 
 	"github.com/0xPolygon/polygon-edge/observability"
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-metrics"
 	jsonIter "github.com/json-iterator/go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -66,6 +65,7 @@ type Dispatcher struct {
 	serviceMap    map[string]*serviceData
 	filterManager *FilterManager
 	endpoints     endpoints
+	telemetry     *methodMetrics
 
 	params *dispatcherParams
 }
@@ -111,8 +111,9 @@ func newDispatcher(
 	params *dispatcherParams,
 ) (*Dispatcher, error) {
 	d := &Dispatcher{
-		logger: logger.Named("dispatcher"),
-		params: params,
+		logger:    logger.Named("dispatcher"),
+		params:    params,
+		telemetry: newMethodMetrics(),
 	}
 
 	if params != nil && (params.logQueryLimits.MaxAddresses != 0 || params.logQueryLimits.MaxTopicPositions != 0) {
@@ -235,6 +236,12 @@ func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, Error) 
 
 	return service, fd, nil
 }
+
+// Methods that handleSingleWs serves itself rather than through the service map.
+const (
+	methodEthSubscribe   = "eth_subscribe"
+	methodEthUnsubscribe = "eth_unsubscribe"
+)
 
 type wsConn interface {
 	WriteMessage(messageType int, data []byte) error
@@ -363,6 +370,8 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 
 		err := jsonIt.Unmarshal(reqBody, &batchReq)
 		if err != nil {
+			incrRejected(rejectMalformedRequest)
+
 			return NewRPCResponse(nil, "2.0", nil,
 				NewInvalidRequestError("Invalid json batch request")).Bytes()
 		}
@@ -374,6 +383,8 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 
 	var req Request
 	if err := jsonIt.Unmarshal(reqBody, &req); err != nil {
+		incrRejected(rejectMalformedRequest)
+
 		return NewRPCResponse(req.ID, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 	}
 
@@ -394,19 +405,30 @@ func (d *Dispatcher) handleSingleWs(ctx context.Context, req Request, conn wsCon
 	var response []byte
 
 	switch req.Method {
-	case "eth_subscribe":
+	case methodEthSubscribe:
 		var filterID string
+
+		// Subscribe and unsubscribe never reach handleReq, so they are measured
+		// here to keep them out of the blind spot. req.Method is a literal from
+		// this switch, so it is safe as a label.
+		done := d.telemetry.beginRequest(req.Method)
 
 		// if the request method is eth_subscribe we need to create a new filter with ws connection
 		if filterID, err = d.handleSubscribe(req, conn); err == nil {
 			response = []byte(fmt.Sprintf("\"%s\"", filterID))
 		}
-	case "eth_unsubscribe":
+
+		done(len(response), err)
+	case methodEthUnsubscribe:
 		var ok bool
+
+		done := d.telemetry.beginRequest(req.Method)
 
 		if ok, err = d.handleUnsubscribe(req); err == nil {
 			response = []byte(strconv.FormatBool(ok))
 		}
+
+		done(len(response), err)
 	default:
 		// its a normal query that we handle with the dispatcher. WS connections
 		// are long-lived with no per-message traceparent, so start a fresh trace.
@@ -422,16 +444,22 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 
 	x := bytes.TrimLeft(reqBody, " \t\r\n")
 	if len(x) == 0 {
+		incrRejected(rejectMalformedRequest)
+
 		return NewRPCResponse(nil, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 	}
 
 	if x[0] == '{' {
 		var req Request
 		if err := jsonIt.Unmarshal(reqBody, &req); err != nil {
+			incrRejected(rejectMalformedRequest)
+
 			return NewRPCResponse(nil, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 		}
 
 		if req.Method == "" {
+			incrRejected(rejectMalformedRequest)
+
 			return NewRPCResponse(req.ID, "2.0", nil, NewInvalidRequestError("Invalid json request")).Bytes()
 		}
 
@@ -448,6 +476,8 @@ func (d *Dispatcher) Handle(ctx context.Context, reqBody []byte) ([]byte, error)
 	// handle batch requests
 	var requests BatchRequest
 	if err := jsonIt.Unmarshal(reqBody, &requests); err != nil {
+		incrRejected(rejectMalformedRequest)
+
 		return NewRPCResponse(
 			nil,
 			"2.0",
@@ -470,6 +500,8 @@ func (d *Dispatcher) handleBatch(
 	handle func(context.Context, Request) Response,
 ) ([]byte, error) {
 	if d.params.isExceedingBatchLengthLimit(uint64(len(requests))) {
+		incrRejected(rejectBatchTooLong)
+
 		return NewRPCResponse(
 			nil,
 			"2.0",
@@ -484,6 +516,8 @@ func (d *Dispatcher) handleBatch(
 	}
 
 	if d.params.isExceedingBatchCostLimit(total) {
+		incrRejected(rejectBatchCostTooHigh)
+
 		return NewRPCResponse(
 			nil,
 			"2.0",
@@ -506,6 +540,10 @@ func (d *Dispatcher) handleBatch(
 		switch {
 		case ctx.Err() != nil:
 			rpcErr = NewTimeoutError("batch deadline exceeded")
+			// One count per request turned away, so the rate reflects shed load
+			// rather than the number of batches that happened to carry it.
+			incrRejectedN(rejectBatchDeadline, len(requests[i:]))
+
 			for _, remaining := range requests[i:] {
 				b, err = NewRPCResponse(remaining.ID, "2.0", nil, rpcErr).Bytes()
 				if err != nil {
@@ -527,6 +565,9 @@ func (d *Dispatcher) handleBatch(
 			size += uint64(len(b))
 			if d.params.maxResponseSize != 0 && size > d.params.maxResponseSize {
 				rpcErr = NewLimitExceededError("batch response too large")
+
+				incrRejectedN(rejectResponseTooLarge, len(requests[i:]))
+
 				for _, remaining := range requests[i:] {
 					b, err = NewRPCResponse(remaining.ID, "2.0", nil, rpcErr).Bytes()
 					if err != nil {
@@ -558,13 +599,15 @@ func joinBatch(responses [][]byte) []byte {
 
 func (d *Dispatcher) capSingleResponse(id interface{}, resp []byte) ([]byte, error) {
 	if d.params.maxResponseSize != 0 && uint64(len(resp)) > d.params.maxResponseSize {
+		incrRejected(rejectResponseTooLarge)
+
 		return NewRPCResponse(id, "2.0", nil, NewLimitExceededError("response too large")).Bytes()
 	}
 
 	return resp, nil
 }
 
-func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error) {
+func (d *Dispatcher) handleReq(ctx context.Context, req Request) (resData []byte, resErr Error) {
 	// req.Method is untrusted input, so keep it out of the span name and store it
 	// as an attribute instead. The name is promoted to the method once validated.
 	spanCtx, span := observability.Tracer().Start(ctx, "rpc.request",
@@ -577,12 +620,21 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 	service, fd, ferr := d.getFnHandler(req)
 	if ferr != nil {
 		span.SetStatus(codes.Error, ferr.Error())
+		// Counted as a rejection rather than a per-method error: the method did
+		// not resolve, so there is no safe method label to attribute it to.
+		incrRejected(rejectMethodNotFound)
 
 		return nil, ferr
 	}
 
-	// req.Method is validated now, so it is safe to use as the span name.
+	// req.Method is validated now, so it is safe to use as the span name, and as
+	// a metric label.
 	span.SetName(req.Method)
+
+	// Recorded on every exit below, including the param-decode and marshalling
+	// failures, so call volume and latency cover the whole dispatched request.
+	done := d.telemetry.beginRequest(req.Method)
+	defer func() { done(len(resData), resErr) }()
 
 	inArgs := make([]reflect.Value, fd.inNum)
 	inArgs[0] = service.sv
@@ -614,14 +666,9 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 		ok   bool
 	)
 
-	start := time.Now().UTC()
 	output := fd.fv.Call(inArgs) // call rpc endpoint function
-	// measure execution time of rpc endpoint function
-	metrics.SetGauge([]string{jsonRPCMetric, req.Method + "_time"}, float32(time.Now().UTC().Sub(start).Seconds()))
 
 	if err := getError(output[1]); err != nil {
-		// measure error on the rpc endpoint function
-		metrics.IncrCounter([]string{jsonRPCMetric, req.Method + "_errors"}, 1)
 		span.SetStatus(codes.Error, err.Error())
 		d.logInternalError(req.Method, err)
 
@@ -645,6 +692,8 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) ([]byte, Error)
 		data, err = marshalCapped(res, d.params.maxResponseSize)
 		if err != nil {
 			if errors.Is(err, errResponseTooLarge) {
+				incrRejected(rejectResponseTooLarge)
+
 				return nil, NewLimitExceededError("response too large")
 			}
 
@@ -725,6 +774,10 @@ func (d *Dispatcher) registerService(serviceName string, service interface{}, al
 		sv:      reflect.ValueOf(service),
 		funcMap: funcMap,
 	}
+
+	// Keeping the metric method set in step with the service map is what bounds
+	// the cardinality of the method label: only registered methods get one.
+	d.telemetry.addService(serviceName, funcMap)
 
 	return nil
 }
