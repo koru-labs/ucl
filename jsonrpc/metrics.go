@@ -93,6 +93,7 @@ const (
 	rejectBatchDeadline    = "batch_deadline_exceeded"
 	rejectResponseTooLarge = "response_too_large"
 	rejectBodyTooLarge     = "body_too_large"
+	rejectWSFrameTooLarge  = "ws_frame_too_large"
 	rejectDebugConcurrency = "debug_concurrency_limit"
 	rejectWSConnLimit      = "ws_connection_limit"
 	rejectWSInFlight       = "ws_in_flight_limit"

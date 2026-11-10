@@ -2,11 +2,15 @@ package jsonrpc
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-metrics"
 	"github.com/prometheus/client_golang/prometheus"
@@ -71,44 +75,97 @@ func reasonLabel(reason string) metrics.Label {
 	return metrics.Label{Name: labelReason, Value: reason}
 }
 
-// snapshot reads the sink's single interval. The caller must not hold the
-// interval lock, so the maps are copied out.
+// snapshot is the sink's contents, merged across intervals. The caller must not
+// hold an interval lock, so the maps are copied out.
 type snapshot struct {
 	counters map[string]metrics.SampledValue
 	samples  map[string]metrics.SampledValue
 	gauges   map[string]metrics.GaugeValue
 }
 
+// readSink merges every interval the sink is holding rather than reading only
+// the first. InmemSink rotates on wall-clock boundaries aligned to its interval,
+// so a test that happens to straddle one has its measurements split across two
+// intervals: reading just one would silently lose half of them, as a rare and
+// very confusing flake.
 func readSink(tb testing.TB, sink *metrics.InmemSink) snapshot {
 	tb.Helper()
 
 	data := sink.Data()
 	require.NotEmpty(tb, data)
 
-	intv := data[0]
-
-	intv.RLock()
-	defer intv.RUnlock()
-
 	snap := snapshot{
-		counters: make(map[string]metrics.SampledValue, len(intv.Counters)),
-		samples:  make(map[string]metrics.SampledValue, len(intv.Samples)),
-		gauges:   make(map[string]metrics.GaugeValue, len(intv.Gauges)),
+		counters: map[string]metrics.SampledValue{},
+		samples:  map[string]metrics.SampledValue{},
+		gauges:   map[string]metrics.GaugeValue{},
 	}
 
-	for k, v := range intv.Counters {
-		snap.counters[k] = v
-	}
+	for _, intv := range data {
+		intv.RLock()
 
-	for k, v := range intv.Samples {
-		snap.samples[k] = v
-	}
+		// Counters and samples accumulate; a key present in two intervals holds
+		// part of the total in each.
+		for k, v := range intv.Counters {
+			snap.counters[k] = mergeSampled(snap.counters[k], v)
+		}
 
-	for k, v := range intv.Gauges {
-		snap.gauges[k] = v
+		for k, v := range intv.Samples {
+			snap.samples[k] = mergeSampled(snap.samples[k], v)
+		}
+
+		// Gauges are instantaneous, so the newest interval wins. Intervals come
+		// back oldest first.
+		for k, v := range intv.Gauges {
+			snap.gauges[k] = v
+		}
+
+		intv.RUnlock()
 	}
 
 	return snap
+}
+
+// mergeSampled adds v's totals to into. SampledValue embeds *AggregateSample, so
+// the zero value carries a nil pointer and must not be dereferenced; the merge
+// also builds a fresh sample rather than writing through the pointer the sink
+// handed back.
+// count and sum read a counter or sample total, returning zero when the key is
+// absent. Reading .Count straight off a map miss dereferences SampledValue's nil
+// embedded *AggregateSample and panics, which buries the failing assertion.
+func count(snap map[string]metrics.SampledValue, key string) int {
+	if v, ok := snap[key]; ok && v.AggregateSample != nil {
+		return v.Count
+	}
+
+	return 0
+}
+
+func sum(snap map[string]metrics.SampledValue, key string) float64 {
+	if v, ok := snap[key]; ok && v.AggregateSample != nil {
+		return v.Sum
+	}
+
+	return 0
+}
+
+func mergeSampled(into, v metrics.SampledValue) metrics.SampledValue {
+	if into.AggregateSample == nil {
+		return v
+	}
+
+	if v.AggregateSample == nil {
+		return into
+	}
+
+	merged := *into.AggregateSample
+	merged.Count += v.Count
+	merged.Sum += v.Sum
+
+	return metrics.SampledValue{
+		Name:            into.Name,
+		Labels:          into.Labels,
+		AggregateSample: &merged,
+	}
 }
 
 // histogram reads one method's histogram out of the default registry, which is
@@ -201,6 +258,7 @@ func TestMetricsDispatchedRequest(t *testing.T) {
 
 	calls, ok := snap.counters[metricKey(keyRequests, label)]
 	require.True(t, ok, "expected a call counter labelled with the method")
+	require.NotNil(t, calls.AggregateSample)
 	require.Equal(t, 1, calls.Count)
 
 	// Latency and response size are histograms, so observations accumulate into
@@ -259,7 +317,7 @@ func TestMetricsConcurrentCallsAccumulate(t *testing.T) {
 
 	durCount1, _ := histogram(t, durationMetric, method)
 
-	require.Equal(t, float64(calls), snap.counters[metricKey(keyRequests, label)].Sum)
+	require.Equal(t, float64(calls), sum(snap.counters, metricKey(keyRequests, label)))
 	require.Equal(t, durCount0+uint64(calls), durCount1, "every concurrent call must be observed")
 	require.Equal(t, float32(0), snap.gauges[metricKey(keyRequestsInFlight, label)].Value)
 }
@@ -446,7 +504,7 @@ func TestMetricsUnknownMethodIsNotALabel(t *testing.T) {
 	}
 
 	// The request is still visible, as a rejection.
-	require.Positive(t, snap.counters[metricKey(keyRejected, reasonLabel(rejectMethodNotFound))].Count)
+	require.Positive(t, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectMethodNotFound))))
 }
 
 func TestMetricsWSConnectionsAndLimit(t *testing.T) {
@@ -512,8 +570,8 @@ func TestMetricsWSInFlightRejections(t *testing.T) {
 
 	snap := readSink(t, sink)
 
-	require.Equal(t, 1, snap.counters[metricKey(keyRejected, reasonLabel(rejectWSInFlight))].Count)
-	require.Equal(t, 1, snap.counters[metricKey(keyRejected, reasonLabel(rejectWSInFlightConn))].Count)
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectWSInFlight))))
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectWSInFlightConn))))
 }
 
 // TestMetricsDebugConcurrencyRejection covers the one rejection path a dev-mode
@@ -548,7 +606,7 @@ func TestMetricsDebugConcurrencyRejection(t *testing.T) {
 
 	snap := readSink(t, sink)
 
-	require.Equal(t, 1, snap.counters[metricKey(keyRejected, reasonLabel(rejectDebugConcurrency))].Count)
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectDebugConcurrency))))
 }
 
 func TestMetricsLiveFilters(t *testing.T) {
@@ -569,6 +627,108 @@ func TestMetricsLiveFilters(t *testing.T) {
 	require.Equal(t, float32(0), readSink(t, sink).gauges[metricKey(keyLiveFilters)].Value)
 }
 
+func TestMetricsMalformedWSRequestIDRejection(t *testing.T) {
+	sink := withMetricsSink(t)
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{})
+
+	// A non-integral id is refused by formatID before the method is read.
+	res, err := d.HandleWs([]byte(`{"id":1.5,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}`), nil)
+	require.NoError(t, err)
+	require.Contains(t, string(res), "Invalid json request")
+
+	snap := readSink(t, sink)
+
+	require.Positive(t, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectMalformedRequest))))
+}
+
+func TestMetricsOversizedHTTPBodyRejection(t *testing.T) {
+	sink := withMetricsSink(t)
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{})
+	j := &JSONRPC{
+		logger:     hclog.NewNullLogger(),
+		config:     &Config{MaxRequestBodySize: 512},
+		dispatcher: d,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(j.handleJSONRPCRequest))
+	defer srv.Close()
+
+	body := fmt.Sprintf(`{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[%q]}`,
+		strings.Repeat("x", 2048))
+
+	res, err := http.Post(srv.URL, "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+
+	defer res.Body.Close()
+
+	snap := readSink(t, sink)
+
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectBodyTooLarge))))
+}
+
+// TestMetricsOversizedWSFrameRejection covers the websocket counterpart of the
+// HTTP body cap. gorilla enforces the read limit itself and answers close 1009
+// without handing the payload up, so the read error is the only place it can be
+// counted.
+func TestMetricsOversizedWSFrameRejection(t *testing.T) {
+	sink := withMetricsSink(t)
+
+	d := newTestDispatcher(t, hclog.NewNullLogger(), newMockStore(), &dispatcherParams{})
+	j := &JSONRPC{
+		logger:     hclog.NewNullLogger(),
+		config:     &Config{WebSocketReadLimit: 1024},
+		dispatcher: d,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(j.handleWs))
+	defer srv.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	oversized := fmt.Sprintf(`{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[%q]}`,
+		strings.Repeat("x", 4096))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(oversized)))
+
+	// The server closes with 1009 rather than replying.
+	_, _, err = conn.ReadMessage()
+	require.True(t, websocket.IsCloseError(err, websocket.CloseMessageTooBig),
+		"expected close 1009, got %v", err)
+
+	// gorilla sends the close frame before the server's read returns, so the
+	// client can observe the close before the handler goroutine has counted it.
+	require.Eventually(t, func() bool {
+		return count(readSink(t, sink).counters,
+			metricKey(keyRejected, reasonLabel(rejectWSFrameTooLarge))) == 1
+	}, 5*time.Second, 10*time.Millisecond, "oversized frame was never counted")
+}
+
+func TestMetricsPerConnectionFilterLimitRejection(t *testing.T) {
+	sink := withMetricsSink(t)
+
+	m := NewFilterManager(hclog.NewNullLogger(), newMockStore(), 0, FilterLimits{PerConnection: 1})
+
+	go m.Run()
+
+	defer m.Close()
+
+	conn := &mockWsConn{}
+
+	_, err := m.NewBlockFilter(conn)
+	require.NoError(t, err)
+
+	_, err = m.NewBlockFilter(conn)
+	require.ErrorIs(t, err, ErrConnectionFilterLimitExceeded)
+
+	snap := readSink(t, sink)
+
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectFilterLimitConn))))
+}
+
 func TestMetricsFilterLimitRejection(t *testing.T) {
 	sink := withMetricsSink(t)
 
@@ -586,5 +746,5 @@ func TestMetricsFilterLimitRejection(t *testing.T) {
 
 	snap := readSink(t, sink)
 
-	require.Equal(t, 1, snap.counters[metricKey(keyRejected, reasonLabel(rejectFilterLimit))].Count)
+	require.Equal(t, 1, count(snap.counters, metricKey(keyRejected, reasonLabel(rejectFilterLimit))))
 }

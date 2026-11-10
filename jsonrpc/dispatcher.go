@@ -399,6 +399,11 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 func (d *Dispatcher) handleSingleWs(ctx context.Context, req Request, conn wsConn) Response {
 	id, err := formatID(req.ID)
 	if err != nil {
+		// A JSON-RPC id that is neither a string, an integral number nor null.
+		// Rejected before the method is looked at, so it belongs with the other
+		// malformed-request counts rather than against a method.
+		incrRejected(rejectMalformedRequest)
+
 		return NewRPCResponse(nil, "2.0", nil, err)
 	}
 
