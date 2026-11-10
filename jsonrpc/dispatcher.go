@@ -639,6 +639,7 @@ func (d *Dispatcher) handleReq(ctx context.Context, req Request) (resData []byte
 	// Recorded on every exit below, including the param-decode and marshalling
 	// failures, so call volume and latency cover the whole dispatched request.
 	done := d.telemetry.beginRequest(req.Method)
+
 	defer func() { done(len(resData), resErr) }()
 
 	inArgs := make([]reflect.Value, fd.inNum)
