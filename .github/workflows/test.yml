@@ -10,7 +10,13 @@ on:  # yamllint disable-line rule:truthy
 jobs:
   unit_test:
     name: Run Unit Tests
-    runs-on: ubuntu-latest
+    # Pinned to 24.04 (Docker 28) on purpose. ubuntu-latest moved to 26.04 with
+    # Docker 29, whose Engine API v1.52 dropped the deprecated top-level
+    # NetworkSettings.IPAddress. The geth test server in Ethernal-Tech/ethgo
+    # (testutil.DeployTestServer) reads exactly that field, so it builds the URL
+    # "http://:8545" and every geth-backed test fails to connect. Unpin once the
+    # helper reads NetworkSettings.Networks["bridge"].IPAddress instead.
+    runs-on: ubuntu-24.04
     outputs:
       output_failure: ${{ steps.tests_failure.outputs.result }}
     steps:
