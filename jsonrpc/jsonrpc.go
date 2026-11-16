@@ -554,6 +554,14 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 				// Accepted close codes
 				j.logger.Info("Closing WS connection gracefully")
 			} else {
+				// A frame over WebSocketReadLimit: the websocket analogue of an
+				// oversized HTTP body, and counted for the same reason. gorilla
+				// has already sent close 1009 and will not hand us the payload,
+				// so this is the only place it can be seen.
+				if errors.Is(err, websocket.ErrReadLimit) {
+					incrRejected(rejectWSFrameTooLarge)
+				}
+
 				j.logger.Error(fmt.Sprintf("Unable to read WS message, %s", err.Error()))
 				j.logger.Info("Closing WS connection with error")
 			}
@@ -640,6 +648,14 @@ func (j *JSONRPC) handleJSONRPCRequest(w http.ResponseWriter, req *http.Request)
 
 	data, err := io.ReadAll(req.Body)
 	if err != nil {
+		// MaxBytesReader surfaces the body cap as a read failure, so the
+		// oversized-body rejection has to be picked back out of the error to be
+		// counted apart from an ordinary truncated read.
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			incrRejected(rejectBodyTooLarge)
+		}
+
 		_, _ = w.Write([]byte(err.Error()))
 
 		return
