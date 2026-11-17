@@ -24,7 +24,7 @@ concurrency:
 jobs:
   e2e_ibft_liveness_test:
     name: ${{ matrix.scenario }}
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +86,7 @@ jobs:
   # and empty (success) otherwise, matching the convention used by the other reusable workflows.
   result:
     name: E2E IBFT Liveness Result
-    runs-on: ubuntu-slim
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     needs: e2e_ibft_liveness_test
     if: always()
     outputs:
