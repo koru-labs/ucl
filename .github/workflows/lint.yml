@@ -22,7 +22,7 @@ jobs:
   resolve-trigger:
     name: resolve-trigger
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     steps:
       - uses: koru-labs/pipeline_main_gh_public/.github/actions/resolve-trigger@main
         with:
@@ -31,7 +31,7 @@ jobs:
   git-rebase:
     name: git-rebase
     needs: resolve-trigger
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     outputs:
       source_ref: ${{ steps.rebase.outputs.source_ref }}
       source_branch: ${{ steps.rebase.outputs.source_branch }}
@@ -45,7 +45,7 @@ jobs:
   lint:
     name: lint
     needs: git-rebase
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     steps:
       - uses: koru-labs/pipeline_main_gh_public/.github/actions/lint-golang@main
         with:

@@ -11,7 +11,7 @@ on: # yamllint disable-line rule:truthy
 jobs:
   golangci_lint:
     name: Run Golang Lint
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     outputs:
       output_failure: ${{ steps.lint_failure.outputs.result }}
     steps:

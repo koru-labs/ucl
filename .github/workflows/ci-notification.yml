@@ -39,7 +39,7 @@ on: # yamllint disable-line rule:truthy
 jobs:
   notification:
     name: Notification
-    runs-on: ubuntu-slim
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     steps:
       - name: Short SHA
         id: short_sha

@@ -11,7 +11,7 @@ on: # yamllint disable-line rule:truthy
 jobs:
   e2e_ibft_test:
     name: Run E2E IBFT Tests
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     env:
       E2E_TESTS: true
       E2E_LOGS: true

@@ -20,7 +20,7 @@ permissions:
 jobs:
   security-scan:
     name: security-scan
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     outputs:
       sonarqube_url: ${{ steps.scan.outputs.sonarqube_url }}
       gate_status: ${{ steps.scan.outputs.gate_status }}
@@ -43,7 +43,7 @@ jobs:
     name: notify-slack-on-failure
     needs: security-scan
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     steps:
       - uses: koru-labs/pipeline_main_gh_public/.github/actions/notify-slack-security-scan@main
         with:

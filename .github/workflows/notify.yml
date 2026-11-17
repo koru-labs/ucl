@@ -15,7 +15,7 @@ jobs:
   notify-pr-created:
     name: notify-pr-created
     if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: [gh-ubuntu-2604-ucl-x64, linux, x64]
     steps:
       - id: gate
         uses: koru-labs/pipeline_main_gh_public/.github/actions/notify-after-pr-build-gate@main
