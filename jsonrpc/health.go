@@ -27,12 +27,12 @@ func healthHandler(check HealthCheck) http.HandlerFunc {
 		if check != nil {
 			if err := check(); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, "unhealthy: %v\n", err)
+				_, _ = fmt.Fprintf(w, "unhealthy: %v\n", err)
 
 				return
 			}
 		}
 
-		fmt.Fprint(w, "ok\n")
+		_, _ = fmt.Fprint(w, "ok\n")
 	}
 }
