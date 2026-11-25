@@ -89,6 +89,15 @@ type Blockchain struct {
 	// migrationAttestations is the migration's attestation contract, set from the node's
 	// configuration (SetMigrationAttestations); nil until then.
 	migrationAttestations atomic.Pointer[types.Address]
+
+	// migrationHealth is MigrationHealth's last answer and the head it was for.
+	migrationHealth atomic.Pointer[migrationHealthAt]
+}
+
+// migrationHealthAt is MigrationHealth's answer for the head head.
+type migrationHealthAt struct {
+	head types.Hash
+	err  error
 }
 
 // gasPriceAverage keeps track of the average gas price (rolling average)
@@ -695,6 +704,46 @@ func (b *Blockchain) SetMigrationAttestations(contract types.Address) {
 // whether the attestation contract answers shouldHalt(number-1) on the state of block number-2
 // (migration/halt). Without SetMigrationAttestations it never does.
 func (b *Blockchain) MigrationHalted(number uint64) (bool, error) {
+	halted, err := b.migrationHalted(number)
+	if halted {
+		b.logger.Warn("migration cutover: refusing blocks after the cutover block", "cutover", number-1)
+	}
+
+	return halted, err
+}
+
+// MigrationHealth is nil while the block after the head can still come, and an error once it
+// cannot: ucl has halted for the migration (halt.ErrHalted, with the cutover block), or the halt
+// rule could not be evaluated. Load balancers ask it every few seconds through the JSON-RPC
+// server's /health, so it logs nothing and evaluates the rule once per head.
+func (b *Blockchain) MigrationHealth() error {
+	head := b.Header()
+	if head == nil {
+		return errors.New("no head block")
+	}
+
+	if last := b.migrationHealth.Load(); last != nil && last.head == head.Hash {
+		return last.err
+	}
+
+	halted, err := b.migrationHalted(head.Number + 1)
+	if err != nil {
+		// Not remembered: the next check evaluates the rule again.
+		return fmt.Errorf("cannot tell whether ucl has halted for the migration: %w", err)
+	}
+
+	var health error
+	if halted {
+		health = fmt.Errorf("%w %d", halt.ErrHalted, head.Number)
+	}
+
+	b.migrationHealth.Store(&migrationHealthAt{head: head.Hash, err: health})
+
+	return health
+}
+
+// migrationHalted is MigrationHalted without its log line.
+func (b *Blockchain) migrationHalted(number uint64) (bool, error) {
 	contract := b.migrationAttestations.Load()
 	if contract == nil || number < 2 {
 		return false, nil
@@ -713,10 +762,6 @@ func (b *Blockchain) MigrationHalted(number uint64) (bool, error) {
 	halted, err := halt.ShouldHalt(exec, *contract, parent, number-1)
 	if err != nil {
 		return false, fmt.Errorf("migration halt: %w", err)
-	}
-
-	if halted {
-		b.logger.Warn("migration cutover: refusing blocks after the cutover block", "cutover", number-1)
 	}
 
 	return halted, nil

@@ -69,6 +69,15 @@ h-1: validators build nothing after it and every node refuses any later block
 (`Blockchain.MigrationHalted`, `migration/halt`). If the followers fall behind, the quorum goes stale
 and ucl keeps producing blocks until they catch up.
 
+`GET /health` on the JSON-RPC port answers load balancers' health checks
+(`Blockchain.MigrationHealth`): `200 ok` while the block after the node's head can still come, and
+`503 unhealthy: ucl has halted for the migration to pitau: no block after the cutover block H` from
+the moment the node's head is H. A load balancer then stops sending the node requests, and sends
+them to pitau's RPC nodes, which answer 200 from the cutover on. It is also 503 while the halt rule
+cannot be evaluated; it evaluates the rule once per head and logs nothing. A node without
+`--migration-attestations` always answers 200, so restarting ucl without it (the rollback) makes
+it healthy again. `HEAD` is answered too; any other method gets 405.
+
 ## State proofs (`eth_getProof`, §7.2)
 
 Every node answers `eth_getProof(address, slots, block)` as Ethereum's API does (EIP-1186): the
