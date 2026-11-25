@@ -86,6 +86,10 @@ type Config struct {
 	// MigrationExporter, when set, serves the `ucl` namespace (ucl_exportBlocks).
 	MigrationExporter MigrationExporter
 
+	// Health, when set, decides the answer to GET /health (healthHandler); without it the node
+	// answers 200 while it serves.
+	Health HealthCheck
+
 	RPCGasCap       uint64
 	BatchCostLimit  uint64
 	MaxResponseSize uint64
@@ -159,12 +163,8 @@ func writeTimeout(timeout time.Duration) time.Duration {
 	return timeout + 5*time.Second
 }
 
-func (j *JSONRPC) setupHTTP() error {
-	lis, err := net.Listen("tcp", j.config.Addr.String())
-	if err != nil {
-		return err
-	}
-
+// mux routes the server's paths: JSON-RPC at /, WebSocket at /ws, and /health.
+func (j *JSONRPC) mux() *http.ServeMux {
 	// NewServeMux must be used, as it disables all debug features.
 	// For some strange reason, with DefaultServeMux debug/vars is always enabled (but not debug/pprof).
 	// If pprof need to be enabled, this should be DefaultServeMux
@@ -175,6 +175,18 @@ func (j *JSONRPC) setupHTTP() error {
 	mux.Handle("/", middlewareFactory(j.config)(jsonRPCHandler))
 
 	mux.HandleFunc("/ws", j.handleWs)
+	mux.HandleFunc("/health", healthHandler(j.config.Health))
+
+	return mux
+}
+
+func (j *JSONRPC) setupHTTP() error {
+	lis, err := net.Listen("tcp", j.config.Addr.String())
+	if err != nil {
+		return err
+	}
+
+	mux := j.mux()
 
 	srv := http.Server{
 		Handler:           mux,

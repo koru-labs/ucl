@@ -1239,6 +1239,8 @@ func (s *Server) setupJSONRPC() error {
 		EnableTxPoolEndpoints:    s.config.EnableTxPoolEndpoints,
 		EnableAllDebugEndpoints:  s.config.EnableAllDebugEndpoints,
 		EnableConsensusEndpoints: s.config.EnableConsensusEndpoints,
+		// Unhealthy once ucl has halted for the migration: load balancers move to pitau's nodes.
+		Health: s.blockchain.MigrationHealth,
 	}
 
 	if s.config.MigrationExportDir != "" {
