@@ -719,6 +719,7 @@ func (f *FilterManager) removeFilterByID(id string) bool {
 	}
 
 	delete(f.filters, id)
+	setLiveFilters(len(f.filters))
 
 	base := filter.getFilterBase()
 
@@ -806,15 +807,20 @@ func (f *FilterManager) addFilter(filter filter) (string, error) {
 	base := filter.getFilterBase()
 
 	if f.limits.Global != 0 && uint64(len(f.filters)) >= f.limits.Global {
+		incrRejected(rejectFilterLimit)
+
 		return "", ErrFilterLimitExceeded
 	}
 
 	if base.ws != nil && f.limits.PerConnection != 0 &&
 		uint64(len(base.ws.GetFilterIDs())) >= f.limits.PerConnection {
+		incrRejected(rejectFilterLimitConn)
+
 		return "", ErrConnectionFilterLimitExceeded
 	}
 
 	f.filters[base.id] = filter
+	setLiveFilters(len(f.filters))
 
 	// Every filter expires, web socket ones included. For a subscription the expiry is
 	// refreshed by the connection's keepalive, so it only fires once the peer stops proving

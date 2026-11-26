@@ -1,7 +1,7 @@
 package jsonrpc
 
 import (
-	"sync/atomic"
+	"sync"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -11,7 +11,13 @@ import (
 // that particular limit is disabled.
 type wsLimiter struct {
 	maxConns uint64
-	conns    atomic.Int64
+
+	// connsMu guards conns and the gauge published from it. A mutex rather than
+	// an atomic because the published gauge is last-write-wins: counting and
+	// publishing separately lets two connections interleave their writes and
+	// leave the gauge holding a count that no longer matches reality.
+	connsMu sync.Mutex
+	conns   int64
 
 	perConn uint64
 
@@ -36,22 +42,19 @@ func (l *wsLimiter) tryAddConn() bool {
 		return true
 	}
 
-	if l.maxConns == 0 {
-		l.conns.Add(1)
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
 
-		return true
+	if l.maxConns != 0 && uint64(l.conns) >= l.maxConns {
+		incrRejected(rejectWSConnLimit)
+
+		return false
 	}
 
-	for {
-		n := l.conns.Load()
-		if uint64(n) >= l.maxConns {
-			return false
-		}
+	l.conns++
+	setWSConnections(l.conns)
 
-		if l.conns.CompareAndSwap(n, n+1) {
-			return true
-		}
-	}
+	return true
 }
 
 func (l *wsLimiter) removeConn() {
@@ -59,7 +62,11 @@ func (l *wsLimiter) removeConn() {
 		return
 	}
 
-	l.conns.Add(-1)
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+
+	l.conns--
+	setWSConnections(l.conns)
 }
 
 func (l *wsLimiter) connCount() int64 {
@@ -67,7 +74,10 @@ func (l *wsLimiter) connCount() int64 {
 		return 0
 	}
 
-	return l.conns.Load()
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+
+	return l.conns
 }
 
 func (l *wsLimiter) tryAcquireInFlight() bool {
@@ -75,7 +85,13 @@ func (l *wsLimiter) tryAcquireInFlight() bool {
 		return true
 	}
 
-	return l.inFlight.TryAcquire(1)
+	if !l.inFlight.TryAcquire(1) {
+		incrRejected(rejectWSInFlight)
+
+		return false
+	}
+
+	return true
 }
 
 func (l *wsLimiter) releaseInFlight() {
@@ -109,6 +125,8 @@ func (s *wsConnSlots) try() bool {
 	case s.slots <- struct{}{}:
 		return true
 	default:
+		incrRejected(rejectWSInFlightConn)
+
 		return false
 	}
 }
